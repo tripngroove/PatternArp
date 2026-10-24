@@ -77,8 +77,7 @@ jobs:
 
       - name: Validate CLAP
         shell: bash
-        # param-conversions crashes the validator itself when a plugin has no parameters yet.
-        run: tools/clap-validator/bin/clap-validator validate --only-failed -x param-conversions "$ARTEFACTS/CLAP/PatternArp.clap"
+        run: tools/clap-validator/bin/clap-validator validate --only-failed "$ARTEFACTS/CLAP/PatternArp.clap"
 
       - name: Download pluginval
         shell: bash

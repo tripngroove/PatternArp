@@ -1,6 +1,10 @@
 #pragma once
 
+#include "patternarp/Arpeggiator.h"
+
 #include <juce_audio_processors/juce_audio_processors.h>
+
+#include <vector>
 
 namespace patternarp
 {
@@ -37,6 +41,33 @@ public:
 
 private:
     static BusesProperties makeBuses();
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameters();
+
+    ArpSettings readSettings() const;
+    void addEvents (double blockStartPpq, double samplesPerBeat, int numSamples, juce::MidiBuffer& out);
+
+    juce::AudioProcessorValueTreeState parameters;
+
+    juce::AudioParameterChoice* rate = nullptr;
+    juce::AudioParameterChoice* pitchMode = nullptr;
+    juce::AudioParameterInt* octaves = nullptr;
+    juce::AudioParameterFloat* gate = nullptr;
+    juce::AudioParameterInt* rhythmHits = nullptr;
+    juce::AudioParameterInt* rhythmSteps = nullptr;
+    juce::AudioParameterInt* rhythmRotation = nullptr;
+
+    Arpeggiator arp;
+    ArpSettings lastSettings;
+    bool settingsInitialised = false;
+
+    std::vector<NoteEvent> events;
+    juce::MidiBuffer output;
+
+    double sampleRate = 44100.0;
+    bool wasPlaying = false;
+    double freeRunPpq = 0.0; // our own clock while the host transport is stopped
+    bool restartFreeRun = true;
+    int midiChannel = 1;     // follows the channel of the incoming notes
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PatternArpProcessor)
 };

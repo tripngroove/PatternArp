@@ -2,7 +2,19 @@
 
 An arpeggiator plugin that stacks simple musical shapes (pitch, rhythm, octave, velocity and more), each looping at its own length, so their interaction produces complex, evolving patterns. It runs on an instrument track and sends MIDI notes and CC on to whatever comes next: a software instrument or hardware synths.
 
-**Status:** phase 0 (foundation). The plugin loads in a DAW and passes MIDI through unchanged; the pattern engine comes next.
+**Status:** first playable arp. Hold notes and PatternArp plays them back locked to the song position, with a pitch lane (up, down, up/down, as played, random over 1 to 4 octaves) and a Euclidean rhythm lane deciding which steps play. Other MIDI (CC, pitch bend) passes through. Current focus: CLAP in Bitwig on macOS.
+
+## Controls
+
+| Control | What it does |
+| --- | --- |
+| Rate | Step length: 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32 |
+| Direction | Order the held notes are walked in: Up, Down, Up/Down, As Played, Random (repeatable at the same song position) |
+| Octaves | Repeats the held notes 1 to 4 octaves up |
+| Gate | Note length as a percentage of a step |
+| Rhythm Hits / Steps / Rotate | Euclidean rhythm: spreads Hits evenly over Steps, shifted by Rotate. Steps that miss are silent, but the pitch lane keeps moving, so a rhythm length that differs from the number of notes makes the pattern shift over time. |
+
+When the transport is stopped, PatternArp runs on its own clock at the project tempo, starting on the first key press.
 
 ## Formats
 

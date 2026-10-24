@@ -1,4 +1,5 @@
 add_library(patternarp_engine STATIC
+    src/Arpeggiator.cpp
     src/Euclid.cpp)
 
 target_include_directories(patternarp_engine PUBLIC include)
