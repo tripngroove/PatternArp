@@ -1,0 +1,225 @@
+#include "PluginEditor.h"
+
+#include "ui/Theme.h"
+
+namespace patternarp
+{
+
+namespace
+{
+constexpr int topBarHeight = 56;
+constexpr int previewHeight = 96;
+constexpr int gap = 12;
+constexpr int addButtonHeight = 44;
+
+constexpr double maxPreviewBeats = 64.0; // 16 bars on screen
+constexpr double maxExportBeats = 256.0; // 64 bars when dragged out
+constexpr double nonRepeatingBeats = 16.0;
+} // namespace
+
+PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
+    : AudioProcessorEditor (p), arp (p), latchAttachment (p.getLatchParameter(), latchButton)
+{
+    latchButton.setColour (juce::ToggleButton::textColourId, theme::ink);
+    latchButton.setColour (juce::ToggleButton::tickColourId, theme::ink);
+    latchButton.setColour (juce::ToggleButton::tickDisabledColourId, theme::inkMuted);
+    latchButton.setTooltip ("MIDI In patterns keep playing the last chord after you let go");
+    addAndMakeVisible (latchButton);
+    addAndMakeVisible (preview);
+
+    addButton.setColour (juce::TextButton::buttonColourId, theme::panel);
+    addButton.setColour (juce::TextButton::textColourOffId, theme::ink);
+    addButton.onClick = [this] { insertPattern (shown.numPatterns, makeDefaultPattern()); };
+    content.addAndMakeVisible (addButton);
+
+    viewport.setViewedComponent (&content, false);
+    viewport.setScrollBarsShown (true, false);
+    addAndMakeVisible (viewport);
+
+    shown = arp.getArrangement();
+    syncPanels();
+
+    setResizable (true, true);
+    setResizeLimits (860, 560, 1800, 2400);
+    setSize (1000, 880);
+
+    updatePreview();
+    startTimerHz (15);
+}
+
+void PatternArpEditor::paint (juce::Graphics& g)
+{
+    g.fillAll (theme::background);
+
+    auto bar = getLocalBounds().removeFromTop (topBarHeight).reduced (gap, 0);
+    g.setColour (theme::ink);
+    g.setFont (theme::font (22.0f, true));
+    g.drawText ("PatternArp", bar.removeFromLeft (200), juce::Justification::centredLeft);
+    g.setFont (theme::font (17.0f));
+    g.drawText (repeatsText, bar, juce::Justification::centred);
+}
+
+void PatternArpEditor::resized()
+{
+    auto area = getLocalBounds();
+    auto bar = area.removeFromTop (topBarHeight).reduced (gap, 0);
+    latchButton.setBounds (bar.removeFromRight (90).withSizeKeepingCentre (90, 28));
+
+    area.reduce (gap, 0);
+    preview.setBounds (area.removeFromTop (previewHeight));
+    area.removeFromTop (gap);
+    viewport.setBounds (area);
+    layoutContent();
+}
+
+void PatternArpEditor::layoutContent()
+{
+    const int width = viewport.getMaximumVisibleWidth();
+    int y = 0;
+    for (auto* panel : panels)
+    {
+        panel->setBounds (0, y, width, PatternPanel::preferredHeight);
+        y += PatternPanel::preferredHeight + gap;
+    }
+
+    addButton.setBounds (0, y, width, addButtonHeight);
+    addButton.setEnabled (shown.numPatterns < maxPatterns);
+    content.setSize (width, y + addButtonHeight + gap);
+}
+
+void PatternArpEditor::syncPanels()
+{
+    while (panels.size() > shown.numPatterns)
+        panels.removeLast();
+
+    while (panels.size() < shown.numPatterns)
+    {
+        auto* panel = panels.add (new PatternPanel());
+        const int index = panels.size() - 1;
+        panel->onChange = [this, index] (const Pattern& p) { edit (index, p); };
+        panel->onNew = [this, index] { insertPattern (index + 1, makeDefaultPattern()); };
+        panel->onClone = [this, index] { insertPattern (index + 1, shown.patterns[static_cast<size_t> (index)]); };
+        panel->onDelete = [this, index] { deletePattern (index); };
+        content.addAndMakeVisible (panel);
+    }
+
+    for (int i = 0; i < panels.size(); ++i)
+    {
+        panels[i]->setPattern (shown.patterns[static_cast<size_t> (i)], i, shown.numPatterns < maxPatterns);
+        panels[i]->setInputNotes (shownInput);
+    }
+
+    layoutContent();
+    previewDirty = true;
+}
+
+void PatternArpEditor::refreshFromProcessor()
+{
+    if (const auto current = arp.getArrangement(); ! (current == shown))
+    {
+        shown = current;
+        syncPanels();
+    }
+
+    if (const auto input = arp.getInputNotes(); input != shownInput)
+    {
+        shownInput = input;
+        for (auto* panel : panels)
+            panel->setInputNotes (input);
+        if (shown.usesMidiIn())
+            previewDirty = true;
+    }
+}
+
+void PatternArpEditor::edit (int index, const Pattern& pattern)
+{
+    if (index >= shown.numPatterns)
+        return;
+
+    shown.patterns[static_cast<size_t> (index)] = pattern;
+    arp.setArrangement (shown);
+    previewDirty = true;
+}
+
+void PatternArpEditor::insertPattern (int index, const Pattern& pattern)
+{
+    if (shown.numPatterns >= maxPatterns)
+        return;
+
+    index = juce::jlimit (0, shown.numPatterns, index);
+    for (int i = shown.numPatterns; i > index; --i)
+        shown.patterns[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i - 1)];
+    shown.patterns[static_cast<size_t> (index)] = pattern;
+    ++shown.numPatterns;
+
+    arp.setArrangement (shown);
+    syncPanels();
+}
+
+void PatternArpEditor::deletePattern (int index)
+{
+    if (index < 0 || index >= shown.numPatterns)
+        return;
+
+    for (int i = index; i < shown.numPatterns - 1; ++i)
+        shown.patterns[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i + 1)];
+    --shown.numPatterns;
+
+    arp.setArrangement (shown);
+
+    // Called from the deleted panel's button, so let the click finish before removing it.
+    juce::Component::SafePointer<PatternArpEditor> self (this);
+    juce::MessageManager::callAsync ([self] {
+        if (self != nullptr)
+            self->syncPanels();
+    });
+}
+
+void PatternArpEditor::updatePreview()
+{
+    previewDirty = false;
+
+    // MIDI In patterns preview with what is held, or a C major chord when nothing is.
+    std::vector<int> input;
+    for (int n = 0; n < 128; ++n)
+        if (shownInput.test (static_cast<size_t> (n)))
+            input.push_back (n);
+    if (input.empty() && shown.usesMidiIn())
+        input = { 60, 64, 67 };
+
+    const auto loop = findLoop (shown);
+    const double loopBeats = loop.repeats ? loop.lengthBeats : nonRepeatingBeats;
+    const double viewBeats = juce::jmin (loopBeats, maxPreviewBeats);
+    const double exportBeats = juce::jmin (loopBeats, maxExportBeats);
+
+    juce::String description;
+    if (shown.numPatterns == 0)
+    {
+        repeatsText = {};
+        description = "No patterns";
+    }
+    else if (loop.repeats)
+    {
+        repeatsText = "Repeats every " + juce::String (describeLength (loop.lengthBeats));
+        description = "Loop length: " + juce::String (describeLength (loop.lengthBeats));
+        if (viewBeats < loopBeats)
+            description << " (showing the first " << describeLength (viewBeats) << ")";
+    }
+    else
+    {
+        repeatsText = "Never repeats exactly";
+        description = "Random settings never repeat exactly; showing " + juce::String (describeLength (viewBeats));
+    }
+
+    preview.setNotes (render (shown, viewBeats, input), viewBeats, render (shown, exportBeats, input), exportBeats, description);
+    repaint (getLocalBounds().removeFromTop (topBarHeight));
+}
+
+void PatternArpEditor::timerCallback()
+{
+    refreshFromProcessor();
+    if (previewDirty)
+        updatePreview();
+}
+
+} // namespace patternarp

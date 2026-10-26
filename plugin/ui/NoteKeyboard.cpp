@@ -1,0 +1,319 @@
+#include "NoteKeyboard.h"
+
+#include "Theme.h"
+
+#include <juce_audio_basics/juce_audio_basics.h>
+
+namespace patternarp
+{
+
+namespace
+{
+constexpr int switchWidth = 78;
+constexpr int scrollHeight = 14;
+constexpr int totalWhiteKeys = (NoteKeyboard::highestNote - NoteKeyboard::lowestNote) / 12 * 7 + 1;
+constexpr float minWhiteKeys = 8.0f;
+
+bool isBlack (int note)
+{
+    const int pc = note % 12;
+    return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
+}
+
+// Position of a key in white keys from C1. Black keys sit on the line between two whites.
+float whitePosition (int note)
+{
+    static const float offsets[] = { 0.0f, 1.0f, 1.0f, 2.0f, 2.0f, 3.0f, 4.0f, 4.0f, 5.0f, 5.0f, 6.0f, 6.0f };
+    const int rel = note - NoteKeyboard::lowestNote;
+    return static_cast<float> (rel / 12 * 7) + offsets[rel % 12];
+}
+} // namespace
+
+NoteKeyboard::NoteKeyboard()
+{
+    setRepaintsOnMouseActivity (true);
+}
+
+void NoteKeyboard::setNotes (const std::bitset<128>& newEnabled, NoteSource newSource)
+{
+    if (newEnabled != enabled || newSource != source)
+    {
+        enabled = newEnabled;
+        source = newSource;
+        repaint();
+    }
+}
+
+void NoteKeyboard::setInputNotes (const std::bitset<128>& notes)
+{
+    if (notes != input)
+    {
+        input = notes;
+        if (source == NoteSource::midiIn)
+            repaint();
+    }
+}
+
+juce::Rectangle<int> NoteKeyboard::switchArea() const
+{
+    return getLocalBounds().removeFromLeft (switchWidth).withTrimmedBottom (scrollHeight + 4).withTrimmedRight (8);
+}
+
+juce::Rectangle<int> NoteKeyboard::keysArea() const
+{
+    return getLocalBounds().withTrimmedLeft (switchWidth).withTrimmedBottom (scrollHeight + 4);
+}
+
+juce::Rectangle<int> NoteKeyboard::scrollArea() const
+{
+    return getLocalBounds().withTrimmedLeft (switchWidth).removeFromBottom (scrollHeight);
+}
+
+juce::Rectangle<float> NoteKeyboard::thumbArea() const
+{
+    const auto track = scrollArea().toFloat().reduced (scrollHeight, 0.0f);
+    const float scale = track.getWidth() / static_cast<float> (totalWhiteKeys);
+    return { track.getX() + viewFirst * scale, track.getY(), viewCount * scale, track.getHeight() };
+}
+
+float NoteKeyboard::whiteKeyWidth() const
+{
+    return static_cast<float> (keysArea().getWidth()) / viewCount;
+}
+
+juce::Rectangle<float> NoteKeyboard::keyBounds (int note) const
+{
+    const auto area = keysArea().toFloat();
+    const float w = whiteKeyWidth();
+    const float x = area.getX() + (whitePosition (note) - viewFirst) * w;
+    if (isBlack (note))
+        return { x - w * 0.3f, area.getY(), w * 0.6f, area.getHeight() * 0.6f };
+    return { x, area.getY(), w, area.getHeight() };
+}
+
+int NoteKeyboard::noteAt (juce::Point<float> p) const
+{
+    for (int pass = 0; pass < 2; ++pass) // black keys are on top, so test them first
+        for (int n = lowestNote; n <= highestNote; ++n)
+            if (isBlack (n) == (pass == 0) && keyBounds (n).contains (p))
+                return n;
+    return -1;
+}
+
+void NoteKeyboard::setView (float first, float count)
+{
+    viewCount = juce::jlimit (minWhiteKeys, static_cast<float> (totalWhiteKeys), count);
+    viewFirst = juce::jlimit (0.0f, static_cast<float> (totalWhiteKeys) - viewCount, first);
+    repaint();
+}
+
+void NoteKeyboard::paint (juce::Graphics& g)
+{
+    // Select | MIDI In switch.
+    auto sw = switchArea().toFloat();
+    const auto half = sw.getHeight() / 2.0f;
+    const juce::Rectangle<float> buttons[] = { sw.withHeight (half), sw.withTrimmedTop (half) };
+    const char* labels[] = { "Select", "MIDI In" };
+    for (int i = 0; i < 2; ++i)
+    {
+        const bool on = static_cast<int> (source) == i;
+        g.setColour (on ? colour : theme::panel);
+        g.fillRect (buttons[i]);
+        g.setColour (on ? juce::Colours::white : theme::ink);
+        g.setFont (theme::font (14.0f, on));
+        g.drawText (labels[i], buttons[i], juce::Justification::centred);
+    }
+    g.setColour (theme::ink);
+    g.drawRect (sw, 2.0f);
+    g.drawHorizontalLine (juce::roundToInt (sw.getCentreY()), sw.getX(), sw.getRight());
+
+    // Keys.
+    const auto area = keysArea();
+    g.saveState();
+    g.reduceClipRegion (area);
+    g.setColour (theme::panel);
+    g.fillRect (area);
+
+    const bool midiIn = source == NoteSource::midiIn;
+    const auto& lit = midiIn ? input : enabled;
+    const auto litColour = midiIn ? colour : theme::fill;
+
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        for (int n = lowestNote; n <= highestNote; ++n)
+        {
+            if (isBlack (n) != (pass == 1))
+                continue;
+
+            const auto r = keyBounds (n);
+            const bool on = lit.test (static_cast<size_t> (n));
+            juce::Colour c = pass == 1 ? theme::ink : theme::panel;
+            if (on)
+                c = pass == 1 ? litColour.darker (0.25f) : litColour;
+            g.setColour (c);
+            g.fillRect (r);
+            g.setColour (theme::ink);
+            g.drawRect (r, 1.0f);
+
+            if (n % 12 == 0)
+            {
+                g.setColour (theme::inkMuted);
+                g.setFont (theme::font (11.0f));
+                g.drawText (juce::MidiMessage::getMidiNoteName (n, false, true, 4), r.withTrimmedTop (r.getHeight() - 16.0f),
+                            juce::Justification::centred);
+            }
+        }
+    }
+    g.restoreState();
+
+    if (midiIn)
+    {
+        g.setColour (theme::inkMuted);
+        g.setFont (theme::font (12.0f));
+        g.drawText ("Plays the notes you hold", area.reduced (6, 2).removeFromTop (14), juce::Justification::topRight);
+    }
+
+    g.setColour (theme::ink);
+    g.drawRect (area, 2);
+
+    // Scrollbar with arrow ends; the thumb's ends resize the view.
+    const auto bar = scrollArea().toFloat();
+    g.setColour (theme::panel);
+    g.fillRect (bar);
+    g.setColour (theme::ink);
+    g.drawRect (bar, 1.5f);
+
+    auto arrow = [&] (juce::Rectangle<float> r, bool left) {
+        r = r.withSizeKeepingCentre (6.0f, 8.0f);
+        juce::Path p;
+        if (left)
+            p.addTriangle (r.getRight(), r.getY(), r.getRight(), r.getBottom(), r.getX(), r.getCentreY());
+        else
+            p.addTriangle (r.getX(), r.getY(), r.getX(), r.getBottom(), r.getRight(), r.getCentreY());
+        g.fillPath (p);
+    };
+    arrow (bar.withWidth (static_cast<float> (scrollHeight)), true);
+    arrow (bar.withTrimmedLeft (bar.getWidth() - static_cast<float> (scrollHeight)), false);
+
+    const auto thumb = thumbArea().reduced (0.0f, 3.0f);
+    g.setColour (isMouseOver() && scrollArea().contains (getMouseXYRelative()) ? theme::fillStrong : theme::gridLine);
+    g.fillRoundedRectangle (thumb, 3.0f);
+}
+
+void NoteKeyboard::mouseDown (const juce::MouseEvent& e)
+{
+    drag = Drag::none;
+    dragStartFirst = viewFirst;
+    dragStartCount = viewCount;
+
+    if (switchArea().contains (e.getPosition()))
+    {
+        const auto newSource = e.position.y < static_cast<float> (switchArea().getCentreY()) ? NoteSource::select : NoteSource::midiIn;
+        if (newSource != source)
+        {
+            source = newSource;
+            repaint();
+            if (onSourceChange)
+                onSourceChange (source);
+        }
+        return;
+    }
+
+    if (scrollArea().contains (e.getPosition()))
+    {
+        const auto bar = scrollArea();
+        const auto thumb = thumbArea();
+        if (e.x < bar.getX() + scrollHeight)
+            setView (viewFirst - 7.0f, viewCount);
+        else if (e.x > bar.getRight() - scrollHeight)
+            setView (viewFirst + 7.0f, viewCount);
+        else if (std::abs (e.position.x - thumb.getX()) < 6.0f)
+            drag = Drag::thumbStart;
+        else if (std::abs (e.position.x - thumb.getRight()) < 6.0f)
+            drag = Drag::thumbEnd;
+        else if (thumb.contains (e.position))
+            drag = Drag::thumb;
+        else
+            setView (viewFirst + (e.position.x < thumb.getX() ? -viewCount : viewCount), viewCount);
+        return;
+    }
+
+    if (source != NoteSource::select)
+        return;
+
+    const int n = noteAt (e.position);
+    if (n < 0)
+        return;
+
+    drag = Drag::keys;
+    paintValue = ! enabled.test (static_cast<size_t> (n));
+    lastPainted = -1;
+    mouseDrag (e);
+}
+
+void NoteKeyboard::mouseDrag (const juce::MouseEvent& e)
+{
+    const float scale = thumbArea().getWidth() / juce::jmax (1.0f, viewCount);
+    const float delta = static_cast<float> (e.getDistanceFromDragStartX()) / scale;
+
+    switch (drag)
+    {
+        case Drag::none:
+            break;
+
+        case Drag::thumb:
+            setView (dragStartFirst + delta, dragStartCount);
+            break;
+
+        case Drag::thumbStart:
+        {
+            const float end = dragStartFirst + dragStartCount;
+            const float first = juce::jlimit (0.0f, end - minWhiteKeys, dragStartFirst + delta);
+            setView (first, end - first);
+            break;
+        }
+
+        case Drag::thumbEnd:
+            setView (dragStartFirst, dragStartCount + delta);
+            break;
+
+        case Drag::keys:
+        {
+            const int n = noteAt (e.position);
+            if (n < 0 || n == lastPainted)
+                break;
+            lastPainted = n;
+            if (enabled.test (static_cast<size_t> (n)) != paintValue)
+            {
+                enabled.set (static_cast<size_t> (n), paintValue);
+                repaint();
+                if (onNotesChange)
+                    onNotesChange (enabled);
+            }
+            break;
+        }
+    }
+}
+
+void NoteKeyboard::mouseUp (const juce::MouseEvent&)
+{
+    drag = Drag::none;
+}
+
+void NoteKeyboard::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    // Sideways scrolling moves the view; up/down zooms around the mouse.
+    if (std::abs (wheel.deltaX) > std::abs (wheel.deltaY))
+    {
+        setView (viewFirst - wheel.deltaX * 20.0f, viewCount);
+        return;
+    }
+
+    const auto area = keysArea().toFloat();
+    const float anchor = viewFirst + (e.position.x - area.getX()) / whiteKeyWidth();
+    const float factor = std::pow (0.8f, wheel.deltaY * (wheel.isReversed ? -1.0f : 1.0f) * 4.0f);
+    const float count = juce::jlimit (minWhiteKeys, static_cast<float> (totalWhiteKeys), viewCount * factor);
+    setView (anchor - (anchor - viewFirst) * count / viewCount, count);
+}
+
+} // namespace patternarp

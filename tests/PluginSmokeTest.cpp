@@ -1,5 +1,5 @@
-// Drives the real plugin processor like a host would: a held chord, a playing transport,
-// then a stopped one, checking the MIDI that comes out.
+// Drives the real plugin processor like a host would: held notes, a playing transport,
+// then a stopped one, host automation and saved state, checking the MIDI that comes out.
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -31,6 +31,17 @@ struct Rendered
     int noteOffs = 0;
     int controllers = 0;
 };
+
+void setParameter (juce::AudioProcessor& plugin, const juce::String& id, float plainValue)
+{
+    for (auto* p : plugin.getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (p); ranged != nullptr && ranged->getParameterID() == id)
+        {
+            ranged->setValueNotifyingHost (ranged->convertTo0to1 (plainValue));
+            return;
+        }
+    FAIL ("no parameter " << id);
+}
 
 Rendered render (juce::AudioProcessor& plugin, FakePlayHead& playHead, juce::MidiBuffer input, int blocks)
 {
@@ -67,7 +78,7 @@ Rendered render (juce::AudioProcessor& plugin, FakePlayHead& playHead, juce::Mid
 }
 } // namespace
 
-TEST_CASE ("plugin arpeggiates a held chord and passes CC through")
+TEST_CASE ("plugin plays its patterns and handles incoming notes")
 {
     juce::ScopedJuceInitialiser_GUI juce;
     std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
@@ -82,24 +93,44 @@ TEST_CASE ("plugin arpeggiates a held chord and passes CC through")
     chord.addEvent (juce::MidiMessage::noteOn (1, 67, (juce::uint8) 100), 0);
     chord.addEvent (juce::MidiMessage::controllerEvent (1, 74, 64), 0);
 
-    SECTION ("with the transport playing, one note per sixteenth in pitch order")
+    // 1 beat at 120 bpm / 48 kHz = 24000 samples, so 46 blocks of 512 is just under 1 beat.
+    constexpr int justUnderOneBeat = 46;
+
+    SECTION ("with the transport playing, the default pattern plays and input passes through")
     {
         playHead.playing = true;
-        // 1 beat at 120 bpm / 48 kHz = 24000 samples, so 46 blocks of 512 is just under 1 beat.
-        const auto out = render (*plugin, playHead, chord, 46);
+        const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
 
-        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60 });
+        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60, 62, 64, 65 });
         CHECK (out.controllers == 1);
     }
 
-    SECTION ("with the transport stopped, the arp free-runs from the first key press")
+    SECTION ("with the transport stopped, a Select pattern stays quiet")
     {
-        const auto out = render (*plugin, playHead, chord, 46);
-        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60 });
+        const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
+        CHECK (out.noteOns == std::vector<int> { 60, 64, 67 });
     }
 
-    SECTION ("releasing the keys stops new notes and every note gets an off")
+    SECTION ("a MIDI In pattern plays the held notes and consumes them")
     {
+        setParameter (*plugin, "p1_notesource", 1.0f);
+        playHead.playing = true;
+        const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
+
+        CHECK (out.noteOns == std::vector<int> { 60, 60, 64, 64 });
+        CHECK (out.controllers == 1);
+    }
+
+    SECTION ("a MIDI In pattern free-runs from the first key press with the transport stopped")
+    {
+        setParameter (*plugin, "p1_notesource", 1.0f);
+        const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
+        CHECK (out.noteOns == std::vector<int> { 60, 60, 64, 64 });
+    }
+
+    SECTION ("releasing the keys stops a MIDI In pattern and every note gets an off")
+    {
+        setParameter (*plugin, "p1_notesource", 1.0f);
         playHead.playing = true;
         const auto before = render (*plugin, playHead, chord, 26); // a little past the 3rd note
 
@@ -112,5 +143,59 @@ TEST_CASE ("plugin arpeggiates a held chord and passes CC through")
         CHECK (before.noteOffs + after.noteOffs == static_cast<int> (before.noteOns.size()));
     }
 
+    SECTION ("automating Length shortens the pattern without losing steps")
+    {
+        playHead.playing = true;
+        setParameter (*plugin, "p1_length", 2.0f);
+        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 62, 60, 62 });
+
+        setParameter (*plugin, "p1_length", 8.0f);
+        playHead.ppq = 0.0;
+        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 62, 64, 65 });
+    }
+
     plugin->releaseResources();
+}
+
+TEST_CASE ("plugin state round-trips")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> original (createPluginFilter());
+    setParameter (*original, "p1_timing", 4.0f); // 1/8
+    setParameter (*original, "p1_notesource", 1.0f);
+
+    juce::MemoryBlock state;
+    original->getStateInformation (state);
+
+    std::unique_ptr<juce::AudioProcessor> restored (createPluginFilter());
+    restored->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+
+    juce::MemoryBlock again;
+    restored->getStateInformation (again);
+    CHECK (state == again);
+
+    for (auto* p : restored->getParameters())
+        if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (p); choice != nullptr && choice->getParameterID() == "p1_timing")
+            CHECK (choice->getIndex() == 4);
+}
+
+TEST_CASE ("plugin editor opens")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+    std::unique_ptr<juce::AudioProcessorEditor> editor (plugin->createEditorIfNeeded());
+    REQUIRE (editor != nullptr);
+    CHECK (editor->getWidth() > 0);
+
+    // Set PATTERNARP_SNAPSHOT to a .png path to save a picture of the editor.
+    if (const auto path = juce::SystemStats::getEnvironmentVariable ("PATTERNARP_SNAPSHOT", {}); path.isNotEmpty())
+    {
+        const auto image = editor->createComponentSnapshot (editor->getLocalBounds());
+        const juce::File file (path);
+        file.deleteFile();
+        juce::FileOutputStream out (file);
+        juce::PNGImageFormat().writeImageToStream (image, out);
+    }
+
+    plugin->editorBeingDeleted (editor.get());
 }

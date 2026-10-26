@@ -1,30 +1,17 @@
 #include "PluginProcessor.h"
 
+#include "ArrangementState.h"
+#include "PluginEditor.h"
+
 namespace patternarp
 {
 
 namespace
 {
 const juce::Identifier stateType { "PatternArpState" };
-constexpr int stateVersion = 2;
+constexpr int stateVersion = 3;
 
-namespace ids
-{
-const juce::ParameterID rate { "rate", 1 };
-const juce::ParameterID pitchMode { "pitchMode", 1 };
-const juce::ParameterID octaves { "octaves", 1 };
-const juce::ParameterID gate { "gate", 1 };
-const juce::ParameterID rhythmHits { "rhythmHits", 1 };
-const juce::ParameterID rhythmSteps { "rhythmSteps", 1 };
-const juce::ParameterID rhythmRotation { "rhythmRotation", 1 };
-} // namespace ids
-
-bool operator== (const ArpSettings& a, const ArpSettings& b)
-{
-    return a.rate == b.rate && a.pitchMode == b.pitchMode && a.octaves == b.octaves && juce::exactlyEqual (a.gate, b.gate)
-        && a.rhythmHits == b.rhythmHits && a.rhythmSteps == b.rhythmSteps && a.rhythmRotation == b.rhythmRotation
-        && a.randomSeed == b.randomSeed;
-}
+const juce::ParameterID latchId { "latch", 1 };
 } // namespace
 
 juce::AudioProcessor::BusesProperties PatternArpProcessor::makeBuses()
@@ -37,38 +24,151 @@ juce::AudioProcessor::BusesProperties PatternArpProcessor::makeBuses()
         return BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true);
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout PatternArpProcessor::createParameters()
+PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
 {
-    using namespace juce;
+    auto latchParameter = std::make_unique<juce::AudioParameterBool> (latchId, "Latch", false);
+    latch = latchParameter.get();
+    addParameter (latchParameter.release());
 
-    AudioProcessorValueTreeState::ParameterLayout layout;
-    layout.add (std::make_unique<AudioParameterChoice> (ids::rate, "Rate",
-                                                        StringArray { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" }, 3));
-    layout.add (std::make_unique<AudioParameterChoice> (ids::pitchMode, "Direction",
-                                                        StringArray { "Up", "Down", "Up/Down", "As Played", "Random" }, 0));
-    layout.add (std::make_unique<AudioParameterInt> (ids::octaves, "Octaves", 1, 4, 1));
-    layout.add (std::make_unique<AudioParameterFloat> (ids::gate, "Gate", NormalisableRange<float> (5.0f, 100.0f, 1.0f), 50.0f,
-                                                       AudioParameterFloatAttributes().withLabel ("%")));
-    layout.add (std::make_unique<AudioParameterInt> (ids::rhythmHits, "Rhythm Hits", 0, 32, 16));
-    layout.add (std::make_unique<AudioParameterInt> (ids::rhythmSteps, "Rhythm Steps", 1, 32, 16));
-    layout.add (std::make_unique<AudioParameterInt> (ids::rhythmRotation, "Rhythm Rotate", 0, 31, 0));
-    return layout;
+    juce::StringArray timings, periods, directions;
+    for (int i = 0; i < numTimings; ++i)
+        timings.add (timingName (static_cast<Timing> (i)));
+    for (const auto& p : periodChoices)
+        periods.add (juce::String (p.hits) + ":" + juce::String (p.slots));
+    directions.addArray ({ "Forward", "Backward", "Ping-pong", "Random", "Random walk" });
+
+    const auto defaults = makeDefaultPattern();
+    for (int i = 0; i < maxPatterns; ++i)
+    {
+        const auto id = [i] (const char* name) { return juce::ParameterID ("p" + juce::String (i + 1) + "_" + name, 1); };
+        const auto label = [i] (const char* name) { return "P" + juce::String (i + 1) + " " + name; };
+        auto& pp = patternParameters[static_cast<size_t> (i)];
+
+        auto add = [this] (auto parameter) {
+            auto* raw = parameter.get();
+            addParameter (parameter.release());
+            return raw;
+        };
+
+        pp.timing = add (std::make_unique<juce::AudioParameterChoice> (id ("timing"), label ("Timing"), timings,
+                                                                       static_cast<int> (defaults.timing)));
+        pp.length = add (std::make_unique<juce::AudioParameterInt> (id ("length"), label ("Length"), 1, maxSteps, defaults.length));
+        pp.period = add (std::make_unique<juce::AudioParameterChoice> (id ("period"), label ("Period"), periods,
+                                                                       nearestPeriodChoice (defaults.periodHits, defaults.periodSlots)));
+        pp.direction = add (std::make_unique<juce::AudioParameterChoice> (id ("direction"), label ("Direction"), directions, 0));
+        pp.noteSource = add (std::make_unique<juce::AudioParameterChoice> (id ("notesource"), label ("Note Source"),
+                                                                           juce::StringArray { "Select", "MIDI In" }, 0));
+        pp.chanceMode = add (std::make_unique<juce::AudioParameterChoice> (id ("chancemode"), label ("Chance Mode"),
+                                                                           juce::StringArray { "Rest", "Skip" }, 0));
+    }
+
+    pushToParameters (arrangement);
+    pendingArrangement = arrangement;
+    events.reserve (1024);
 }
 
-PatternArpProcessor::PatternArpProcessor()
-    : AudioProcessor (makeBuses()),
-      parameters (*this, nullptr, stateType, createParameters())
+PatternArpProcessor::ParameterSnapshot PatternArpProcessor::readParameters() const
 {
-    rate = dynamic_cast<juce::AudioParameterChoice*> (parameters.getParameter (ids::rate.getParamID()));
-    pitchMode = dynamic_cast<juce::AudioParameterChoice*> (parameters.getParameter (ids::pitchMode.getParamID()));
-    octaves = dynamic_cast<juce::AudioParameterInt*> (parameters.getParameter (ids::octaves.getParamID()));
-    gate = dynamic_cast<juce::AudioParameterFloat*> (parameters.getParameter (ids::gate.getParamID()));
-    rhythmHits = dynamic_cast<juce::AudioParameterInt*> (parameters.getParameter (ids::rhythmHits.getParamID()));
-    rhythmSteps = dynamic_cast<juce::AudioParameterInt*> (parameters.getParameter (ids::rhythmSteps.getParamID()));
-    rhythmRotation = dynamic_cast<juce::AudioParameterInt*> (parameters.getParameter (ids::rhythmRotation.getParamID()));
-    jassert (rate && pitchMode && octaves && gate && rhythmHits && rhythmSteps && rhythmRotation);
+    ParameterSnapshot values {};
+    auto* v = values.data();
+    for (const auto& pp : patternParameters)
+    {
+        *v++ = pp.timing->getIndex();
+        *v++ = pp.length->get();
+        *v++ = pp.period->getIndex();
+        *v++ = pp.direction->getIndex();
+        *v++ = pp.noteSource->getIndex();
+        *v++ = pp.chanceMode->getIndex();
+    }
+    return values;
+}
 
-    events.reserve (1024);
+void PatternArpProcessor::applyParameters (const ParameterSnapshot& values, Arrangement& a)
+{
+    for (int i = 0; i < a.numPatterns; ++i)
+    {
+        const auto* v = values.data() + i * parametersPerPattern;
+        auto& p = a.patterns[static_cast<size_t> (i)];
+        p.timing = static_cast<Timing> (v[0]);
+        p.length = v[1]; // automation only shortens or lengthens; the steps stay as drawn
+        p.periodHits = periodChoices[static_cast<size_t> (v[2])].hits;
+        p.periodSlots = periodChoices[static_cast<size_t> (v[2])].slots;
+        p.direction = static_cast<Direction> (v[3]);
+        p.noteSource = static_cast<NoteSource> (v[4]);
+        p.chanceMode = static_cast<ChanceMode> (v[5]);
+        sanitise (p);
+    }
+}
+
+namespace
+{
+void setPlainValue (juce::RangedAudioParameter& parameter, int value)
+{
+    const auto normalised = parameter.convertTo0to1 (static_cast<float> (value));
+    if (std::abs (parameter.getValue() - normalised) < 1.0e-6f)
+        return;
+    parameter.beginChangeGesture();
+    parameter.setValueNotifyingHost (normalised);
+    parameter.endChangeGesture();
+}
+} // namespace
+
+void PatternArpProcessor::pushToParameters (const Arrangement& a)
+{
+    for (int i = 0; i < a.numPatterns; ++i)
+    {
+        const auto& p = a.patterns[static_cast<size_t> (i)];
+        auto& pp = patternParameters[static_cast<size_t> (i)];
+        setPlainValue (*pp.timing, static_cast<int> (p.timing));
+        setPlainValue (*pp.length, p.length);
+        setPlainValue (*pp.period, nearestPeriodChoice (p.periodHits, p.periodSlots));
+        setPlainValue (*pp.direction, static_cast<int> (p.direction));
+        setPlainValue (*pp.noteSource, static_cast<int> (p.noteSource));
+        setPlainValue (*pp.chanceMode, static_cast<int> (p.chanceMode));
+    }
+}
+
+void PatternArpProcessor::setParameters (const ParameterSnapshot& values)
+{
+    const auto* v = values.data();
+    for (auto& pp : patternParameters)
+        for (auto* parameter : std::initializer_list<juce::RangedAudioParameter*> { pp.timing, pp.length, pp.period, pp.direction,
+                                                                                    pp.noteSource, pp.chanceMode })
+            setPlainValue (*parameter, *v++);
+}
+
+std::bitset<128> PatternArpProcessor::getInputNotes() const
+{
+    std::bitset<128> notes;
+    for (size_t word = 0; word < 2; ++word)
+    {
+        const auto bits = inputMask[word].load (std::memory_order_relaxed);
+        for (size_t b = 0; b < 64; ++b)
+            if ((bits >> b) & 1u)
+                notes.set (word * 64 + b);
+    }
+    return notes;
+}
+
+Arrangement PatternArpProcessor::getArrangement() const
+{
+    auto a = arrangement;
+    applyParameters (readParameters(), a);
+    return a;
+}
+
+void PatternArpProcessor::setArrangement (const Arrangement& newArrangement)
+{
+    arrangement = newArrangement;
+    pushToParameters (arrangement);
+    {
+        const juce::SpinLock::ScopedLockType lock (pendingLock);
+        pendingArrangement = arrangement;
+        hasPendingArrangement = true;
+    }
+
+    // Lets the host know the project has unsaved changes.
+    updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
 }
 
 void PatternArpProcessor::prepareToPlay (double newSampleRate, int)
@@ -94,19 +194,6 @@ bool PatternArpProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
     return out == juce::AudioChannelSet::stereo() || out == juce::AudioChannelSet::mono();
 }
 
-ArpSettings PatternArpProcessor::readSettings() const
-{
-    ArpSettings s;
-    s.rate = static_cast<Rate> (rate->getIndex());
-    s.pitchMode = static_cast<PitchMode> (pitchMode->getIndex());
-    s.octaves = octaves->get();
-    s.gate = static_cast<double> (gate->get()) / 100.0;
-    s.rhythmHits = rhythmHits->get();
-    s.rhythmSteps = rhythmSteps->get();
-    s.rhythmRotation = rhythmRotation->get();
-    return s;
-}
-
 void PatternArpProcessor::addEvents (double blockStartPpq, double samplesPerBeat, int numSamples, juce::MidiBuffer& out)
 {
     for (const auto& e : events)
@@ -129,15 +216,36 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     if (numSamples <= 0)
         return;
 
-    if (const auto settings = readSettings(); ! settingsInitialised || ! (settings == lastSettings))
+    // Pick up edits from the editor if we can do so without waiting, and any automation.
+    bool changed = false;
+    if (hasPendingArrangement.load())
     {
-        arp.setSettings (settings);
-        lastSettings = settings;
-        settingsInitialised = true;
+        const juce::SpinLock::ScopedTryLockType lock (pendingLock);
+        if (lock.isLocked())
+        {
+            audioArrangement = pendingArrangement;
+            hasPendingArrangement = false;
+            changed = true;
+        }
     }
 
-    // Incoming notes feed the arp instead of passing through; everything else (CC, pitch
-    // bend, aftertouch...) passes straight on to the next device.
+    if (const auto values = readParameters(); changed || values != appliedParameters)
+    {
+        appliedParameters = values;
+        audioPlaying = audioArrangement;
+        applyParameters (values, audioPlaying);
+        engine.setArrangement (audioPlaying);
+        consumeNotes = audioPlaying.usesMidiIn();
+    }
+
+    if (const bool latchNow = latch->get(); latchNow != lastLatch)
+    {
+        engine.setLatch (latchNow);
+        lastLatch = latchNow;
+    }
+
+    // Incoming notes feed MIDI In patterns. They pass on to the next device too unless a
+    // pattern uses them; everything else (CC, pitch bend, aftertouch...) always passes on.
     output.clear();
     for (const auto metadata : midi)
     {
@@ -145,15 +253,19 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         if (message.isNoteOn())
         {
             midiChannel = message.getChannel();
-            arp.noteOn (message.getNoteNumber(), message.getVelocity());
+            engine.noteOn (message.getNoteNumber());
+            if (! consumeNotes)
+                output.addEvent (message, metadata.samplePosition);
         }
         else if (message.isNoteOff())
         {
-            arp.noteOff (message.getNoteNumber());
+            engine.noteOff (message.getNoteNumber());
+            if (! consumeNotes)
+                output.addEvent (message, metadata.samplePosition);
         }
         else if (message.isAllNotesOff() || message.isAllSoundOff())
         {
-            arp.releaseAllHeld();
+            engine.releaseAllHeld();
             output.addEvent (message, metadata.samplePosition);
         }
         else
@@ -162,8 +274,17 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         }
     }
 
+    std::array<std::uint64_t, 2> mask {};
+    for (int i = 0; i < engine.numInputNotes(); ++i)
+    {
+        const int n = engine.inputNotes()[i];
+        mask[static_cast<size_t> (n / 64)] |= std::uint64_t { 1 } << (n % 64);
+    }
+    inputMask[0].store (mask[0], std::memory_order_relaxed);
+    inputMask[1].store (mask[1], std::memory_order_relaxed);
+
     // Timing: follow the host's song position while it plays, otherwise run our own clock
-    // at the host tempo so the arp also works for live playing with the transport stopped.
+    // at the host tempo so it also works for live playing with the transport stopped.
     double bpm = 120.0;
     bool isPlaying = false;
     juce::Optional<double> hostPpq;
@@ -183,50 +304,59 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     if (wasPlaying && ! isPlaying)
     {
         // Transport stopped: silence hanging notes at the start of this block.
-        arp.stopAll (0.0, events);
+        engine.stopAll (0.0, events);
         addEvents (0.0, samplesPerBeat, numSamples, output);
     }
 
-    double startPpq = 0.0;
+    // Follow the song while the transport runs. When it is stopped, play only while notes are
+    // held (or latched) for a MIDI In pattern, on our own clock from the first key press.
     if (isPlaying && hostPpq.hasValue())
     {
-        startPpq = *hostPpq;
         restartFreeRun = true;
+        engine.process (*hostPpq, *hostPpq + blockBeats, events);
+        addEvents (*hostPpq, samplesPerBeat, numSamples, output);
     }
-    else
+    else if (consumeNotes && engine.hasInput())
     {
-        // Our own clock keeps running so released notes still get their note-offs, and
-        // restarts from zero on the next key press so the pattern starts at once.
-        if (! arp.hasHeldNotes())
-        {
-            restartFreeRun = true;
-        }
-        else if (restartFreeRun)
+        if (restartFreeRun)
         {
             freeRunPpq = 0.0;
             restartFreeRun = false;
         }
-        startPpq = freeRunPpq;
+        engine.process (freeRunPpq, freeRunPpq + blockBeats, events);
+        addEvents (freeRunPpq, samplesPerBeat, numSamples, output);
         freeRunPpq += blockBeats;
     }
+    else if (! restartFreeRun)
+    {
+        // Keys released while free-running: end the notes now.
+        engine.stopAll (0.0, events);
+        addEvents (0.0, samplesPerBeat, numSamples, output);
+        restartFreeRun = true;
+    }
     wasPlaying = isPlaying;
-
-    arp.process (startPpq, startPpq + blockBeats, events);
-    addEvents (startPpq, samplesPerBeat, numSamples, output);
 
     midi.swapWith (output);
 }
 
 juce::AudioProcessorEditor* PatternArpProcessor::createEditor()
 {
-    // A plain list of the controls for now; a custom lane editor comes later.
-    return new juce::GenericAudioProcessorEditor (*this);
+    return new PatternArpEditor (*this);
 }
 
 void PatternArpProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    auto state = parameters.copyState();
+    juce::ValueTree state (stateType);
     state.setProperty ("version", stateVersion, nullptr);
+    state.setProperty ("latch", latch->get(), nullptr);
+    state.appendChild (toValueTree (getArrangement()), nullptr);
+
+    // Every slot's settings, including slots with no pattern yet, so the host gets back
+    // exactly the parameter values it saved.
+    juce::StringArray slotValues;
+    for (const int v : readParameters())
+        slotValues.add (juce::String (v));
+    state.setProperty ("slots", slotValues.joinIntoString (","), nullptr);
 
     if (const auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
@@ -238,9 +368,26 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
     if (xml == nullptr || ! xml->hasTagName (stateType))
         return;
 
-    parameters.replaceState (juce::ValueTree::fromXml (*xml));
+    const auto state = juce::ValueTree::fromXml (*xml);
+    *latch = static_cast<bool> (state.getProperty ("latch", false));
 
-    // Tell the host every value may have changed, so Bitwig refreshes its knobs. (The CLAP
+    // Older saves (before patterns existed) have no arrangement; keep the default one.
+    Arrangement loaded;
+    if (fromValueTree (state.getChildWithName ("Arrangement"), loaded))
+        setArrangement (loaded);
+
+    if (const auto slotValues = juce::StringArray::fromTokens (state.getProperty ("slots").toString(), ",", {});
+        slotValues.size() == static_cast<int> (ParameterSnapshot {}.size()))
+    {
+        ParameterSnapshot values {};
+        for (size_t i = 0; i < values.size(); ++i)
+            values[i] = slotValues[static_cast<int> (i)].getIntValue();
+        setParameters (values);
+    }
+
+    arrangementReplaced.sendChangeMessage();
+
+    // Tell the host every value may have changed, so it refreshes its controls. (The CLAP
     // wrapper turns a "program changed" notice into a parameter value rescan.)
     updateHostDisplay (ChangeDetails().withProgramChanged (true));
 }

@@ -2,19 +2,31 @@
 
 An arpeggiator plugin that stacks simple musical shapes (pitch, rhythm, octave, velocity and more), each looping at its own length, so their interaction produces complex, evolving patterns. It runs on an instrument track and sends MIDI notes and CC on to whatever comes next: a software instrument or hardware synths.
 
-**Status:** first playable arp. Hold notes and PatternArp plays them back locked to the song position, with a pitch lane (up, down, up/down, as played, random over 1 to 4 octaves) and a Euclidean rhythm lane deciding which steps play. Other MIDI (CC, pitch bend) passes through. Current focus: CLAP in Bitwig on macOS.
+**Status:** v1 pattern stacking. Several patterns take turns note by note, each with its own timing, length, direction and drawn lanes, so their different lengths drift against each other. It plays on its own while the transport runs. Other MIDI (CC, pitch bend) passes through. Current focus: CLAP in Bitwig on macOS.
 
-## Controls
+## How it plays
 
-| Control | What it does |
+Patterns interleave: with pattern A = C, D, E and pattern B = G, A, the arp plays C G D A E G C A ... and repeats once every pattern lines up again. The header shows how long that takes ("Repeats every 3 beats").
+
+Each pattern has:
+
+| Setting | What it does |
 | --- | --- |
-| Rate | Step length: 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32 |
-| Direction | Order the held notes are walked in: Up, Down, Up/Down, As Played, Random (repeatable at the same song position) |
-| Octaves | Repeats the held notes 1 to 4 octaves up |
-| Gate | Note length as a percentage of a step |
-| Rhythm Hits / Steps / Rotate | Euclidean rhythm: spreads Hits evenly over Steps, shifted by Rotate. Steps that miss are silent, but the pitch lane keeps moving, so a rhythm length that differs from the number of notes makes the pattern shift over time. |
+| Timing | How long each of its notes lasts, 1/32 to a whole note (triplets included) |
+| Length | Number of steps, 1 to 16. Changing it in the editor resamples the drawn lanes; automating it just plays fewer or more steps and keeps the rest. |
+| Period | n:m takes n of every m notes. 1:1 is a "fill" pattern that plays whatever the others leave. If two patterns claim the same note, the higher one wins and the other gets the next free note. |
+| Direction | Forward, Backward, Ping-pong, Random, Walk (random step up or down) |
+| Notes (Select / MIDI In) | Select: the notes switched on in its keyboard. MIDI In: the notes you hold, with the Notes lane running from the lowest held note to the highest. A MIDI In pattern rests while nothing is held; Latch keeps the last chord. |
 
-When the transport is stopped, PatternArp runs on its own clock at the project tempo, starting on the first key press.
+Drawn lanes, one bar per step: Notes, Velocity, Gate, Octave (-3 to +3), Ratchet (1 to 8 repeats in a step) and Chance (percent above the line, every Nth time below it; failed steps either rest or are skipped). Double-click a step to reset it. Velocity and Gate have a default value, set in their tab.
+
+Incoming notes pass straight through unless a pattern uses MIDI In. With the transport stopped, MIDI In patterns play from the first key press on their own clock.
+
+The preview strip shows what will play. Hover it for the loop length, or drag it into your DAW to get a MIDI clip of one full loop.
+
+### Host automation
+
+Each of the 8 pattern slots exposes Timing, Length, Period, Direction, Note Source and Chance Mode as parameters ("P1 Timing"...), plus a global Latch. The drawn lanes and note selections are saved with the project but are not automatable.
 
 ## Formats
 
@@ -54,8 +66,8 @@ Plugins land in `build/plugin/PatternArp_artefacts/Release/`.
 | Folder | What it holds |
 | --- | --- |
 | `engine/` | The pattern engine: plain C++ with no plugin code, so it can be tested on its own. |
-| `plugin/` | The JUCE plugin wrapper (MIDI in/out, host sync, UI). |
-| `tests/` | Catch2 tests for the engine. |
+| `plugin/` | The JUCE plugin wrapper (MIDI in/out, host sync, parameters, UI in `plugin/ui/`). |
+| `tests/` | Catch2 tests for the engine, plus a plugin smoke test. |
 | `.github/workflows/` | CI: builds, runs tests, validates with pluginval, clap-validator and auval, and uploads the plugins. |
 
 ## Licence note

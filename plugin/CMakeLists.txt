@@ -5,8 +5,23 @@
 #   PatternArp MIDI FX  AU (macOS only). A true MIDI effect for Logic's MIDI FX slot.
 
 set(PATTERNARP_SOURCES
+    ArrangementState.cpp
+    ArrangementState.h
+    PluginEditor.cpp
+    PluginEditor.h
     PluginProcessor.cpp
-    PluginProcessor.h)
+    PluginProcessor.h
+    ui/LaneGraph.cpp
+    ui/LaneGraph.h
+    ui/NoteKeyboard.cpp
+    ui/NoteKeyboard.h
+    ui/PatternPanel.cpp
+    ui/PatternPanel.h
+    ui/PreviewComponent.cpp
+    ui/PreviewComponent.h
+    ui/Theme.h
+    ui/ValueBox.cpp
+    ui/ValueBox.h)
 
 function(patternarp_configure_target target)
     target_sources(${target} PRIVATE ${PATTERNARP_SOURCES})
