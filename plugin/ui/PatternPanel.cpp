@@ -118,13 +118,19 @@ PatternPanel::PatternPanel()
         addAndMakeVisible (c);
     addChildComponent (defaultEditor);
 
-    addMouseListener (this, true);
+    addMouseListener (&hoverWatcher, true);
+}
+
+PatternPanel::~PatternPanel()
+{
+    removeMouseListener (&hoverWatcher);
 }
 
 void PatternPanel::setPattern (const Pattern& newPattern, int newIndex, bool canAdd)
 {
     pattern = newPattern;
     index = newIndex;
+    setName ("Pattern " + juce::String (index + 1));
 
     timing.setValue (static_cast<int> (pattern.timing));
     length.setValue (pattern.length);
@@ -350,9 +356,6 @@ void PatternPanel::paint (juce::Graphics& g)
 
 void PatternPanel::mouseDown (const juce::MouseEvent& e)
 {
-    if (e.eventComponent != this)
-        return;
-
     const auto pos = e.getPosition();
     if (playButton.contains (pos))
     {
@@ -385,16 +388,6 @@ void PatternPanel::updateHoverButtons()
     newButton.setVisible (show);
     cloneButton.setVisible (show);
     deleteButton.setVisible (show || confirmingDelete);
-}
-
-void PatternPanel::mouseEnter (const juce::MouseEvent&)
-{
-    updateHoverButtons();
-}
-
-void PatternPanel::mouseExit (const juce::MouseEvent&)
-{
-    updateHoverButtons();
 }
 
 } // namespace patternarp

@@ -23,7 +23,7 @@ Drawn lanes, one bar per step: Notes, Velocity, Gate, Octave (-3 to +3), Ratchet
 
 Incoming notes pass straight through unless a pattern uses MIDI In. With the transport stopped, MIDI In patterns play from the first key press on their own clock.
 
-The preview strip shows what will play. Hover it for the loop length, or drag it into your DAW to get a MIDI clip of one full loop. By default the clip holds every note a chance step could play, so you can set chance again in the DAW; click the PatternArp title for settings, including "roll the dice" to export the take the preview shows.
+The preview strip shows what will play. Hover it for the loop length, or drag it into your DAW to get a MIDI clip of one full loop. By default the clip holds every note a chance step could play, so you can set chance again in the DAW; click the PatternArp title for settings, including "roll the dice" to export the take the preview shows, and "drag out whole bars", on by default, which repeats the loop until it ends on a bar line because Bitwig rounds dropped MIDI clips up to whole bars.
 
 ### Host automation
 

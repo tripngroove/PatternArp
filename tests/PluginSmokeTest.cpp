@@ -5,6 +5,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <functional>
+
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
 
 namespace
@@ -190,7 +192,7 @@ TEST_CASE ("plugin editor opens")
 {
     juce::ScopedJuceInitialiser_GUI juce;
     std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
-    std::unique_ptr<juce::AudioProcessorEditor> editor (plugin->createEditorIfNeeded());
+    std::unique_ptr<juce::AudioProcessorEditor> editor (plugin->createEditorAndMakeActive());
     REQUIRE (editor != nullptr);
     CHECK (editor->getWidth() > 0);
 
@@ -206,3 +208,55 @@ TEST_CASE ("plugin editor opens")
 
     plugin->editorBeingDeleted (editor.get());
 }
+
+// Needs a real window. Bare Xvfb (Linux CI) lacks atoms JUCE's window setup expects and
+// aborts, so this runs on macOS and Windows.
+#if JUCE_MAC || JUCE_WINDOWS
+TEST_CASE ("clicking a pattern's play button pauses and resumes it")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+    std::unique_ptr<juce::AudioProcessorEditor> editor (plugin->createEditorAndMakeActive());
+    editor->addToDesktop (0);
+    editor->setVisible (true);
+    auto* peer = editor->getPeer();
+    REQUIRE (peer != nullptr);
+
+    juce::Component* panel = nullptr;
+    std::function<void (juce::Component&)> find = [&] (juce::Component& c) {
+        for (auto* child : c.getChildren())
+        {
+            if (child->getName() == "Pattern 1")
+                panel = child;
+            find (*child);
+        }
+    };
+    find (*editor);
+    REQUIRE (panel != nullptr);
+
+    juce::AudioParameterBool* play = nullptr;
+    for (auto* p : plugin->getParameters())
+        if (auto* b = dynamic_cast<juce::AudioParameterBool*> (p); b != nullptr && b->getParameterID() == "p1_play")
+            play = b;
+    REQUIRE (play != nullptr);
+
+    // The play button sits at the left of the panel's header (see PatternPanel::resized).
+    const auto position = editor->getLocalPoint (panel, juce::Point<float> (35.0f, 51.0f));
+    juce::int64 time = juce::Time::currentTimeMillis();
+    auto click = [&] {
+        peer->handleMouseEvent (juce::MouseInputSource::InputSourceType::mouse, position, juce::ModifierKeys::leftButtonModifier,
+                                juce::MouseInputSource::defaultPressure, 0.0f, time += 100);
+        peer->handleMouseEvent (juce::MouseInputSource::InputSourceType::mouse, position, juce::ModifierKeys(),
+                                juce::MouseInputSource::defaultPressure, 0.0f, time += 100);
+    };
+
+    CHECK (play->get());
+    click();
+    CHECK_FALSE (play->get());
+    time += 1000; // not a double-click
+    click();
+    CHECK (play->get());
+
+    plugin->editorBeingDeleted (editor.get());
+}
+#endif

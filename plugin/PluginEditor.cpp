@@ -20,6 +20,20 @@ constexpr double nonRepeatingBeats = 16.0;
 
 // Settings keys.
 const char* const exportEveryNoteKey = "exportEveryNote";
+const char* const exportWholeBarsKey = "exportWholeBars";
+
+// How many times to repeat a loop so it ends on a bar line (4/4), or 1 if that would make
+// the clip longer than `maxBeats`.
+int repeatsToFillBars (double loopBeats, double maxBeats)
+{
+    for (int repeats = 1; repeats * loopBeats <= maxBeats + 1.0e-6; ++repeats)
+    {
+        const double bars = repeats * loopBeats / 4.0;
+        if (std::abs (bars - std::round (bars)) < 1.0e-6)
+            return repeats;
+    }
+    return 1;
+}
 
 juce::PropertiesFile::Options settingsOptions()
 {
@@ -116,6 +130,14 @@ void PatternArpEditor::showSettingsMenu()
     juce::PopupMenu menu;
     menu.addSectionHeader ("Settings");
     menu.addSubMenu ("Chance steps in dragged-out clips", dragOut);
+
+    // DAWs such as Bitwig round a dropped MIDI clip up to a whole bar, which leaves a gap in
+    // the loop unless the clip already ends on a bar line.
+    const bool wholeBars = settings->getBoolValue (exportWholeBarsKey, true);
+    menu.addItem ("Drag out whole bars (repeat the loop until it ends on a bar line)", true, wholeBars, [this, wholeBars] {
+        settings->setValue (exportWholeBarsKey, ! wholeBars);
+        previewDirty = true;
+    });
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (
         localAreaToGlobal (titleArea().withTrimmedTop (topBarHeight - 8))));
 }
@@ -251,7 +273,9 @@ void PatternArpEditor::updatePreview()
     const auto loop = findLoop (shown);
     const double loopBeats = loop.repeats ? loop.lengthBeats : nonRepeatingBeats;
     const double viewBeats = juce::jmin (loopBeats, maxPreviewBeats);
-    const double exportBeats = juce::jmin (loopBeats, maxExportBeats);
+    double exportBeats = juce::jmin (loopBeats, maxExportBeats);
+    if (loop.repeats && settings->getBoolValue (exportWholeBarsKey, true))
+        exportBeats = loopBeats * repeatsToFillBars (loopBeats, maxExportBeats);
 
     juce::String description;
     if (shown.numPatterns == 0)
@@ -276,6 +300,9 @@ void PatternArpEditor::updatePreview()
         repeatsText = "Never repeats exactly";
         description = "Random directions never repeat exactly; showing " + juce::String (describeLength (viewBeats));
     }
+
+    if (shown.numPatterns > 0)
+        description << "\nDragged-out clip: " << describeLength (exportBeats);
 
     // By default dragged-out clips hold every note a percent-chance step could play, so chance
     // can be set again in the DAW (MIDI files have no way to carry it). The other setting

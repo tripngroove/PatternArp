@@ -17,6 +17,7 @@ class PatternPanel final : public juce::Component, private juce::Timer
 {
 public:
     PatternPanel();
+    ~PatternPanel() override;
 
     void setPattern (const Pattern& pattern, int index, bool canAdd);
     void setInputNotes (const std::bitset<128>& notes) { keyboard.setInputNotes (notes); }
@@ -29,8 +30,6 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
-    void mouseEnter (const juce::MouseEvent& e) override;
-    void mouseExit (const juce::MouseEvent& e) override;
 
 private:
     void timerCallback() override;
@@ -53,6 +52,17 @@ private:
 
     juce::TextButton newButton { "New" }, cloneButton { "Clone" }, deleteButton { "Delete" };
     bool confirmingDelete = false;
+
+    // Shows the hover buttons while the mouse is anywhere over the panel, children included.
+    // A separate listener, because a component listening to itself gets every click twice.
+    struct HoverWatcher final : juce::MouseListener
+    {
+        explicit HoverWatcher (PatternPanel& p) : panel (p) {}
+        void mouseEnter (const juce::MouseEvent&) override { panel.updateHoverButtons(); }
+        void mouseExit (const juce::MouseEvent&) override { panel.updateHoverButtons(); }
+        PatternPanel& panel;
+    };
+    HoverWatcher hoverWatcher { *this };
 };
 
 } // namespace patternarp
