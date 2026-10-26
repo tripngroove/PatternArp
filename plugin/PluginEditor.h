@@ -16,6 +16,8 @@ public:
 
     void paint (juce::Graphics& g) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
 
 private:
     void timerCallback() override;
@@ -25,12 +27,15 @@ private:
     void syncPanels();
     void layoutContent();
     void updatePreview();
+    void showSettingsMenu();
+    juce::Rectangle<int> titleArea() const;
 
     void edit (int index, const Pattern& pattern);
     void insertPattern (int index, const Pattern& pattern);
     void deletePattern (int index);
 
     PatternArpProcessor& arp;
+    std::unique_ptr<juce::PropertiesFile> settings; // per-user preferences, shared by every instance
     Arrangement shown;
     std::bitset<128> shownInput;
     bool previewDirty = true;

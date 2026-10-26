@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <bit>
 #include <bitset>
 #include <cstdint>
 
@@ -62,7 +63,12 @@ struct Step
     int ratchet = 1;    // 1..8 notes in the step
     int chance = 100;   // 1..100 = percent chance; -2..-8 = plays every Nth pass ("1:N")
 
-    bool operator== (const Step&) const = default;
+    bool operator== (const Step& other) const
+    {
+        // Bitwise on the float, so "unchanged" means exactly unchanged.
+        return std::bit_cast<std::uint32_t> (note) == std::bit_cast<std::uint32_t> (other.note) && velocity == other.velocity
+            && gate == other.gate && octave == other.octave && ratchet == other.ratchet && chance == other.chance;
+    }
 };
 
 struct Pattern

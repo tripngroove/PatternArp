@@ -17,10 +17,23 @@ constexpr int addButtonHeight = 44;
 constexpr double maxPreviewBeats = 64.0; // 16 bars on screen
 constexpr double maxExportBeats = 256.0; // 64 bars when dragged out
 constexpr double nonRepeatingBeats = 16.0;
+
+// Settings keys.
+const char* const exportEveryNoteKey = "exportEveryNote";
+
+juce::PropertiesFile::Options settingsOptions()
+{
+    juce::PropertiesFile::Options options;
+    options.applicationName = "PatternArp";
+    options.filenameSuffix = ".settings";
+    options.folderName = "PatternArp";
+    options.osxLibrarySubFolder = "Application Support";
+    return options;
+}
 } // namespace
 
 PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
-    : AudioProcessorEditor (p), arp (p), latchAttachment (p.getLatchParameter(), latchButton)
+    : AudioProcessorEditor (p), arp (p), settings (std::make_unique<juce::PropertiesFile> (settingsOptions())), latchAttachment (p.getLatchParameter(), latchButton)
 {
     latchButton.setColour (juce::ToggleButton::textColourId, theme::ink);
     latchButton.setColour (juce::ToggleButton::tickColourId, theme::ink);
@@ -56,9 +69,55 @@ void PatternArpEditor::paint (juce::Graphics& g)
     auto bar = getLocalBounds().removeFromTop (topBarHeight).reduced (gap, 0);
     g.setColour (theme::ink);
     g.setFont (theme::font (22.0f, true));
-    g.drawText ("PatternArp", bar.removeFromLeft (200), juce::Justification::centredLeft);
+    g.drawText ("PatternArp", titleArea(), juce::Justification::centredLeft);
+
+    // A small caret says the title opens the settings menu.
+    const auto caret = titleArea().toFloat().removeFromRight (16.0f).withSizeKeepingCentre (9.0f, 6.0f);
+    juce::Path p;
+    p.addTriangle (caret.getX(), caret.getY(), caret.getRight(), caret.getY(), caret.getCentreX(), caret.getBottom());
+    g.setColour (theme::inkMuted);
+    g.fillPath (p);
+    bar.removeFromLeft (200);
+    g.setColour (theme::ink);
     g.setFont (theme::font (17.0f));
     g.drawText (repeatsText, bar, juce::Justification::centred);
+}
+
+juce::Rectangle<int> PatternArpEditor::titleArea() const
+{
+    return { gap, 0, 130, topBarHeight };
+}
+
+void PatternArpEditor::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (titleArea().contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+void PatternArpEditor::mouseDown (const juce::MouseEvent& e)
+{
+    if (titleArea().contains (e.getPosition()))
+        showSettingsMenu();
+}
+
+void PatternArpEditor::showSettingsMenu()
+{
+    const bool everyNote = settings->getBoolValue (exportEveryNoteKey, true);
+
+    juce::PopupMenu dragOut;
+    dragOut.addItem ("Every possible note", true, everyNote, [this] {
+        settings->setValue (exportEveryNoteKey, true);
+        previewDirty = true;
+    });
+    dragOut.addItem ("Roll the dice (what the preview shows)", true, ! everyNote, [this] {
+        settings->setValue (exportEveryNoteKey, false);
+        previewDirty = true;
+    });
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Settings");
+    menu.addSubMenu ("Chance steps in dragged-out clips", dragOut);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (
+        localAreaToGlobal (titleArea().withTrimmedTop (topBarHeight - 8))));
 }
 
 void PatternArpEditor::resized()
@@ -218,7 +277,17 @@ void PatternArpEditor::updatePreview()
         description = "Random directions never repeat exactly; showing " + juce::String (describeLength (viewBeats));
     }
 
-    preview.setNotes (render (shown, viewBeats, input), viewBeats, render (shown, exportBeats, input), exportBeats, description);
+    // By default dragged-out clips hold every note a percent-chance step could play, so chance
+    // can be set again in the DAW (MIDI files have no way to carry it). The other setting
+    // exports the roll the preview shows.
+    Arrangement exported = shown;
+    if (settings->getBoolValue (exportEveryNoteKey, true))
+        for (auto& pattern : exported.patterns)
+            for (auto& step : pattern.steps)
+                if (step.chance > 0)
+                    step.chance = 100;
+
+    preview.setNotes (render (shown, viewBeats, input), viewBeats, render (exported, exportBeats, input), exportBeats, description);
     repaint (getLocalBounds().removeFromTop (topBarHeight));
 }
 
