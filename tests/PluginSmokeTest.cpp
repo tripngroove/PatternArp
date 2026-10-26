@@ -7,6 +7,10 @@
 
 #include <functional>
 
+#if JUCE_LINUX
+    #include <dlfcn.h>
+#endif
+
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
 
 namespace
@@ -209,12 +213,27 @@ TEST_CASE ("plugin editor opens")
     plugin->editorBeingDeleted (editor.get());
 }
 
-// Needs a real window. Bare Xvfb (Linux CI) lacks atoms JUCE's window setup expects and
-// aborts, so this runs on macOS and Windows.
-#if JUCE_MAC || JUCE_WINDOWS
+// Sends real clicks through a window, so it runs on Linux (Xvfb in CI) only: macOS drops
+// clicks on a window that is not frontmost on the actual screen.
+#if JUCE_LINUX
+namespace
+{
+// Bare Xvfb has no window manager, and JUCE's window setup sets a property that then fails.
+// Xlib's default handler exits on that, so ignore X errors for this test.
+void ignoreXErrors()
+{
+    using Handler = int (*) (void*, void*);
+    using SetHandler = Handler (*) (Handler);
+    if (auto* x11 = dlopen ("libX11.so.6", RTLD_LAZY))
+        if (auto setHandler = reinterpret_cast<SetHandler> (dlsym (x11, "XSetErrorHandler")))
+            setHandler ([] (void*, void*) { return 0; });
+}
+} // namespace
+
 TEST_CASE ("clicking a pattern's play button pauses and resumes it")
 {
     juce::ScopedJuceInitialiser_GUI juce;
+    ignoreXErrors();
     std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
     std::unique_ptr<juce::AudioProcessorEditor> editor (plugin->createEditorAndMakeActive());
     editor->addToDesktop (0);
