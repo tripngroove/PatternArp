@@ -4,6 +4,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <array>
 #include <functional>
 #include <vector>
 
@@ -29,7 +30,15 @@ public:
     // snaps to, and the label shown when it is not shortened.
     void setLoop (double handleBeats, double snapBeats, const juce::String& naturalLabel);
 
-    // Playback position within the preview in beats, or a negative value to hide it.
+    // While playing: the notes of the pass being played and of the next one, both from 0 to
+    // `passBeats`. Notes the playhead has passed are drawn from the next pass, so random
+    // choices visibly reroll. An empty `passBeats` (0) shows the notes from setNotes.
+    void setPass (std::vector<SequencedNote> current, std::vector<SequencedNote> next, double passBeats);
+
+    // Palette colour of each pattern, by its position in the arrangement.
+    void setColours (const std::array<int, maxPatterns>& colours) { colourOf = colours; repaint(); }
+
+    // Playback position within the pass in beats, or a negative value to hide it.
     void setPlayhead (double beat);
 
     // Called while the handle is dragged: the new loop length in beats, or 0 for the natural one.
@@ -52,7 +61,12 @@ private:
     juce::String label() const;
     juce::File writeMidiFile() const;
 
+    std::vector<SequencedNote> visibleNotes() const;
+
     std::vector<SequencedNote> notes, exportNotes;
+    std::vector<SequencedNote> currentPass, nextPass;
+    double passBeats = 0.0;
+    std::array<int, maxPatterns> colourOf {};
     double beats = 4.0, exportBeats = 4.0;
     double handleBeats = 4.0, snapBeats = 0.25;
     double playhead = -1.0;

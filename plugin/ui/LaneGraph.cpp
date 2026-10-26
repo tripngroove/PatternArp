@@ -45,7 +45,7 @@ void LaneGraph::setLane (Lane newLane)
 
 juce::Rectangle<float> LaneGraph::graphArea() const
 {
-    return getLocalBounds().toFloat().withTrimmedRight (static_cast<float> (labelGutter)).reduced (1.0f);
+    return getLocalBounds().toFloat().withTrimmedRight (static_cast<float> (labelGutter)).withTrimmedTop (static_cast<float> (handleStrip)).reduced (1.0f);
 }
 
 int LaneGraph::stepAt (float x) const
@@ -223,10 +223,12 @@ void LaneGraph::paint (juce::Graphics& g)
         if (lane == Lane::notes && numEnabled == 0 && ! relativeNotes)
             continue;
 
+        // Steps past this lane's own length are kept but do not play: draw them faded.
+        const float alpha = i < currentLaneLength() ? 1.0f : 0.3f;
         const bool belowLine = lane == Lane::chance && s.chance < 0;
-        g.setColour (belowLine ? theme::fill.withMultipliedSaturation (0.4f) : theme::fill);
+        g.setColour ((belowLine ? theme::fill.withMultipliedSaturation (0.4f) : theme::fill).withMultipliedAlpha (alpha));
         g.fillRect (bar);
-        g.setColour (theme::ink);
+        g.setColour (theme::ink.withAlpha (alpha));
         g.drawRect (bar, 1.0f);
 
         if (stepWidth > 34.0f)
@@ -272,6 +274,47 @@ void LaneGraph::paint (juce::Graphics& g)
 
     g.setColour (theme::ink);
     g.drawRect (area, 1.0f);
+
+    // Lane length handle: a tab above the graph and a line down through it.
+    const int laneSteps = currentLaneLength();
+    const bool shortened = laneSteps < pattern.length;
+    const float hx = area.getX() + stepWidth * static_cast<float> (laneSteps);
+    const auto tab = juce::Rectangle<float> (hx - 6.0f, 1.0f, 12.0f, static_cast<float> (handleStrip) - 3.0f);
+    g.setColour (shortened ? theme::fillStrong : theme::inkMuted);
+    g.fillRoundedRectangle (tab, 2.0f);
+    if (shortened)
+        g.fillRect (juce::Rectangle<float> (hx - 0.5f, area.getY(), 1.0f, area.getHeight()));
+
+    g.setFont (theme::font (12.0f));
+    const auto text = shortened ? juce::String (laneName (lane)) + " repeats every " + juce::String (laneSteps) + (laneSteps == 1 ? " step" : " steps")
+                                : juce::String ("Drag to shorten this lane");
+    const bool showText = shortened || (isMouseOver() && isInHandleStrip (getMouseXYRelative().toFloat()));
+    if (showText)
+    {
+        const float w = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (theme::font (12.0f), text)) + 4.0f;
+        const bool right = hx + 10.0f + w < area.getRight();
+        g.setColour (theme::ink);
+        g.drawText (text, right ? juce::Rectangle<float> (hx + 10.0f, 0.0f, w, static_cast<float> (handleStrip))
+                                : juce::Rectangle<float> (hx - 10.0f - w, 0.0f, w, static_cast<float> (handleStrip)),
+                    right ? juce::Justification::centredLeft : juce::Justification::centredRight);
+    }
+}
+
+void LaneGraph::setLaneLengthFromX (float x)
+{
+    const auto area = graphArea();
+    const float stepWidth = area.getWidth() / static_cast<float> (pattern.length);
+    const int steps = juce::jlimit (1, pattern.length, juce::roundToInt ((x - area.getX()) / stepWidth));
+    const int stored = steps >= pattern.length ? 0 : steps;
+
+    auto& own = pattern.laneLength[static_cast<size_t> (lane)];
+    if (own == stored)
+        return;
+
+    own = stored;
+    repaint();
+    if (onEdit)
+        onEdit (pattern);
 }
 
 void LaneGraph::applyAt (juce::Point<float> position)
@@ -301,21 +344,44 @@ void LaneGraph::applyAt (juce::Point<float> position)
         onEdit (pattern);
 }
 
+void LaneGraph::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (isInHandleStrip (e.position) ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+    repaint (getLocalBounds().removeFromTop (handleStrip));
+}
+
+void LaneGraph::mouseExit (const juce::MouseEvent&)
+{
+    repaint (getLocalBounds().removeFromTop (handleStrip));
+}
+
 void LaneGraph::mouseDown (const juce::MouseEvent& e)
 {
     lastStep = -1;
-    if (graphArea().contains (e.position))
+    draggingHandle = isInHandleStrip (e.position);
+    if (draggingHandle)
+        setLaneLengthFromX (e.position.x);
+    else if (graphArea().contains (e.position))
         applyAt (e.position);
 }
 
 void LaneGraph::mouseDrag (const juce::MouseEvent& e)
 {
+    if (draggingHandle)
+    {
+        setLaneLengthFromX (e.position.x);
+        return;
+    }
+
     const auto area = graphArea();
     applyAt ({ juce::jlimit (area.getX(), area.getRight() - 1.0f, e.position.x), e.position.y });
 }
 
 void LaneGraph::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    if (isInHandleStrip (e.position))
+        return;
+
     auto& s = pattern.steps[static_cast<size_t> (stepAt (e.position.x))];
     switch (lane)
     {

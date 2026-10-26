@@ -41,6 +41,32 @@ void PreviewComponent::setLoop (double newHandleBeats, double newSnapBeats, cons
     repaint();
 }
 
+void PreviewComponent::setPass (std::vector<SequencedNote> current, std::vector<SequencedNote> next, double newPassBeats)
+{
+    currentPass = std::move (current);
+    nextPass = std::move (next);
+    passBeats = newPassBeats;
+    repaint();
+}
+
+std::vector<SequencedNote> PreviewComponent::visibleNotes() const
+{
+    if (passBeats <= 0.0)
+        return notes;
+
+    std::vector<SequencedNote> shown;
+    for (const auto& n : nextPass)
+        if (n.start < playhead)
+            shown.push_back (n);
+    for (const auto& n : currentPass)
+        if (n.start >= playhead)
+            shown.push_back (n);
+    for (const auto& n : notes) // past a shortened loop: what would have played
+        if (n.start >= passBeats - 1.0e-9)
+            shown.push_back (n);
+    return shown;
+}
+
 void PreviewComponent::setPlayhead (double beat)
 {
     if (std::abs (beat - playhead) > 1.0e-4)
@@ -91,7 +117,8 @@ void PreviewComponent::paint (juce::Graphics& g)
         g.drawVerticalLine (juce::roundToInt (roll.getX() + pxPerBeat * static_cast<float> (b)), box.getY(), box.getBottom());
     }
 
-    if (notes.empty())
+    const auto drawn = visibleNotes();
+    if (drawn.empty())
     {
         g.setColour (theme::inkMuted);
         g.setFont (theme::font (14.0f));
@@ -103,8 +130,9 @@ void PreviewComponent::paint (juce::Graphics& g)
         // even when they are far apart.
         std::array<int, 128> rowOf {};
         int rows = 0;
-        for (const auto& n : notes)
-            rowOf[static_cast<size_t> (n.note)] = 1;
+        for (const auto* list : { &notes, &currentPass, &nextPass }) // stable rows as notes reroll
+            for (const auto& n : *list)
+                rowOf[static_cast<size_t> (n.note)] = 1;
         for (int pitch = 0; pitch < 128; ++pitch)
             if (rowOf[static_cast<size_t> (pitch)] != 0)
                 rowOf[static_cast<size_t> (pitch)] = rows++;
@@ -112,14 +140,14 @@ void PreviewComponent::paint (juce::Graphics& g)
         const float rowHeight = juce::jmin (18.0f, roll.getHeight() / static_cast<float> (rows));
         const float bottom = roll.getCentreY() + rowHeight * static_cast<float> (rows) / 2.0f;
 
-        for (const auto& n : notes)
+        for (const auto& n : drawn)
         {
             const auto row = static_cast<float> (rowOf[static_cast<size_t> (n.note)]);
             const auto r = juce::Rectangle<float> (roll.getX() + static_cast<float> (n.start) * pxPerBeat,
                                                    bottom - (row + 1.0f) * rowHeight,
                                                    juce::jmax (3.0f, static_cast<float> (n.length) * pxPerBeat - 1.0f),
                                                    juce::jmax (2.0f, rowHeight - 2.0f));
-            const auto colour = theme::patternColour (n.pattern);
+            const auto colour = theme::patternColour (colourOf[static_cast<size_t> (juce::jlimit (0, maxPatterns - 1, n.pattern))]);
             g.setColour (colour.withAlpha (0.45f + 0.55f * static_cast<float> (n.velocity) / 127.0f));
             g.fillRoundedRectangle (r, 1.5f);
             g.setColour (colour.darker (0.4f));

@@ -40,6 +40,12 @@ const char* timingName (Timing timing)
     return "1/16";
 }
 
+int laneLength (const Pattern& p, Lane lane)
+{
+    const int own = p.laneLength[static_cast<size_t> (lane)];
+    return own > 0 ? std::min (own, p.length) : p.length;
+}
+
 Pattern makeDefaultPattern()
 {
     Pattern p;
@@ -106,6 +112,9 @@ void sanitise (Pattern& p)
     p.periodHits = std::clamp (p.periodHits, 1, p.periodSlots);
     p.defaultVelocity = std::clamp (p.defaultVelocity, 1, 127);
     p.defaultGate = std::clamp (p.defaultGate, 1, 100);
+    p.colour = std::clamp (p.colour, 0, maxPatterns - 1);
+    for (auto& l : p.laneLength)
+        l = std::clamp (l, 0, maxSteps);
 
     for (auto& s : p.steps)
     {
@@ -146,6 +155,14 @@ Arrangement::Arrangement()
 {
     patterns[0] = makeDefaultPattern();
     numPatterns = 1;
+}
+
+int Arrangement::unusedColour() const
+{
+    for (int c = 0; c < maxPatterns; ++c)
+        if (std::none_of (patterns.begin(), patterns.begin() + numPatterns, [c] (const Pattern& p) { return p.colour == c; }))
+            return c;
+    return numPatterns % maxPatterns;
 }
 
 bool Arrangement::usesMidiIn() const

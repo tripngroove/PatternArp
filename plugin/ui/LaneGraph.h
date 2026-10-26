@@ -9,21 +9,11 @@
 namespace patternarp
 {
 
-enum class Lane
-{
-    notes,
-    velocity,
-    gate,
-    octave,
-    ratchet,
-    chance
-};
-
-constexpr int numLanes = 6;
 const char* laneName (Lane lane);
 
 // The per-step bar graph. Click or drag across it to draw a shape; double-click a step to
-// reset it to the lane's default.
+// reset it to the lane's default. The handle above the graph sets how many steps this lane
+// loops over (dragged fully right, it follows the pattern's length).
 class LaneGraph final : public juce::Component
 {
 public:
@@ -33,18 +23,24 @@ public:
     void setLane (Lane lane);
     Lane getLane() const { return lane; }
 
-    // Called while drawing with the edited pattern.
+    // Called while drawing (or moving the lane's length handle) with the edited pattern.
     std::function<void (const Pattern&)> onEdit;
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
+    void mouseExit (const juce::MouseEvent& e) override;
 
     static constexpr int labelGutter = 44;
+    static constexpr int handleStrip = 16; // above the graph, holds the lane length handle
 
 private:
     juce::Rectangle<float> graphArea() const;
+    int currentLaneLength() const { return laneLength (pattern, lane); }
+    bool isInHandleStrip (juce::Point<float> p) const { return p.y < graphArea().getY(); }
+    void setLaneLengthFromX (float x);
     int stepAt (float x) const;
     bool isBipolar() const;
 
@@ -62,6 +58,7 @@ private:
     int numEnabled = 0;
     bool relativeNotes = false; // MIDI In: the Notes lane spans the held notes, low to high
     int lastStep = -1;
+    bool draggingHandle = false;
     float lastY = 0.0f;
 };
 

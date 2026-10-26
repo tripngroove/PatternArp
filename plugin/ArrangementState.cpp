@@ -21,8 +21,10 @@ const juce::Identifier defaultVelocity { "defaultVelocity" };
 const juce::Identifier defaultGate { "defaultGate" };
 const juce::Identifier seed { "seed" };
 const juce::Identifier playing { "playing" };
+const juce::Identifier colour { "colour" };
 const juce::Identifier notes { "notes" };
 const juce::Identifier steps { "steps" };
+const juce::Identifier laneLengths { "laneLengths" };
 } // namespace ids
 
 juce::String enabledNotesToString (const std::bitset<128>& notes)
@@ -96,8 +98,14 @@ juce::ValueTree toValueTree (const Arrangement& a)
         child.setProperty (ids::defaultGate, p.defaultGate, nullptr);
         child.setProperty (ids::seed, static_cast<juce::int64> (p.seed), nullptr);
         child.setProperty (ids::playing, p.playing, nullptr);
+        child.setProperty (ids::colour, p.colour, nullptr);
         child.setProperty (ids::notes, enabledNotesToString (p.enabledNotes), nullptr);
         child.setProperty (ids::steps, stepsToString (p), nullptr);
+
+        juce::StringArray lengths;
+        for (const int l : p.laneLength)
+            lengths.add (juce::String (l));
+        child.setProperty (ids::laneLengths, lengths.joinIntoString (","), nullptr);
         tree.appendChild (child, nullptr);
     }
     return tree;
@@ -129,8 +137,13 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
         p.defaultGate = child.getProperty (ids::defaultGate, p.defaultGate);
         p.seed = static_cast<std::uint32_t> (static_cast<juce::int64> (child.getProperty (ids::seed, 1)));
         p.playing = child.getProperty (ids::playing, true);
+        p.colour = child.getProperty (ids::colour, loaded.numPatterns); // older saves: by position
         p.enabledNotes = enabledNotesFromString (child.getProperty (ids::notes).toString());
         stepsFromString (child.getProperty (ids::steps).toString(), p);
+
+        const auto lengths = juce::StringArray::fromTokens (child.getProperty (ids::laneLengths).toString(), ",", {});
+        for (int l = 0; l < juce::jmin (lengths.size(), numLanes); ++l)
+            p.laneLength[static_cast<size_t> (l)] = lengths[l].getIntValue();
         sanitise (p);
 
         loaded.patterns[static_cast<size_t> (loaded.numPatterns++)] = p;

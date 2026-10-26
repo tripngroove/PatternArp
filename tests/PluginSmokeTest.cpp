@@ -196,6 +196,16 @@ TEST_CASE ("plugin editor opens")
 {
     juce::ScopedJuceInitialiser_GUI juce;
     std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+
+    // Set PATTERNARP_STATE to a saved-state .xml file to open the editor on that state.
+    if (const auto statePath = juce::SystemStats::getEnvironmentVariable ("PATTERNARP_STATE", {}); statePath.isNotEmpty())
+        if (const auto xml = juce::parseXML (juce::File (statePath)))
+        {
+            juce::MemoryBlock state;
+            juce::AudioProcessor::copyXmlToBinary (*xml, state);
+            plugin->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+        }
+
     std::unique_ptr<juce::AudioProcessorEditor> editor (plugin->createEditorAndMakeActive());
     REQUIRE (editor != nullptr);
     CHECK (editor->getWidth() > 0);
@@ -230,52 +240,120 @@ void ignoreXErrors()
 }
 } // namespace
 
+// The editor in a real window, driven by mouse events sent to its window.
+struct WindowedEditor
+{
+    explicit WindowedEditor (const char* stateXml = nullptr)
+    {
+        ignoreXErrors();
+        if (stateXml != nullptr)
+        {
+            juce::MemoryBlock state;
+            juce::AudioProcessor::copyXmlToBinary (*juce::parseXML (juce::String (stateXml)), state);
+            plugin->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+        }
+
+        editor.reset (plugin->createEditorAndMakeActive());
+        editor->addToDesktop (0);
+        editor->setVisible (true);
+        peer = editor->getPeer();
+    }
+
+    ~WindowedEditor() { plugin->editorBeingDeleted (editor.get()); }
+
+    juce::Component* find (const juce::String& name) const
+    {
+        juce::Component* found = nullptr;
+        std::function<void (juce::Component&)> search = [&] (juce::Component& c) {
+            for (auto* child : c.getChildren())
+            {
+                if (child->getName() == name)
+                    found = child;
+                search (*child);
+            }
+        };
+        search (*editor);
+        return found;
+    }
+
+    template <typename Parameter>
+    Parameter* parameter (const juce::String& id) const
+    {
+        for (auto* p : plugin->getParameters())
+            if (auto* typed = dynamic_cast<Parameter*> (p); typed != nullptr && typed->getParameterID() == id)
+                return typed;
+        return nullptr;
+    }
+
+    void mouse (juce::Point<float> position, bool down)
+    {
+        peer->handleMouseEvent (juce::MouseInputSource::InputSourceType::mouse, position,
+                                down ? juce::ModifierKeys::leftButtonModifier : juce::ModifierKeys(),
+                                juce::MouseInputSource::defaultPressure, 0.0f, time += 100);
+    }
+
+    void click (juce::Point<float> position)
+    {
+        mouse (position, true);
+        mouse (position, false);
+        time += 1000; // so the next click is not a double-click
+    }
+
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    std::unique_ptr<juce::AudioProcessor> plugin { createPluginFilter() };
+    std::unique_ptr<juce::AudioProcessorEditor> editor;
+    juce::ComponentPeer* peer = nullptr;
+    juce::int64 time = juce::Time::currentTimeMillis();
+};
+
 TEST_CASE ("clicking a pattern's play button pauses and resumes it")
 {
-    juce::ScopedJuceInitialiser_GUI juce;
-    ignoreXErrors();
-    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
-    std::unique_ptr<juce::AudioProcessorEditor> editor (plugin->createEditorAndMakeActive());
-    editor->addToDesktop (0);
-    editor->setVisible (true);
-    auto* peer = editor->getPeer();
-    REQUIRE (peer != nullptr);
-
-    juce::Component* panel = nullptr;
-    std::function<void (juce::Component&)> find = [&] (juce::Component& c) {
-        for (auto* child : c.getChildren())
-        {
-            if (child->getName() == "Pattern 1")
-                panel = child;
-            find (*child);
-        }
-    };
-    find (*editor);
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panel = w.find ("Pattern 1");
+    auto* play = w.parameter<juce::AudioParameterBool> ("p1_play");
     REQUIRE (panel != nullptr);
-
-    juce::AudioParameterBool* play = nullptr;
-    for (auto* p : plugin->getParameters())
-        if (auto* b = dynamic_cast<juce::AudioParameterBool*> (p); b != nullptr && b->getParameterID() == "p1_play")
-            play = b;
     REQUIRE (play != nullptr);
 
     // The play button sits at the left of the panel's header (see PatternPanel::resized).
-    const auto position = editor->getLocalPoint (panel, juce::Point<float> (35.0f, 51.0f));
-    juce::int64 time = juce::Time::currentTimeMillis();
-    auto click = [&] {
-        peer->handleMouseEvent (juce::MouseInputSource::InputSourceType::mouse, position, juce::ModifierKeys::leftButtonModifier,
-                                juce::MouseInputSource::defaultPressure, 0.0f, time += 100);
-        peer->handleMouseEvent (juce::MouseInputSource::InputSourceType::mouse, position, juce::ModifierKeys(),
-                                juce::MouseInputSource::defaultPressure, 0.0f, time += 100);
-    };
+    const auto button = w.editor->getLocalPoint (panel, juce::Point<float> (35.0f, 51.0f));
 
     CHECK (play->get());
-    click();
+    w.click (button);
     CHECK_FALSE (play->get());
-    time += 1000; // not a double-click
-    click();
+    w.click (button);
     CHECK (play->get());
+}
 
-    plugin->editorBeingDeleted (editor.get());
+TEST_CASE ("dragging a pattern by its title reorders it, keeping its colour")
+{
+    WindowedEditor w (R"(<PatternArpState version="3">
+                           <Arrangement>
+                             <Pattern timing="2" length="4" colour="0" notes="60"/>
+                             <Pattern timing="4" length="4" colour="5" notes="60"/>
+                           </Arrangement>
+                         </PatternArpState>)");
+    REQUIRE (w.peer != nullptr);
+    auto* panel = w.find ("Pattern 1");
+    REQUIRE (panel != nullptr);
+
+    // Grab the title (right of the play button) and drag down past the second pattern.
+    const auto start = w.editor->getLocalPoint (panel, juce::Point<float> (100.0f, 51.0f));
+    w.mouse (start, true);
+    for (float dy : { 10.0f, 150.0f, 300.0f, 450.0f })
+        w.mouse (start.translated (0.0f, dy), true);
+    w.mouse (start.translated (0.0f, 450.0f), false);
+
+    CHECK (w.parameter<juce::AudioParameterChoice> ("p1_timing")->getIndex() == 4);
+    CHECK (w.parameter<juce::AudioParameterChoice> ("p2_timing")->getIndex() == 2);
+
+    juce::MemoryBlock state;
+    w.plugin->getStateInformation (state);
+    const auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), static_cast<int> (state.getSize()));
+    REQUIRE (xml != nullptr);
+    const auto* arrangement = xml->getChildByName ("Arrangement");
+    REQUIRE (arrangement != nullptr);
+    CHECK (arrangement->getChildElement (0)->getIntAttribute ("colour") == 5);
+    CHECK (arrangement->getChildElement (1)->getIntAttribute ("colour") == 0);
 }
 #endif

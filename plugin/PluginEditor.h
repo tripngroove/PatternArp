@@ -34,13 +34,21 @@ private:
     void edit (int index, const Pattern& pattern);
     void insertPattern (int index, const Pattern& pattern);
     void deletePattern (int index);
+    void reorderDrag (int index, int top); // top: where the dragged panel's top edge is now
+    void reorderEnd (int index);
 
     PatternArpProcessor& arp;
     std::unique_ptr<juce::PropertiesFile> settings; // per-user preferences, shared by every instance
     Arrangement shown;
     std::bitset<128> shownInput;
     bool previewDirty = true;
-    double previewLoopBeats = 0.0; // how often playback repeats, 0 if never
+    // The preview follows playback one pass at a time: the loop length (or the visible part).
+    double previewPassBeats = 0.0;
+    std::int64_t shownPass = -1;
+    std::vector<int> previewInput;
+
+    int dragIndex = -1, dropIndex = -1, dragTop = 0;
+    void updatePlayhead();
 
     juce::TooltipWindow tooltips { this, 500 };
     juce::ToggleButton latchButton { "Latch" };

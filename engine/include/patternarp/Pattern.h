@@ -57,6 +57,19 @@ enum class NoteSource
     midiIn  // the notes being held on the incoming MIDI (rests when none are held)
 };
 
+// The per-step lanes of a pattern.
+enum class Lane
+{
+    notes,
+    velocity,
+    gate,
+    octave,
+    ratchet,
+    chance
+};
+
+constexpr int numLanes = 6;
+
 struct Step
 {
     float note = 0.0f; // 0..1: position within the pattern's enabled notes, bottom to top
@@ -97,13 +110,22 @@ struct Pattern
 
     std::array<Step, maxSteps> steps {};
 
+    // A lane can loop over fewer steps than the pattern (e.g. octave every 3 steps of a
+    // 4-step pattern). 0 follows the pattern's length.
+    std::array<int, numLanes> laneLength {};
+
     std::uint32_t seed = 1; // for random direction and percent chance
 
     bool playing = true; // paused patterns are taken out of the rotation entirely
 
+    int colour = 0; // index into the editor's palette; stays with the pattern when reordered
+
     bool isFill() const { return periodHits >= periodSlots; }
     bool operator== (const Pattern&) const = default;
 };
+
+// Steps a lane loops over: its own length if set and shorter, else the pattern's.
+int laneLength (const Pattern& pattern, Lane lane);
 
 // A new pattern: a C major triad (C4 E4 G4) played up and down, so it sounds right away.
 Pattern makeDefaultPattern();
@@ -144,6 +166,9 @@ struct Arrangement
     Arrangement();
 
     bool usesMidiIn() const; // a playing pattern takes its notes from MIDI In
+
+    // The first palette colour no pattern uses yet (for a new pattern).
+    int unusedColour() const;
     bool operator== (const Arrangement&) const = default;
 };
 

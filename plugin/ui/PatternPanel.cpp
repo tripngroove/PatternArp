@@ -11,7 +11,7 @@ constexpr int margin = 14;
 constexpr int stripeWidth = 6;
 constexpr int headerHeight = 56;
 constexpr int tabHeight = 32;
-constexpr int graphHeight = 170;
+constexpr int graphHeight = 170 + LaneGraph::handleStrip;
 constexpr int keyboardHeight = 78;
 constexpr int defaultBoxWidth = 44;
 constexpr int titleWidth = 142;
@@ -63,6 +63,7 @@ PatternPanel::PatternPanel()
 
     graph.onEdit = [this] (const Pattern& edited) {
         pattern.steps = edited.steps;
+        pattern.laneLength = edited.laneLength;
         if (onChange)
             onChange (pattern);
     };
@@ -138,7 +139,7 @@ void PatternPanel::setPattern (const Pattern& newPattern, int newIndex, bool can
     direction.setValue (static_cast<int> (pattern.direction));
     graph.setPattern (pattern);
     keyboard.setNotes (pattern.enabledNotes, pattern.noteSource);
-    keyboard.setColour (theme::patternColour (index));
+    keyboard.setColour (theme::patternColour (pattern.colour));
     updatePausedLook();
 
     newButton.setEnabled (canAdd);
@@ -267,7 +268,7 @@ void PatternPanel::paint (juce::Graphics& g)
     const auto bounds = getLocalBounds().toFloat().reduced (1.0f);
     g.setColour (theme::panel);
     g.fillRoundedRectangle (bounds, 6.0f);
-    g.setColour (theme::patternColour (index));
+    g.setColour (theme::patternColour (pattern.colour));
     g.fillRoundedRectangle (bounds.withWidth (static_cast<float> (stripeWidth + 4)), 6.0f);
     g.setColour (theme::ink.withAlpha (0.25f));
     g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
@@ -277,7 +278,7 @@ void PatternPanel::paint (juce::Graphics& g)
     {
         const auto r = playButton.toFloat();
         const bool hover = isMouseOver (true) && playButton.contains (getMouseXYRelative());
-        g.setColour (pattern.playing ? theme::patternColour (index) : (hover ? theme::hover : theme::panel));
+        g.setColour (pattern.playing ? theme::patternColour (pattern.colour) : (hover ? theme::hover : theme::panel));
         g.fillRoundedRectangle (r, 4.0f);
         g.setColour (theme::ink);
         g.drawRoundedRectangle (r, 4.0f, 1.0f);
@@ -334,6 +335,17 @@ void PatternPanel::paint (juce::Graphics& g)
         }
         g.setColour (theme::ink);
         g.drawText (laneName (lane), text, juce::Justification::centredLeft);
+
+        // A badge on lanes that loop over fewer steps than the pattern.
+        if (const int steps = laneLength (pattern, lane); steps < pattern.length)
+        {
+            const auto badge = juce::Rectangle<float> (static_cast<float> (tab.getRight()) - 9.0f, static_cast<float> (tab.getY()) - 7.0f, 16.0f, 14.0f);
+            g.setColour (theme::fillStrong);
+            g.fillRoundedRectangle (badge, 7.0f);
+            g.setColour (juce::Colours::white);
+            g.setFont (theme::font (11.0f, true));
+            g.drawText (juce::String (steps), badge, juce::Justification::centred);
+        }
     }
 
     if (active == Lane::chance)
@@ -354,9 +366,43 @@ void PatternPanel::paint (juce::Graphics& g)
     }
 }
 
+bool PatternPanel::isInGrip (juce::Point<int> p) const
+{
+    // The colour stripe, and the title next to the play button.
+    if (p.x < margin + stripeWidth + 2)
+        return true;
+    const auto title = juce::Rectangle<int> (playButton.getRight(), margin, titleWidth - playButton.getWidth(), headerHeight);
+    return title.contains (p);
+}
+
+void PatternPanel::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (isInGrip (e.getPosition()) ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+void PatternPanel::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! reordering && isInGrip (e.getMouseDownPosition()) && std::abs (e.getDistanceFromDragStartY()) > 4)
+        reordering = true;
+
+    if (reordering && onReorderDrag && getParentComponent() != nullptr)
+        onReorderDrag (e.getEventRelativeTo (getParentComponent()).y - grabY);
+}
+
+void PatternPanel::mouseUp (const juce::MouseEvent&)
+{
+    if (reordering)
+    {
+        reordering = false;
+        if (onReorderEnd)
+            onReorderEnd();
+    }
+}
+
 void PatternPanel::mouseDown (const juce::MouseEvent& e)
 {
     const auto pos = e.getPosition();
+    grabY = e.y;
     if (playButton.contains (pos))
     {
         pattern.playing = ! pattern.playing;

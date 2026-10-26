@@ -25,11 +25,19 @@ public:
     std::function<void (const Pattern&)> onChange;
     std::function<void()> onNew, onClone, onDelete;
 
-    static constexpr int preferredHeight = 390;
+    // Dragging the colour stripe or the title moves the panel: where its top edge would be
+    // in the parent, then the drop.
+    std::function<void (int)> onReorderDrag;
+    std::function<void()> onReorderEnd;
+
+    static constexpr int preferredHeight = 406;
 
     void paint (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDrag (const juce::MouseEvent& e) override;
+    void mouseUp (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
 
 private:
     void timerCallback() override;
@@ -52,6 +60,10 @@ private:
 
     juce::TextButton newButton { "New" }, cloneButton { "Clone" }, deleteButton { "Delete" };
     bool confirmingDelete = false;
+
+    bool isInGrip (juce::Point<int> p) const;
+    bool reordering = false;
+    int grabY = 0;
 
     // Shows the hover buttons while the mouse is anywhere over the panel, children included.
     // A separate listener, because a component listening to itself gets every click twice.

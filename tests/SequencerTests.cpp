@@ -105,6 +105,29 @@ TEST_CASE ("a loop length set by hand starts everything over")
         CHECK (notes[3].note == E);
     }
 
+    SECTION ("random choices are rolled again on every pass")
+    {
+        auto p = patternOf ({ A, B, C, E, F });
+        p.direction = Direction::random;
+        auto r = arrangementOf ({ p });
+        r.loopLength = 2 * ticksPerBeat;
+
+        const auto pitches = [] (const std::vector<SequencedNote>& ns) {
+            std::vector<int> out;
+            for (const auto& n : ns)
+                out.push_back (n.note);
+            return out;
+        };
+
+        const auto pass0 = pitches (render (r, 0.0, 2.0, {}));
+        const auto pass1 = pitches (render (r, 2.0, 4.0, {}));
+        CHECK (pass0.size() == 8);
+        CHECK (pass0 != pass1);
+        CHECK (pass1 == pitches (render (r, 2.0, 4.0, {}))); // still repeatable
+        CHECK (pitches (render (r, 4.0)).size() == 16);
+        CHECK (pitches (render (r, 4.0)) == [&] { auto both = pass0; both.insert (both.end(), pass1.begin(), pass1.end()); return both; }());
+    }
+
     SECTION ("jumping ahead lands on the same notes")
     {
         const auto all = render (a, 12.0);
@@ -128,6 +151,37 @@ TEST_CASE ("a loop length set by hand starts everything over")
             CHECK (after[i].start == Catch::Approx (expected[i].start));
             CHECK (after[i].note == expected[i].note);
         }
+    }
+}
+
+TEST_CASE ("a lane can loop over fewer steps than its pattern")
+{
+    auto p = patternOf ({ A, B, C, E });
+    p.steps[0].octave = 1;
+    p.laneLength[static_cast<size_t> (Lane::octave)] = 3;
+    const auto a = arrangementOf ({ p });
+
+    // The octave lane repeats every 3 steps against the 4-step notes lane.
+    CHECK (firstNotes (a, 12) == std::vector<int> { A + 12, B, C, E + 12, A, B, C + 12, E, A, B + 12, C, E });
+
+    const auto loop = findLoop (a);
+    CHECK (loop.lengthSlots == 12);
+    CHECK (loop.lengthBeats == Catch::Approx (3.0));
+
+    SECTION ("a lane longer than the pattern follows the pattern")
+    {
+        auto q = p;
+        q.laneLength[static_cast<size_t> (Lane::octave)] = 8;
+        CHECK (laneLength (q, Lane::octave) == 4);
+        CHECK (firstNotes (arrangementOf ({ q }), 4) == std::vector<int> { A + 12, B, C, E });
+    }
+
+    SECTION ("lanes follow the pattern's direction over their own length")
+    {
+        p.direction = Direction::backward;
+        p.steps[2].octave = 1; // octave lane plays steps 2, 1, 0, 2, 1, 0...
+        p.steps[0].octave = 0;
+        CHECK (firstNotes (arrangementOf ({ p }), 6) == std::vector<int> { E + 12, C, B, A + 12, E, C });
     }
 }
 

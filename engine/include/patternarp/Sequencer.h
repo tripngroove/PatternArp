@@ -88,14 +88,15 @@ private:
 
     struct Cursor
     {
-        std::int64_t played = 0; // notes this pattern has contributed so far
-        int walk = 0;            // position for random walk
-        std::array<std::int64_t, maxSteps> visits {};
+        std::int64_t played = 0;                  // notes this pattern has contributed so far
+        std::array<int, numLanes> walk {};        // position of each lane for random walk
+        std::array<std::int64_t, maxSteps> visits {}; // per Chance-lane step, for 1:N
     };
 
     int ownerOfSlot (std::int64_t slot);
-    int advanceCursor (int patternIndex);
-    bool passesChance (int patternIndex, int step);
+    // Moves the pattern on one step; returns the step each lane is on.
+    std::array<int, numLanes> advanceCursor (int patternIndex);
+    bool passesChance (int patternIndex, int chanceStep);
 
     Arrangement arrangement; // only the playing patterns
     std::array<int, maxPatterns> sourceIndex {}; // each one's position in the full arrangement
@@ -109,6 +110,7 @@ private:
     std::int64_t fillCounter = 0;
     double nextStart = 0.0;
     double cycleStart = 0.0;
+    std::uint64_t pass = 0; // which pass of a hand-set loop; random choices differ per pass
     std::array<int, 128> inputNotes {}; // ascending
     int numInputNotes = 0;
 };
@@ -121,6 +123,9 @@ LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots = 1 << 
 // in that time, for the preview and for dragging out MIDI.
 // MIDI In patterns pick from `inputNotes` (ascending).
 std::vector<SequencedNote> render (const Arrangement& arrangement, double beats, const std::vector<int>& inputNotes = {});
+
+// The notes that start between `fromBeat` and `toBeat`, at their song positions.
+std::vector<SequencedNote> render (const Arrangement& arrangement, double fromBeat, double toBeat, const std::vector<int>& inputNotes);
 
 // "6 beats", "4 bars", "1 bar 2 beats"... in the largest whole unit, assuming 4/4.
 std::string describeLength (double beats);

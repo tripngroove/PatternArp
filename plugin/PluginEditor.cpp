@@ -167,12 +167,26 @@ void PatternArpEditor::resized()
 void PatternArpEditor::layoutContent()
 {
     const int width = viewport.getMaximumVisibleWidth();
-    int y = 0;
-    for (auto* panel : panels)
+    constexpr int pitch = PatternPanel::preferredHeight + gap;
+
+    // While a panel is dragged, it follows the mouse and the others make room at the slot it
+    // would drop into.
+    int slot = 0;
+    for (int i = 0; i < panels.size(); ++i)
     {
-        panel->setBounds (0, y, width, PatternPanel::preferredHeight);
-        y += PatternPanel::preferredHeight + gap;
+        if (i == dragIndex)
+            continue;
+        if (slot == dropIndex)
+            ++slot;
+        panels[i]->setBounds (0, slot++ * pitch, width, PatternPanel::preferredHeight);
     }
+    if (dragIndex >= 0)
+    {
+        panels[dragIndex]->setBounds (0, dragTop, width, PatternPanel::preferredHeight);
+        panels[dragIndex]->toFront (false);
+    }
+
+    const int y = panels.size() * pitch;
 
     addButton.setBounds (0, y, width, addButtonHeight);
     addButton.setEnabled (shown.numPatterns < maxPatterns);
@@ -192,6 +206,8 @@ void PatternArpEditor::syncPanels()
         panel->onNew = [this, index] { insertPattern (index + 1, makeDefaultPattern()); };
         panel->onClone = [this, index] { insertPattern (index + 1, shown.patterns[static_cast<size_t> (index)]); };
         panel->onDelete = [this, index] { deletePattern (index); };
+        panel->onReorderDrag = [this, index] (int top) { reorderDrag (index, top); };
+        panel->onReorderEnd = [this, index] { reorderEnd (index); };
         content.addAndMakeVisible (panel);
     }
 
@@ -239,12 +255,48 @@ void PatternArpEditor::insertPattern (int index, const Pattern& pattern)
         return;
 
     index = juce::jlimit (0, shown.numPatterns, index);
+    auto added = pattern;
+    added.colour = shown.unusedColour();
     for (int i = shown.numPatterns; i > index; --i)
         shown.patterns[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i - 1)];
-    shown.patterns[static_cast<size_t> (index)] = pattern;
+    shown.patterns[static_cast<size_t> (index)] = added;
     ++shown.numPatterns;
 
     arp.setArrangement (shown);
+    syncPanels();
+}
+
+void PatternArpEditor::reorderDrag (int index, int top)
+{
+    constexpr int pitch = PatternPanel::preferredHeight + gap;
+    dragIndex = index;
+    dragTop = juce::jlimit (0, (panels.size() - 1) * pitch, top);
+    dropIndex = juce::jlimit (0, panels.size() - 1, juce::roundToInt (static_cast<float> (dragTop) / static_cast<float> (pitch)));
+    layoutContent();
+
+    // Scroll when dragging near the top or bottom of the visible area.
+    const auto mouse = viewport.getLocalPoint (nullptr, juce::Desktop::getMousePosition());
+    viewport.autoScroll (mouse.x, mouse.y, 40, 12);
+}
+
+void PatternArpEditor::reorderEnd (int index)
+{
+    const int to = dropIndex;
+    dragIndex = dropIndex = -1;
+
+    if (index >= 0 && index < shown.numPatterns && to >= 0 && to != index)
+    {
+        const auto moved = shown.patterns[static_cast<size_t> (index)];
+        if (to > index)
+            for (int i = index; i < to; ++i)
+                shown.patterns[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i + 1)];
+        else
+            for (int i = index; i > to; --i)
+                shown.patterns[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i - 1)];
+        shown.patterns[static_cast<size_t> (to)] = moved;
+        arp.setArrangement (shown);
+    }
+
     syncPanels();
 }
 
@@ -278,6 +330,7 @@ void PatternArpEditor::updatePreview()
             input.push_back (n);
     if (input.empty() && shown.usesMidiIn())
         input = { 60, 64, 67 };
+    previewInput = input;
 
     // The preview always shows the natural loop, so the loop handle can be dragged back out.
     Arrangement natural = shown;
@@ -286,7 +339,11 @@ void PatternArpEditor::updatePreview()
     const double viewBeats = juce::jmin (naturalLoop.repeats ? naturalLoop.lengthBeats : nonRepeatingBeats, maxPreviewBeats);
 
     const auto loop = findLoop (shown); // the loop length set by hand, if there is one
-    previewLoopBeats = loop.repeats ? loop.lengthBeats : 0.0;
+    if (shown.loopLength > 0)
+        previewPassBeats = juce::jmin (loop.lengthBeats, viewBeats);
+    else
+        previewPassBeats = viewBeats; // the natural loop, or as much as is shown
+    shownPass = -1;
 
     double exportBeats = loop.repeats ? juce::jmin (loop.lengthBeats, maxExportBeats) : nonRepeatingBeats;
     if (loop.repeats && settings->getBoolValue (exportWholeBarsKey, true))
@@ -330,6 +387,11 @@ void PatternArpEditor::updatePreview()
                 if (step.chance > 0)
                     step.chance = 100;
 
+    std::array<int, maxPatterns> colours {};
+    for (int i = 0; i < maxPatterns; ++i)
+        colours[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i)].colour;
+    preview.setColours (colours);
+
     preview.setNotes (render (natural, viewBeats, input), viewBeats, render (exported, exportBeats, input), exportBeats, description);
 
     // The handle snaps to bars or to the shortest step of any playing pattern.
@@ -342,7 +404,7 @@ void PatternArpEditor::updatePreview()
                 snap = juce::jmin (snap, beatsPerStep (pt.timing));
     }
 
-    const double handle = shown.loopLength > 0 ? juce::jmin (viewBeats, previewLoopBeats) : viewBeats;
+    const double handle = shown.loopLength > 0 ? previewPassBeats : viewBeats;
     preview.setLoop (handle, snap, label);
 }
 
@@ -359,11 +421,40 @@ void PatternArpEditor::timerCallback()
     if (previewDirty)
         updatePreview();
 
-    // The playhead wraps with the loop.
-    double position = arp.getPlayPosition();
-    if (position >= 0.0 && previewLoopBeats > 0.0)
-        position = std::fmod (position, previewLoopBeats);
-    preview.setPlayhead (position);
+    updatePlayhead();
+}
+
+void PatternArpEditor::updatePlayhead()
+{
+    const double position = arp.getPlayPosition();
+    if (position < 0.0 || previewPassBeats <= 0.0 || shown.numPatterns == 0)
+    {
+        if (shownPass != -1)
+        {
+            shownPass = -1;
+            preview.setPass ({}, {}, 0.0);
+        }
+        preview.setPlayhead (-1.0);
+        return;
+    }
+
+    // Each time the playhead wraps, show the pass now playing and, behind the playhead, the
+    // one after it, so random choices visibly change from pass to pass.
+    const auto pass = static_cast<std::int64_t> (std::floor (position / previewPassBeats));
+    const double passStart = static_cast<double> (pass) * previewPassBeats;
+    preview.setPlayhead (position - passStart);
+
+    if (pass != shownPass)
+    {
+        shownPass = pass;
+        auto passNotes = [this] (double from) {
+            auto notes = render (shown, from, from + previewPassBeats, previewInput);
+            for (auto& n : notes)
+                n.start -= from;
+            return notes;
+        };
+        preview.setPass (passNotes (passStart), passNotes (passStart + previewPassBeats), previewPassBeats);
+    }
 }
 
 } // namespace patternarp
