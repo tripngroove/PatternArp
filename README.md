@@ -16,9 +16,10 @@ Each pattern has:
 | Length | Number of steps, 1 to 16. Changing it in the editor resamples the drawn lanes; automating it just plays fewer or more steps and keeps the rest. |
 | Period | n:m takes n of every m notes. 1:1 is a "fill" pattern that plays whatever the others leave. If two patterns claim the same note, the higher one wins and the other gets the next free note. |
 | Direction | Forward, Backward, Ping-pong, Random, Walk (random step up or down) |
+| Play / Pause | The button by the pattern name. A paused pattern is taken out of the rotation entirely; the others close up the gap. Automatable as "P1 Play"... |
 | Notes (Select / MIDI In) | Select: the notes switched on in its keyboard. MIDI In: the notes you hold, with the Notes lane running from the lowest held note to the highest. A MIDI In pattern rests while nothing is held; Latch keeps the last chord. |
 
-Drawn lanes, one bar per step: Notes, Velocity, Gate, Octave (-3 to +3), Ratchet (1 to 8 repeats in a step) and Chance (percent above the line, every Nth time below it; failed steps either rest or are skipped). Double-click a step to reset it. Velocity and Gate have a default value, set in their tab.
+Drawn lanes, one bar per step: Notes, Velocity, Gate, Octave (-3 to +3), Ratchet (1 to 8 repeats in a step) and Chance (percent above the line, every Nth time below it; failed steps either rest or are skipped). "Repeats every" ignores percent chances, so it shows the underlying loop. Double-click a step to reset it. Velocity and Gate have a default value, set in their tab.
 
 Incoming notes pass straight through unless a pattern uses MIDI In. With the transport stopped, MIDI In patterns play from the first key press on their own clock.
 
@@ -26,7 +27,7 @@ The preview strip shows what will play. Hover it for the loop length, or drag it
 
 ### Host automation
 
-Each of the 8 pattern slots exposes Timing, Length, Period, Direction, Note Source and Chance Mode as parameters ("P1 Timing"...), plus a global Latch. The drawn lanes and note selections are saved with the project but are not automatable.
+Each of the 8 pattern slots exposes Play, Timing, Length, Period, Direction, Note Source and Chance Mode as parameters ("P1 Timing"...), plus a global Latch. The drawn lanes and note selections are saved with the project but are not automatable.
 
 ## Formats
 

@@ -34,7 +34,7 @@ struct Slot
 // How long until the whole arrangement repeats exactly.
 struct LoopInfo
 {
-    bool repeats = false;      // false when random directions or percent chances are used
+    bool repeats = false;      // false when random directions are used (percent chances are ignored)
     double lengthBeats = 0.0;  // when it repeats
     std::int64_t lengthSlots = 0;
 };
@@ -92,7 +92,8 @@ private:
     int advanceCursor (int patternIndex);
     bool passesChance (int patternIndex, int step);
 
-    Arrangement arrangement;
+    Arrangement arrangement; // only the playing patterns
+    std::array<int, maxPatterns> sourceIndex {}; // each one's position in the full arrangement
     std::array<Cursor, maxPatterns> cursors {};
     std::array<int, maxPatterns> owed {}; // slots a pattern lost to a higher one and gets back
     std::array<int, maxPatterns> fills {};

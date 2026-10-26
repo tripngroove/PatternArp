@@ -64,10 +64,17 @@ Sequencer::Sequencer (const Arrangement& a)
 
 void Sequencer::setArrangement (const Arrangement& a)
 {
-    arrangement = a;
-    arrangement.numPatterns = std::clamp (arrangement.numPatterns, 0, maxPatterns);
-    for (int i = 0; i < arrangement.numPatterns; ++i)
-        sanitise (arrangement.patterns[static_cast<size_t> (i)]);
+    // Paused patterns are left out, as if they were not there.
+    arrangement.numPatterns = 0;
+    for (int i = 0; i < std::clamp (a.numPatterns, 0, maxPatterns); ++i)
+    {
+        if (! a.patterns[static_cast<size_t> (i)].playing)
+            continue;
+        sourceIndex[static_cast<size_t> (arrangement.numPatterns)] = i;
+        auto& p = arrangement.patterns[static_cast<size_t> (arrangement.numPatterns++)];
+        p = a.patterns[static_cast<size_t> (i)];
+        sanitise (p);
+    }
 
     numFills = 0;
     for (int i = 0; i < arrangement.numPatterns; ++i)
@@ -205,7 +212,7 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
     const int owner = ownerOfSlot (slotIndex++);
 
     slot.start = nextStart;
-    slot.pattern = owner;
+    slot.pattern = owner < 0 ? -1 : sourceIndex[static_cast<size_t> (owner)];
     slot.step = -1;
     slot.numNotes = 0;
 
@@ -248,7 +255,7 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
             for (int r = 0; r < s.ratchet; ++r)
             {
                 slot.notes[static_cast<size_t> (slot.numNotes++)] = {
-                    nextStart + sub * r, std::max (sub * s.gate / 100.0, 0.001), note, s.velocity, owner
+                    nextStart + sub * r, std::max (sub * s.gate / 100.0, 0.001), note, s.velocity, slot.pattern
                 };
             }
         }
@@ -288,8 +295,16 @@ void Sequencer::fastForwardTo (double beat)
 
 LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots)
 {
+    // Percent chances are left out: the loop is measured as if every such step plays, so a
+    // pattern with a little randomness still shows its underlying length.
+    Arrangement certain = arrangement;
+    for (auto& p : certain.patterns)
+        for (auto& s : p.steps)
+            if (s.chance > 0)
+                s.chance = 100;
+
     LoopInfo info;
-    Sequencer sequencer (arrangement);
+    Sequencer sequencer (certain);
     const auto& a = sequencer.arrangement; // sanitised copy
     if (a.numPatterns == 0)
         return info;
@@ -314,8 +329,6 @@ LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots)
         for (int s = 0; s < p.length; ++s)
         {
             const int chance = p.steps[static_cast<size_t> (s)].chance;
-            if (chance > 0 && chance < 100)
-                return info; // percent chances never repeat exactly
             if (chance < 0)
                 chanceCycle = std::lcm (chanceCycle, static_cast<std::int64_t> (-chance));
         }

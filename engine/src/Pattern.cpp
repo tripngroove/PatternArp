@@ -149,7 +149,7 @@ Arrangement::Arrangement()
 bool Arrangement::usesMidiIn() const
 {
     for (int i = 0; i < numPatterns; ++i)
-        if (patterns[static_cast<size_t> (i)].noteSource == NoteSource::midiIn)
+        if (patterns[static_cast<size_t> (i)].playing && patterns[static_cast<size_t> (i)].noteSource == NoteSource::midiIn)
             return true;
     return false;
 }

@@ -60,6 +60,7 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
                                                                            juce::StringArray { "Select", "MIDI In" }, 0));
         pp.chanceMode = add (std::make_unique<juce::AudioParameterChoice> (id ("chancemode"), label ("Chance Mode"),
                                                                            juce::StringArray { "Rest", "Skip" }, 0));
+        pp.play = add (std::make_unique<juce::AudioParameterBool> (id ("play"), label ("Play"), true));
     }
 
     pushToParameters (arrangement);
@@ -79,6 +80,7 @@ PatternArpProcessor::ParameterSnapshot PatternArpProcessor::readParameters() con
         *v++ = pp.direction->getIndex();
         *v++ = pp.noteSource->getIndex();
         *v++ = pp.chanceMode->getIndex();
+        *v++ = pp.play->get() ? 1 : 0;
     }
     return values;
 }
@@ -96,6 +98,7 @@ void PatternArpProcessor::applyParameters (const ParameterSnapshot& values, Arra
         p.direction = static_cast<Direction> (v[3]);
         p.noteSource = static_cast<NoteSource> (v[4]);
         p.chanceMode = static_cast<ChanceMode> (v[5]);
+        p.playing = v[6] != 0;
         sanitise (p);
     }
 }
@@ -125,6 +128,7 @@ void PatternArpProcessor::pushToParameters (const Arrangement& a)
         setPlainValue (*pp.direction, static_cast<int> (p.direction));
         setPlainValue (*pp.noteSource, static_cast<int> (p.noteSource));
         setPlainValue (*pp.chanceMode, static_cast<int> (p.chanceMode));
+        setPlainValue (*pp.play, p.playing ? 1 : 0);
     }
 }
 
@@ -133,7 +137,7 @@ void PatternArpProcessor::setParameters (const ParameterSnapshot& values)
     const auto* v = values.data();
     for (auto& pp : patternParameters)
         for (auto* parameter : std::initializer_list<juce::RangedAudioParameter*> { pp.timing, pp.length, pp.period, pp.direction,
-                                                                                    pp.noteSource, pp.chanceMode })
+                                                                                    pp.noteSource, pp.chanceMode, pp.play })
             setPlainValue (*parameter, *v++);
 }
 

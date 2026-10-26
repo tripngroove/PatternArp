@@ -14,6 +14,7 @@ constexpr int tabHeight = 32;
 constexpr int graphHeight = 170;
 constexpr int keyboardHeight = 96;
 constexpr int defaultBoxWidth = 44;
+constexpr int titleWidth = 142;
 
 const char* directionName (int d)
 {
@@ -132,6 +133,7 @@ void PatternPanel::setPattern (const Pattern& newPattern, int newIndex, bool can
     graph.setPattern (pattern);
     keyboard.setNotes (pattern.enabledNotes, pattern.noteSource);
     keyboard.setColour (theme::patternColour (index));
+    updatePausedLook();
 
     newButton.setEnabled (canAdd);
     cloneButton.setEnabled (canAdd);
@@ -142,9 +144,18 @@ void PatternPanel::setPattern (const Pattern& newPattern, int newIndex, bool can
     repaint();
 }
 
+void PatternPanel::updatePausedLook()
+{
+    // A paused pattern stays editable but is drawn faded.
+    const float alpha = pattern.playing ? 1.0f : 0.45f;
+    for (auto* c : std::initializer_list<juce::Component*> { &timing, &length, &period, &direction, &graph, &keyboard })
+        c->setAlpha (alpha);
+}
+
 void PatternPanel::changed()
 {
     graph.setPattern (pattern);
+    updatePausedLook();
     repaint();
     if (onChange)
         onChange (pattern);
@@ -219,7 +230,8 @@ void PatternPanel::resized()
     auto area = getLocalBounds().reduced (margin).withTrimmedLeft (stripeWidth);
 
     auto header = area.removeFromTop (headerHeight);
-    header.removeFromLeft (108); // pattern title
+    playButton = header.withWidth (30).withSizeKeepingCentre (30, 30).withY (header.getY() + 22);
+    header.removeFromLeft (titleWidth); // play/pause and pattern title
 
     auto buttons = header.removeFromRight (230).removeFromTop (26);
     deleteButton.setBounds (buttons.removeFromRight (74));
@@ -254,10 +266,40 @@ void PatternPanel::paint (juce::Graphics& g)
     g.setColour (theme::ink.withAlpha (0.25f));
     g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
 
-    auto title = getLocalBounds().reduced (margin).withTrimmedLeft (stripeWidth + 6).withHeight (headerHeight).withWidth (100);
-    g.setColour (theme::ink);
+    // Play/pause: filled with the pattern colour, with pause bars, while playing; an outlined
+    // play triangle while paused.
+    {
+        const auto r = playButton.toFloat();
+        const bool hover = isMouseOver (true) && playButton.contains (getMouseXYRelative());
+        g.setColour (pattern.playing ? theme::patternColour (index) : (hover ? theme::hover : theme::panel));
+        g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (theme::ink);
+        g.drawRoundedRectangle (r, 4.0f, 1.5f);
+
+        const auto icon = r.withSizeKeepingCentre (12.0f, 12.0f);
+        g.setColour (pattern.playing ? juce::Colours::white : theme::ink);
+        if (pattern.playing)
+        {
+            g.fillRect (icon.withWidth (4.0f));
+            g.fillRect (icon.withTrimmedLeft (8.0f));
+        }
+        else
+        {
+            juce::Path p;
+            p.addTriangle (icon.getX() + 1.0f, icon.getY(), icon.getRight(), icon.getCentreY(), icon.getX() + 1.0f, icon.getBottom());
+            g.fillPath (p);
+        }
+    }
+
+    auto title = playButton.withX (playButton.getRight() + 10).withWidth (titleWidth - playButton.getWidth() - 10);
+    g.setColour (pattern.playing ? theme::ink : theme::inkMuted);
     g.setFont (theme::font (17.0f, true));
-    g.drawText ("PATTERN " + juce::String (index + 1), title.withTrimmedTop (22), juce::Justification::centredLeft);
+    g.drawText ("PATTERN " + juce::String (index + 1), title, juce::Justification::centredLeft);
+    if (! pattern.playing)
+    {
+        g.setFont (theme::font (12.0f));
+        g.drawText ("Paused", playButton.withWidth (titleWidth).translated (0, -24).withHeight (22), juce::Justification::bottomLeft);
+    }
 
     // Lane tabs. The active one is filled; Velocity and Gate show their default value.
     const auto active = graph.getLane();
@@ -312,6 +354,13 @@ void PatternPanel::mouseDown (const juce::MouseEvent& e)
         return;
 
     const auto pos = e.getPosition();
+    if (playButton.contains (pos))
+    {
+        pattern.playing = ! pattern.playing;
+        changed();
+        return;
+    }
+
     for (int i = 0; i < numLanes; ++i)
     {
         if (tabs[static_cast<size_t> (i)].contains (pos))

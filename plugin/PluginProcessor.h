@@ -73,9 +73,10 @@ private:
         juce::AudioParameterChoice* direction = nullptr;
         juce::AudioParameterChoice* noteSource = nullptr;
         juce::AudioParameterChoice* chanceMode = nullptr;
+        juce::AudioParameterBool* play = nullptr;
     };
 
-    static constexpr int parametersPerPattern = 6;
+    static constexpr int parametersPerPattern = 7;
     using ParameterSnapshot = std::array<int, maxPatterns * parametersPerPattern>;
 
     ParameterSnapshot readParameters() const;

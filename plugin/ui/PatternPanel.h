@@ -36,6 +36,7 @@ private:
     void timerCallback() override;
     void changed();
     void updateHoverButtons();
+    void updatePausedLook();
     void layoutTabs();
     void setDefault (Lane lane, int value);
 
@@ -47,7 +48,7 @@ private:
     NoteKeyboard keyboard;
 
     std::array<juce::Rectangle<int>, numLanes> tabs {};
-    juce::Rectangle<int> restButton, skipButton;
+    juce::Rectangle<int> restButton, skipButton, playButton;
     juce::Label defaultEditor;
 
     juce::TextButton newButton { "New" }, cloneButton { "Clone" }, deleteButton { "Delete" };

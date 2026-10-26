@@ -19,6 +19,7 @@ const juce::Identifier noteSource { "noteSource" };
 const juce::Identifier defaultVelocity { "defaultVelocity" };
 const juce::Identifier defaultGate { "defaultGate" };
 const juce::Identifier seed { "seed" };
+const juce::Identifier playing { "playing" };
 const juce::Identifier notes { "notes" };
 const juce::Identifier steps { "steps" };
 } // namespace ids
@@ -92,6 +93,7 @@ juce::ValueTree toValueTree (const Arrangement& a)
         child.setProperty (ids::defaultVelocity, p.defaultVelocity, nullptr);
         child.setProperty (ids::defaultGate, p.defaultGate, nullptr);
         child.setProperty (ids::seed, static_cast<juce::int64> (p.seed), nullptr);
+        child.setProperty (ids::playing, p.playing, nullptr);
         child.setProperty (ids::notes, enabledNotesToString (p.enabledNotes), nullptr);
         child.setProperty (ids::steps, stepsToString (p), nullptr);
         tree.appendChild (child, nullptr);
@@ -123,6 +125,7 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
         p.defaultVelocity = child.getProperty (ids::defaultVelocity, p.defaultVelocity);
         p.defaultGate = child.getProperty (ids::defaultGate, p.defaultGate);
         p.seed = static_cast<std::uint32_t> (static_cast<juce::int64> (child.getProperty (ids::seed, 1)));
+        p.playing = child.getProperty (ids::playing, true);
         p.enabledNotes = enabledNotesFromString (child.getProperty (ids::notes).toString());
         stepsFromString (child.getProperty (ids::steps).toString(), p);
         sanitise (p);

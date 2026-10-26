@@ -2,6 +2,8 @@
 
 #include "ui/Theme.h"
 
+#include <algorithm>
+
 namespace patternarp
 {
 
@@ -198,6 +200,11 @@ void PatternArpEditor::updatePreview()
         repeatsText = {};
         description = "No patterns";
     }
+    else if (std::none_of (shown.patterns.begin(), shown.patterns.begin() + shown.numPatterns, [] (const Pattern& pt) { return pt.playing; }))
+    {
+        repeatsText = "All patterns paused";
+        description = repeatsText;
+    }
     else if (loop.repeats)
     {
         repeatsText = "Repeats every " + juce::String (describeLength (loop.lengthBeats));
@@ -208,7 +215,7 @@ void PatternArpEditor::updatePreview()
     else
     {
         repeatsText = "Never repeats exactly";
-        description = "Random settings never repeat exactly; showing " + juce::String (describeLength (viewBeats));
+        description = "Random directions never repeat exactly; showing " + juce::String (describeLength (viewBeats));
     }
 
     preview.setNotes (render (shown, viewBeats, input), viewBeats, render (shown, exportBeats, input), exportBeats, description);

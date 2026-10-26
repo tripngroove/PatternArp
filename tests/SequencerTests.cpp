@@ -74,6 +74,22 @@ TEST_CASE ("the design doc example: two 1:1 patterns alternate")
     CHECK (loop.lengthBeats == Catch::Approx (3.0));
 }
 
+TEST_CASE ("a paused pattern is taken out of the rotation")
+{
+    auto paused = patternOf ({ E, F });
+    paused.playing = false;
+    const auto a = arrangementOf ({ patternOf ({ A, B, C }), paused, patternOf ({ C }) });
+
+    CHECK (firstNotes (a, 6) == std::vector<int> { A, C, B, C, C, C });
+    CHECK (owners (a, 4) == std::vector<int> { 0, 2, 0, 2 }); // indices still match the editor
+    CHECK (findLoop (a).lengthSlots == 6);
+
+    auto midiIn = patternOf ({ C });
+    midiIn.noteSource = NoteSource::midiIn;
+    midiIn.playing = false;
+    CHECK_FALSE (arrangementOf ({ patternOf ({ C }), midiIn }).usesMidiIn());
+}
+
 TEST_CASE ("Period n:m claims n of every m slots")
 {
     auto fill = patternOf ({ C });
@@ -213,11 +229,21 @@ TEST_CASE ("per-step lanes")
         CHECK (loop.lengthBeats == Catch::Approx (0.75)); // 60, 64, 60, (skip)
     }
 
-    SECTION ("percent chance is repeatable but never loops exactly")
+    SECTION ("percent chance is repeatable and left out of the loop length")
     {
+        const auto withoutChance = findLoop (arrangementOf ({ p }));
+        REQUIRE (withoutChance.repeats);
         p.steps[0].chance = 50;
-        CHECK (firstNotes (arrangementOf ({ p }), 16) == firstNotes (arrangementOf ({ p }), 16));
-        CHECK_FALSE (findLoop (arrangementOf ({ p })).repeats);
+
+        for (const auto mode : { ChanceMode::rest, ChanceMode::skip })
+        {
+            p.chanceMode = mode;
+            CHECK (firstNotes (arrangementOf ({ p }), 16) == firstNotes (arrangementOf ({ p }), 16));
+
+            const auto loop = findLoop (arrangementOf ({ p }));
+            CHECK (loop.repeats);
+            CHECK (loop.lengthBeats == Catch::Approx (withoutChance.lengthBeats));
+        }
     }
 }
 

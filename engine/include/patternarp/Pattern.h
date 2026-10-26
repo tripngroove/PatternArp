@@ -90,6 +90,8 @@ struct Pattern
 
     std::uint32_t seed = 1; // for random direction and percent chance
 
+    bool playing = true; // paused patterns are taken out of the rotation entirely
+
     bool isFill() const { return periodHits >= periodSlots; }
     bool operator== (const Pattern&) const = default;
 };
@@ -128,7 +130,7 @@ struct Arrangement
 
     Arrangement();
 
-    bool usesMidiIn() const;
+    bool usesMidiIn() const; // a playing pattern takes its notes from MIDI In
     bool operator== (const Arrangement&) const = default;
 };
 

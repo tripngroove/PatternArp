@@ -143,6 +143,13 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
         CHECK (before.noteOffs + after.noteOffs == static_cast<int> (before.noteOns.size()));
     }
 
+    SECTION ("pausing the only pattern silences it; input still passes through")
+    {
+        setParameter (*plugin, "p1_play", 0.0f);
+        playHead.playing = true;
+        CHECK (render (*plugin, playHead, chord, justUnderOneBeat).noteOns == std::vector<int> { 60, 64, 67 });
+    }
+
     SECTION ("automating Length shortens the pattern without losing steps")
     {
         playHead.playing = true;
