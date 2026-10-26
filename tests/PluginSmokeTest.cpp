@@ -107,7 +107,7 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
         playHead.playing = true;
         const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
 
-        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60, 62, 64, 65 });
+        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60, 64, 67, 64 });
         CHECK (out.controllers == 1);
     }
 
@@ -123,7 +123,7 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
         playHead.playing = true;
         const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
 
-        CHECK (out.noteOns == std::vector<int> { 60, 60, 64, 64 });
+        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 64 });
         CHECK (out.controllers == 1);
     }
 
@@ -131,7 +131,7 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
     {
         setParameter (*plugin, "p1_notesource", 1.0f);
         const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
-        CHECK (out.noteOns == std::vector<int> { 60, 60, 64, 64 });
+        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 64 });
     }
 
     SECTION ("releasing the keys stops a MIDI In pattern and every note gets an off")
@@ -160,11 +160,11 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
     {
         playHead.playing = true;
         setParameter (*plugin, "p1_length", 2.0f);
-        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 62, 60, 62 });
+        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 64, 60, 64 });
 
         setParameter (*plugin, "p1_length", 8.0f);
         playHead.ppq = 0.0;
-        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 62, 64, 65 });
+        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 64, 67, 64 });
     }
 
     plugin->releaseResources();

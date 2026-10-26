@@ -36,7 +36,7 @@ struct LoopInfo
 {
     bool repeats = false;      // false when random directions are used (percent chances are ignored)
     double lengthBeats = 0.0;  // when it repeats
-    std::int64_t lengthSlots = 0;
+    std::int64_t lengthSlots = 0; // 0 when the loop length was set by hand
 };
 
 
@@ -80,6 +80,11 @@ private:
 
     // Plays exactly one slot of the Period cycle (a skipped step still uses up its slot).
     Outcome playSlot (Slot& slot);
+    bool nextInCycle (Slot& slot);
+
+    // Starts the arrangement over at `beat` (used for loop lengths set by hand).
+    void startCycle (double beat);
+    double loopBeats() const { return static_cast<double> (arrangement.loopLength) / ticksPerBeat; }
 
     struct Cursor
     {
@@ -103,6 +108,7 @@ private:
     std::int64_t slotIndex = 0;
     std::int64_t fillCounter = 0;
     double nextStart = 0.0;
+    double cycleStart = 0.0;
     std::array<int, 128> inputNotes {}; // ascending
     int numInputNotes = 0;
 };

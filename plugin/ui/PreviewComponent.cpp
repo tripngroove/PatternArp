@@ -4,8 +4,17 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include <array>
+
 namespace patternarp
 {
+
+namespace
+{
+constexpr float padding = 10.0f; // keeps the first/last and highest/lowest notes off the frame
+constexpr float handleGrab = 8.0f;
+constexpr float tabWidth = 12.0f;
+} // namespace
 
 PreviewComponent::PreviewComponent()
 {
@@ -19,73 +28,205 @@ void PreviewComponent::setNotes (std::vector<SequencedNote> newNotes, double new
     beats = juce::jmax (0.25, newBeats);
     exportNotes = std::move (newExportNotes);
     exportBeats = juce::jmax (0.25, newExportBeats);
-    setTooltip (description + "\nDrag into your DAW to get it as a MIDI clip.");
+    setTooltip (description + "\nDrag the notes into your DAW to get them as a MIDI clip. Drag the handle to shorten the loop.");
     repaint();
+}
+
+void PreviewComponent::setLoop (double newHandleBeats, double newSnapBeats, const juce::String& newNaturalLabel)
+{
+    if (! draggingHandle)
+        handleBeats = juce::jlimit (0.0, beats, newHandleBeats);
+    snapBeats = juce::jmax (1.0 / ticksPerBeat, newSnapBeats);
+    naturalLabel = newNaturalLabel;
+    repaint();
+}
+
+void PreviewComponent::setPlayhead (double beat)
+{
+    if (std::abs (beat - playhead) > 1.0e-4)
+    {
+        playhead = beat;
+        repaint();
+    }
+}
+
+juce::Rectangle<float> PreviewComponent::boxArea() const
+{
+    return getLocalBounds().toFloat().withTrimmedTop (static_cast<float> (rulerHeight)).reduced (1.0f);
+}
+
+juce::Rectangle<float> PreviewComponent::rollArea() const
+{
+    return boxArea().reduced (padding, padding * 0.8f);
+}
+
+float PreviewComponent::beatToX (double beat) const
+{
+    const auto roll = rollArea();
+    return roll.getX() + static_cast<float> (beat / beats) * roll.getWidth();
+}
+
+juce::String PreviewComponent::label() const
+{
+    return isShortened() ? "Repeats every " + juce::String (describeLength (handleBeats)) : naturalLabel;
+}
+
+bool PreviewComponent::isOverHandle (juce::Point<float> p) const
+{
+    return std::abs (p.x - beatToX (handleBeats)) < handleGrab;
 }
 
 void PreviewComponent::paint (juce::Graphics& g)
 {
-    const auto area = getLocalBounds().toFloat().reduced (1.0f);
+    const auto box = boxArea();
+    const auto roll = rollArea();
     g.setColour (theme::panel);
-    g.fillRect (area);
+    g.fillRect (box);
 
     // Beat lines, with stronger bar lines.
-    const float pxPerBeat = area.getWidth() / static_cast<float> (beats);
-    for (int b = 1; b < static_cast<int> (std::ceil (beats)); ++b)
+    const float pxPerBeat = roll.getWidth() / static_cast<float> (beats);
+    for (int b = 0; b <= static_cast<int> (std::floor (beats + 1.0e-6)); ++b)
     {
         g.setColour (b % 4 == 0 ? theme::gridLine : theme::gridLine.withAlpha (0.35f));
-        g.drawVerticalLine (juce::roundToInt (area.getX() + pxPerBeat * static_cast<float> (b)), area.getY(), area.getBottom());
+        g.drawVerticalLine (juce::roundToInt (roll.getX() + pxPerBeat * static_cast<float> (b)), box.getY(), box.getBottom());
     }
 
     if (notes.empty())
     {
         g.setColour (theme::inkMuted);
         g.setFont (theme::font (14.0f));
-        g.drawText ("No notes", area, juce::Justification::centred);
+        g.drawText ("No notes", roll, juce::Justification::centred);
     }
     else
     {
-        int low = 127, high = 0;
+        // One row per pitch that is used (like a folded piano roll), so notes stay chunky
+        // even when they are far apart.
+        std::array<int, 128> rowOf {};
+        int rows = 0;
         for (const auto& n : notes)
-        {
-            low = juce::jmin (low, n.note);
-            high = juce::jmax (high, n.note);
-        }
-        low -= 1;
-        high += 1;
-        const float rowHeight = juce::jmin (10.0f, area.getHeight() / static_cast<float> (high - low + 1));
-        const float top = area.getCentreY() - rowHeight * static_cast<float> (high - low + 1) / 2.0f;
+            rowOf[static_cast<size_t> (n.note)] = 1;
+        for (int pitch = 0; pitch < 128; ++pitch)
+            if (rowOf[static_cast<size_t> (pitch)] != 0)
+                rowOf[static_cast<size_t> (pitch)] = rows++;
+
+        const float rowHeight = juce::jmin (18.0f, roll.getHeight() / static_cast<float> (rows));
+        const float bottom = roll.getCentreY() + rowHeight * static_cast<float> (rows) / 2.0f;
 
         for (const auto& n : notes)
         {
-            const auto r = juce::Rectangle<float> (area.getX() + static_cast<float> (n.start) * pxPerBeat,
-                                                   top + static_cast<float> (high - n.note) * rowHeight,
-                                                   juce::jmax (2.0f, static_cast<float> (n.length) * pxPerBeat - 1.0f), rowHeight - 1.0f);
-            g.setColour (theme::patternColour (n.pattern).withAlpha (0.4f + 0.6f * static_cast<float> (n.velocity) / 127.0f));
-            g.fillRect (r);
+            const auto row = static_cast<float> (rowOf[static_cast<size_t> (n.note)]);
+            const auto r = juce::Rectangle<float> (roll.getX() + static_cast<float> (n.start) * pxPerBeat,
+                                                   bottom - (row + 1.0f) * rowHeight,
+                                                   juce::jmax (3.0f, static_cast<float> (n.length) * pxPerBeat - 1.0f),
+                                                   juce::jmax (2.0f, rowHeight - 2.0f));
+            const auto colour = theme::patternColour (n.pattern);
+            g.setColour (colour.withAlpha (0.45f + 0.55f * static_cast<float> (n.velocity) / 127.0f));
+            g.fillRoundedRectangle (r, 1.5f);
+            g.setColour (colour.darker (0.4f));
+            g.drawRoundedRectangle (r, 1.5f, 0.75f);
         }
     }
 
+    // Past a shortened loop the notes never play: fade them out.
+    const float hx = beatToX (handleBeats);
+    if (isShortened())
+    {
+        g.setColour (theme::background.withAlpha (0.75f));
+        g.fillRect (box.withLeft (hx));
+    }
+
+    if (playhead >= 0.0 && playhead <= beats)
+    {
+        g.setColour (theme::danger);
+        g.fillRect (juce::Rectangle<float> (beatToX (playhead) - 0.5f, box.getY(), 1.0f, box.getHeight()));
+    }
+
     g.setColour (theme::ink);
-    g.drawRect (area, 2.0f);
+    g.drawRect (box, 1.0f);
+
+    // Loop handle: a line through the roll with a grab tab and the repeat label in the ruler.
+    g.setColour (theme::ink);
+    g.fillRect (juce::Rectangle<float> (hx - 0.5f, 4.0f, 1.0f, box.getBottom() - 4.0f));
+    const auto tab = juce::Rectangle<float> (hx - tabWidth / 2.0f, 2.0f, tabWidth, static_cast<float> (rulerHeight) - 4.0f);
+    g.fillRoundedRectangle (tab, 3.0f);
+    g.setColour (theme::panel);
+    for (int i = -1; i <= 1; ++i)
+        g.drawHorizontalLine (juce::roundToInt (tab.getCentreY()) + i * 3, tab.getX() + 3.0f, tab.getRight() - 3.0f);
+
+    const auto text = label();
+    const auto font = theme::font (15.0f, true);
+    const float textWidth = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (font, text)) + 4.0f;
+    const bool fitsRight = tab.getRight() + 8.0f + textWidth < static_cast<float> (getWidth());
+    const auto textArea = fitsRight ? juce::Rectangle<float> (tab.getRight() + 8.0f, 0.0f, textWidth, static_cast<float> (rulerHeight))
+                                    : juce::Rectangle<float> (tab.getX() - 8.0f - textWidth, 0.0f, textWidth, static_cast<float> (rulerHeight));
+    g.setFont (font);
+    g.setColour (theme::ink);
+    g.drawText (text, textArea, fitsRight ? juce::Justification::centredLeft : juce::Justification::centredRight);
+}
+
+void PreviewComponent::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (isOverHandle (e.position) ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::DraggingHandCursor);
+}
+
+void PreviewComponent::mouseDown (const juce::MouseEvent& e)
+{
+    draggingHandle = isOverHandle (e.position);
+    draggingOut = false;
+}
+
+void PreviewComponent::mouseDrag (const juce::MouseEvent& e)
+{
+    if (draggingHandle)
+    {
+        // Snap to the grid; near the right end the loop goes back to its natural length.
+        const auto roll = rollArea();
+        const double raw = (e.position.x - roll.getX()) / roll.getWidth() * beats;
+        double snapped = juce::jmax (snapBeats, std::round (raw / snapBeats) * snapBeats);
+        if (snapped >= beats - 1.0e-6)
+            snapped = beats;
+
+        if (std::abs (snapped - handleBeats) > 1.0e-9)
+        {
+            handleBeats = snapped;
+            repaint();
+            if (onLoopChange)
+                onLoopChange (isShortened() ? handleBeats : 0.0);
+        }
+        return;
+    }
+
+    if (draggingOut || e.getDistanceFromDragStart() < 6 || exportNotes.empty())
+        return;
+
+    draggingOut = true;
+    const auto file = writeMidiFile();
+    juce::DragAndDropContainer::performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this,
+                                                                [this] { draggingOut = false; });
+}
+
+void PreviewComponent::mouseUp (const juce::MouseEvent&)
+{
+    draggingOut = false;
+    draggingHandle = false;
 }
 
 juce::File PreviewComponent::writeMidiFile() const
 {
-    constexpr int ticksPerBeat = 960;
+    constexpr int ticksPerQuarter = 960;
     juce::MidiMessageSequence track;
     for (const auto& n : exportNotes)
     {
-        const double on = n.start * ticksPerBeat;
-        const double off = (n.start + n.length) * ticksPerBeat;
+        const double on = n.start * ticksPerQuarter;
+        const double off = (n.start + n.length) * ticksPerQuarter;
         track.addEvent (juce::MidiMessage::noteOn (1, n.note, static_cast<juce::uint8> (n.velocity)), on);
         track.addEvent (juce::MidiMessage::noteOff (1, n.note), off);
     }
-    track.addEvent (juce::MidiMessage::endOfTrack(), exportBeats * ticksPerBeat);
+    track.addEvent (juce::MidiMessage::endOfTrack(), exportBeats * ticksPerQuarter);
     track.updateMatchedPairs();
 
     juce::MidiFile file;
-    file.setTicksPerQuarterNote (ticksPerBeat);
+    file.setTicksPerQuarterNote (ticksPerQuarter);
     file.addTrack (track);
 
     auto out = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("PatternArp.mid");
@@ -93,22 +234,6 @@ juce::File PreviewComponent::writeMidiFile() const
     if (juce::FileOutputStream stream (out); stream.openedOk())
         file.writeTo (stream);
     return out;
-}
-
-void PreviewComponent::mouseDrag (const juce::MouseEvent& e)
-{
-    if (dragging || e.getDistanceFromDragStart() < 6 || exportNotes.empty())
-        return;
-
-    dragging = true;
-    const auto file = writeMidiFile();
-    juce::DragAndDropContainer::performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this,
-                                                                [this] { dragging = false; });
-}
-
-void PreviewComponent::mouseUp (const juce::MouseEvent&)
-{
-    dragging = false;
 }
 
 } // namespace patternarp

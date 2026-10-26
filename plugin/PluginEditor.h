@@ -28,6 +28,7 @@ private:
     void layoutContent();
     void updatePreview();
     void showSettingsMenu();
+    void setLoopLength (double beats); // 0 = natural length
     juce::Rectangle<int> titleArea() const;
 
     void edit (int index, const Pattern& pattern);
@@ -39,7 +40,7 @@ private:
     Arrangement shown;
     std::bitset<128> shownInput;
     bool previewDirty = true;
-    juce::String repeatsText;
+    double previewLoopBeats = 0.0; // how often playback repeats, 0 if never
 
     juce::TooltipWindow tooltips { this, 500 };
     juce::ToggleButton latchButton { "Latch" };

@@ -9,6 +9,7 @@ namespace ids
 {
 const juce::Identifier arrangement { "Arrangement" };
 const juce::Identifier pattern { "Pattern" };
+const juce::Identifier loopLength { "loopLength" };
 const juce::Identifier timing { "timing" };
 const juce::Identifier length { "length" };
 const juce::Identifier periodHits { "periodHits" };
@@ -78,6 +79,7 @@ void stepsFromString (const juce::String& text, Pattern& p)
 juce::ValueTree toValueTree (const Arrangement& a)
 {
     juce::ValueTree tree (ids::arrangement);
+    tree.setProperty (ids::loopLength, a.loopLength, nullptr);
 
     for (int i = 0; i < a.numPatterns; ++i)
     {
@@ -108,6 +110,7 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
 
     Arrangement loaded;
     loaded.numPatterns = 0;
+    loaded.loopLength = juce::jmax (0, static_cast<int> (tree.getProperty (ids::loopLength, 0)));
 
     for (const auto& child : tree)
     {

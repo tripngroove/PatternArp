@@ -65,6 +65,7 @@ Sequencer::Sequencer (const Arrangement& a)
 void Sequencer::setArrangement (const Arrangement& a)
 {
     // Paused patterns are left out, as if they were not there.
+    arrangement.loopLength = std::max (0, a.loopLength);
     arrangement.numPatterns = 0;
     for (int i = 0; i < std::clamp (a.numPatterns, 0, maxPatterns); ++i)
     {
@@ -102,11 +103,17 @@ void Sequencer::setInputNotes (const int* notes, int count)
 
 void Sequencer::restart()
 {
+    startCycle (0.0);
+}
+
+void Sequencer::startCycle (double beat)
+{
     cursors = {};
     owed = {};
     slotIndex = 0;
     fillCounter = 0;
-    nextStart = 0.0;
+    cycleStart = beat;
+    nextStart = beat;
 }
 
 int Sequencer::ownerOfSlot (std::int64_t slot)
@@ -270,6 +277,35 @@ bool Sequencer::next (Slot& slot)
     if (arrangement.numPatterns == 0)
         return false;
 
+    const double loop = loopBeats();
+    if (loop <= 0.0)
+        return nextInCycle (slot);
+
+    const double cycleEnd = cycleStart + loop;
+    if (nextStart >= cycleEnd - epsilon)
+        startCycle (cycleEnd);
+
+    nextInCycle (slot);
+
+    // Nothing may sound past the end of the loop: cut the slot (and its ratchets) there.
+    const double end = cycleStart + loop;
+    slot.length = std::min (slot.length, end - slot.start);
+    int kept = 0;
+    for (int i = 0; i < slot.numNotes; ++i)
+    {
+        auto n = slot.notes[static_cast<size_t> (i)];
+        if (n.start >= end - epsilon)
+            continue;
+        n.length = std::min (n.length, end - n.start);
+        slot.notes[static_cast<size_t> (kept++)] = n;
+    }
+    slot.numNotes = kept;
+    nextStart = std::min (nextStart, end);
+    return true;
+}
+
+bool Sequencer::nextInCycle (Slot& slot)
+{
     // Skipped steps take no time, so keep going until a slot takes some (with a guard in
     // case every step is set to skip).
     for (int attempt = 0; attempt < 256; ++attempt)
@@ -287,6 +323,11 @@ bool Sequencer::next (Slot& slot)
 
 void Sequencer::fastForwardTo (double beat)
 {
+    // With a set loop length, jump straight to the loop pass that contains `beat`.
+    if (const double loop = loopBeats(); loop > 0.0)
+        if (const double pass = std::floor ((beat + epsilon) / loop) * loop; pass > cycleStart + epsilon)
+            startCycle (pass);
+
     Slot slot;
     while (nextStart < beat - epsilon && next (slot))
     {
@@ -304,6 +345,13 @@ LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots)
                 s.chance = 100;
 
     LoopInfo info;
+    if (arrangement.loopLength > 0)
+    {
+        info.repeats = true;
+        info.lengthBeats = static_cast<double> (arrangement.loopLength) / ticksPerBeat;
+        return info;
+    }
+
     Sequencer sequencer (certain);
     const auto& a = sequencer.arrangement; // sanitised copy
     if (a.numPatterns == 0)

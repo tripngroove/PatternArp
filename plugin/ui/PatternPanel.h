@@ -25,7 +25,7 @@ public:
     std::function<void (const Pattern&)> onChange;
     std::function<void()> onNew, onClone, onDelete;
 
-    static constexpr int preferredHeight = 408;
+    static constexpr int preferredHeight = 390;
 
     void paint (juce::Graphics& g) override;
     void resized() override;

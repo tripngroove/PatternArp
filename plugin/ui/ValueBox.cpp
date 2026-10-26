@@ -67,7 +67,7 @@ void ValueBox::paint (juce::Graphics& g)
     g.setColour (isMouseOver (true) ? theme::hover : theme::panel);
     g.fillRect (box);
     g.setColour (theme::ink);
-    g.drawRect (box, 2);
+    g.drawRect (box, 1);
 
     auto arrows = arrowArea();
     g.drawVerticalLine (arrows.getX(), static_cast<float> (box.getY()), static_cast<float> (box.getBottom()));

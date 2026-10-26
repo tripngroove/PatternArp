@@ -227,7 +227,7 @@ void LaneGraph::paint (juce::Graphics& g)
         g.setColour (belowLine ? theme::fill.withMultipliedSaturation (0.4f) : theme::fill);
         g.fillRect (bar);
         g.setColour (theme::ink);
-        g.drawRect (bar, 1.5f);
+        g.drawRect (bar, 1.0f);
 
         if (stepWidth > 34.0f)
         {
@@ -271,7 +271,7 @@ void LaneGraph::paint (juce::Graphics& g)
     }
 
     g.setColour (theme::ink);
-    g.drawRect (area, 2.0f);
+    g.drawRect (area, 1.0f);
 }
 
 void LaneGraph::applyAt (juce::Point<float> position)

@@ -319,6 +319,7 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         restartFreeRun = true;
         engine.process (*hostPpq, *hostPpq + blockBeats, events);
         addEvents (*hostPpq, samplesPerBeat, numSamples, output);
+        playPosition.store (*hostPpq, std::memory_order_relaxed);
     }
     else if (consumeNotes && engine.hasInput())
     {
@@ -329,14 +330,19 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         }
         engine.process (freeRunPpq, freeRunPpq + blockBeats, events);
         addEvents (freeRunPpq, samplesPerBeat, numSamples, output);
+        playPosition.store (freeRunPpq, std::memory_order_relaxed);
         freeRunPpq += blockBeats;
     }
-    else if (! restartFreeRun)
+    else
     {
-        // Keys released while free-running: end the notes now.
-        engine.stopAll (0.0, events);
-        addEvents (0.0, samplesPerBeat, numSamples, output);
-        restartFreeRun = true;
+        if (! restartFreeRun)
+        {
+            // Keys released while free-running: end the notes now.
+            engine.stopAll (0.0, events);
+            addEvents (0.0, samplesPerBeat, numSamples, output);
+            restartFreeRun = true;
+        }
+        playPosition.store (-1.0, std::memory_order_relaxed);
     }
     wasPlaying = isPlaying;
 

@@ -10,7 +10,7 @@ namespace patternarp
 namespace
 {
 constexpr int topBarHeight = 56;
-constexpr int previewHeight = 96;
+constexpr int previewHeight = PreviewComponent::rulerHeight + 112;
 constexpr int gap = 12;
 constexpr int addButtonHeight = 44;
 
@@ -21,6 +21,7 @@ constexpr double nonRepeatingBeats = 16.0;
 // Settings keys.
 const char* const exportEveryNoteKey = "exportEveryNote";
 const char* const exportWholeBarsKey = "exportWholeBars";
+const char* const loopSnapKey = "loopSnap"; // "timing" or "bars"
 
 // How many times to repeat a loop so it ends on a bar line (4/4), or 1 if that would make
 // the clip longer than `maxBeats`.
@@ -54,6 +55,7 @@ PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
     latchButton.setColour (juce::ToggleButton::tickDisabledColourId, theme::inkMuted);
     latchButton.setTooltip ("MIDI In patterns keep playing the last chord after you let go");
     addAndMakeVisible (latchButton);
+    preview.onLoopChange = [this] (double beats) { setLoopLength (beats); };
     addAndMakeVisible (preview);
 
     addButton.setColour (juce::TextButton::buttonColourId, theme::panel);
@@ -73,14 +75,13 @@ PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
     setSize (1000, 880);
 
     updatePreview();
-    startTimerHz (15);
+    startTimerHz (30);
 }
 
 void PatternArpEditor::paint (juce::Graphics& g)
 {
     g.fillAll (theme::background);
 
-    auto bar = getLocalBounds().removeFromTop (topBarHeight).reduced (gap, 0);
     g.setColour (theme::ink);
     g.setFont (theme::font (22.0f, true));
     g.drawText ("PatternArp", titleArea(), juce::Justification::centredLeft);
@@ -91,10 +92,6 @@ void PatternArpEditor::paint (juce::Graphics& g)
     p.addTriangle (caret.getX(), caret.getY(), caret.getRight(), caret.getY(), caret.getCentreX(), caret.getBottom());
     g.setColour (theme::inkMuted);
     g.fillPath (p);
-    bar.removeFromLeft (200);
-    g.setColour (theme::ink);
-    g.setFont (theme::font (17.0f));
-    g.drawText (repeatsText, bar, juce::Justification::centred);
 }
 
 juce::Rectangle<int> PatternArpEditor::titleArea() const
@@ -138,6 +135,18 @@ void PatternArpEditor::showSettingsMenu()
         settings->setValue (exportWholeBarsKey, ! wholeBars);
         previewDirty = true;
     });
+    const bool snapToBars = settings->getValue (loopSnapKey, "timing") == "bars";
+    juce::PopupMenu snap;
+    snap.addItem ("Smallest pattern timing", true, ! snapToBars, [this] {
+        settings->setValue (loopSnapKey, "timing");
+        previewDirty = true;
+    });
+    snap.addItem ("Bars", true, snapToBars, [this] {
+        settings->setValue (loopSnapKey, "bars");
+        previewDirty = true;
+    });
+    menu.addSubMenu ("Loop handle snaps to", snap);
+
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (
         localAreaToGlobal (titleArea().withTrimmedTop (topBarHeight - 8))));
 }
@@ -270,34 +279,41 @@ void PatternArpEditor::updatePreview()
     if (input.empty() && shown.usesMidiIn())
         input = { 60, 64, 67 };
 
-    const auto loop = findLoop (shown);
-    const double loopBeats = loop.repeats ? loop.lengthBeats : nonRepeatingBeats;
-    const double viewBeats = juce::jmin (loopBeats, maxPreviewBeats);
-    double exportBeats = juce::jmin (loopBeats, maxExportBeats);
-    if (loop.repeats && settings->getBoolValue (exportWholeBarsKey, true))
-        exportBeats = loopBeats * repeatsToFillBars (loopBeats, maxExportBeats);
+    // The preview always shows the natural loop, so the loop handle can be dragged back out.
+    Arrangement natural = shown;
+    natural.loopLength = 0;
+    const auto naturalLoop = findLoop (natural);
+    const double viewBeats = juce::jmin (naturalLoop.repeats ? naturalLoop.lengthBeats : nonRepeatingBeats, maxPreviewBeats);
 
-    juce::String description;
+    const auto loop = findLoop (shown); // the loop length set by hand, if there is one
+    previewLoopBeats = loop.repeats ? loop.lengthBeats : 0.0;
+
+    double exportBeats = loop.repeats ? juce::jmin (loop.lengthBeats, maxExportBeats) : nonRepeatingBeats;
+    if (loop.repeats && settings->getBoolValue (exportWholeBarsKey, true))
+        exportBeats = loop.lengthBeats * repeatsToFillBars (loop.lengthBeats, maxExportBeats);
+
+    const bool anyPlaying = std::any_of (shown.patterns.begin(), shown.patterns.begin() + shown.numPatterns,
+                                         [] (const Pattern& pt) { return pt.playing; });
+
+    juce::String label, description;
     if (shown.numPatterns == 0)
     {
-        repeatsText = {};
         description = "No patterns";
     }
-    else if (std::none_of (shown.patterns.begin(), shown.patterns.begin() + shown.numPatterns, [] (const Pattern& pt) { return pt.playing; }))
+    else if (! anyPlaying)
     {
-        repeatsText = "All patterns paused";
-        description = repeatsText;
+        label = description = "All patterns paused";
     }
     else if (loop.repeats)
     {
-        repeatsText = "Repeats every " + juce::String (describeLength (loop.lengthBeats));
+        label = "Repeats every " + juce::String (describeLength (loop.lengthBeats));
         description = "Loop length: " + juce::String (describeLength (loop.lengthBeats));
-        if (viewBeats < loopBeats)
+        if (viewBeats < (naturalLoop.repeats ? naturalLoop.lengthBeats : viewBeats))
             description << " (showing the first " << describeLength (viewBeats) << ")";
     }
     else
     {
-        repeatsText = "Never repeats exactly";
+        label = "Never repeats exactly";
         description = "Random directions never repeat exactly; showing " + juce::String (describeLength (viewBeats));
     }
 
@@ -314,8 +330,27 @@ void PatternArpEditor::updatePreview()
                 if (step.chance > 0)
                     step.chance = 100;
 
-    preview.setNotes (render (shown, viewBeats, input), viewBeats, render (exported, exportBeats, input), exportBeats, description);
-    repaint (getLocalBounds().removeFromTop (topBarHeight));
+    preview.setNotes (render (natural, viewBeats, input), viewBeats, render (exported, exportBeats, input), exportBeats, description);
+
+    // The handle snaps to bars or to the shortest step of any playing pattern.
+    double snap = 4.0;
+    if (settings->getValue (loopSnapKey, "timing") != "bars")
+    {
+        snap = 1.0;
+        for (int i = 0; i < shown.numPatterns; ++i)
+            if (const auto& pt = shown.patterns[static_cast<size_t> (i)]; pt.playing)
+                snap = juce::jmin (snap, beatsPerStep (pt.timing));
+    }
+
+    const double handle = shown.loopLength > 0 ? juce::jmin (viewBeats, previewLoopBeats) : viewBeats;
+    preview.setLoop (handle, snap, label);
+}
+
+void PatternArpEditor::setLoopLength (double beats)
+{
+    shown.loopLength = beats > 0.0 ? static_cast<int> (std::lround (beats * ticksPerBeat)) : 0;
+    arp.setArrangement (shown);
+    previewDirty = true;
 }
 
 void PatternArpEditor::timerCallback()
@@ -323,6 +358,12 @@ void PatternArpEditor::timerCallback()
     refreshFromProcessor();
     if (previewDirty)
         updatePreview();
+
+    // The playhead wraps with the loop.
+    double position = arp.getPlayPosition();
+    if (position >= 0.0 && previewLoopBeats > 0.0)
+        position = std::fmod (position, previewLoopBeats);
+    preview.setPlayhead (position);
 }
 
 } // namespace patternarp

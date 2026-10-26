@@ -74,6 +74,63 @@ TEST_CASE ("the design doc example: two 1:1 patterns alternate")
     CHECK (loop.lengthBeats == Catch::Approx (3.0));
 }
 
+TEST_CASE ("a loop length set by hand starts everything over")
+{
+    auto a = arrangementOf ({ patternOf ({ A, B, C }), patternOf ({ E, F }) });
+    a.loopLength = 2 * ticksPerBeat; // natural loop is 3 beats
+
+    const std::vector<int> firstPass { A, E, B, F, C, E, A, F };
+    auto twice = firstPass;
+    twice.insert (twice.end(), firstPass.begin(), firstPass.end());
+    CHECK (firstNotes (a, 16) == twice);
+
+    const auto loop = findLoop (a);
+    CHECK (loop.repeats);
+    CHECK (loop.lengthBeats == Catch::Approx (2.0));
+
+    SECTION ("notes are cut at the loop end")
+    {
+        auto p = patternOf ({ C, E });
+        p.timing = Timing::quarter;
+        auto b = arrangementOf ({ p });
+        b.loopLength = 3 * ticksPerBeat / 2; // 1.5 beats
+
+        const auto notes = render (b, 3.0);
+        REQUIRE (notes.size() == 4);
+        CHECK (notes[0].start == Catch::Approx (0.0));
+        CHECK (notes[1].start == Catch::Approx (1.0));
+        CHECK (notes[1].length == Catch::Approx (0.5));
+        CHECK (notes[2].start == Catch::Approx (1.5));
+        CHECK (notes[2].note == C);
+        CHECK (notes[3].note == E);
+    }
+
+    SECTION ("jumping ahead lands on the same notes")
+    {
+        const auto all = render (a, 12.0);
+        Sequencer sequencer (a);
+        sequencer.fastForwardTo (7.5);
+
+        std::vector<SequencedNote> after;
+        Slot slot;
+        while (sequencer.position() < 12.0 - 1.0e-9 && sequencer.next (slot))
+            for (int i = 0; i < slot.numNotes; ++i)
+                after.push_back (slot.notes[static_cast<size_t> (i)]);
+
+        std::vector<SequencedNote> expected;
+        for (const auto& n : all)
+            if (n.start >= 7.5 - 1.0e-9)
+                expected.push_back (n);
+
+        REQUIRE (after.size() == expected.size());
+        for (size_t i = 0; i < after.size(); ++i)
+        {
+            CHECK (after[i].start == Catch::Approx (expected[i].start));
+            CHECK (after[i].note == expected[i].note);
+        }
+    }
+}
+
 TEST_CASE ("a paused pattern is taken out of the rotation")
 {
     auto paused = patternOf ({ E, F });

@@ -10,11 +10,11 @@
 namespace patternarp
 {
 
-// The Notes Enabled strip: a Select | MIDI In switch, a piano keyboard and a scrollbar.
+// The Notes Enabled strip: a Select | MIDI In switch and a piano keyboard from C1 to C8.
 //
 // In Select mode clicking (or dragging across) keys turns them on and off. In MIDI In mode
-// the keyboard only shows the notes being played into the plugin. The scrollbar scrolls
-// across C1..C8; dragging its ends, or the scroll wheel over the keys, zooms.
+// the keyboard only shows the notes being played into the plugin. It starts fully zoomed
+// out; the scroll wheel zooms in around the mouse and sideways scrolling moves along.
 class NoteKeyboard final : public juce::Component
 {
 public:
@@ -39,8 +39,6 @@ public:
 private:
     juce::Rectangle<int> switchArea() const;
     juce::Rectangle<int> keysArea() const;
-    juce::Rectangle<int> scrollArea() const;
-    juce::Rectangle<float> thumbArea() const;
 
     // The view is measured in white keys counted from C1.
     float whiteKeyWidth() const;
@@ -53,21 +51,12 @@ private:
     NoteSource source = NoteSource::select;
     juce::Colour colour;
 
-    float viewFirst = 21.0f; // C4
-    float viewCount = 15.0f; // two octaves
+    float viewFirst = 0.0f;
+    float viewCount = 50.0f; // all of C1..C8
 
-    enum class Drag
-    {
-        none,
-        keys,
-        thumb,
-        thumbStart,
-        thumbEnd
-    };
-    Drag drag = Drag::none;
+    bool paintingKeys = false;
     bool paintValue = true;
     int lastPainted = -1;
-    float dragStartFirst = 0.0f, dragStartCount = 0.0f;
 };
 
 } // namespace patternarp

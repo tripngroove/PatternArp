@@ -11,6 +11,9 @@ namespace patternarp
 constexpr int maxSteps = 16;
 constexpr int maxPatterns = 8;
 
+// Loop lengths are counted in 24ths of a beat, which every Timing divides into evenly.
+constexpr int ticksPerBeat = 24;
+
 // Step length of a pattern, shortest first.
 enum class Timing
 {
@@ -102,7 +105,7 @@ struct Pattern
     bool operator== (const Pattern&) const = default;
 };
 
-// A new pattern: C major from C4 to C5 and a rising Notes shape, so it sounds right away.
+// A new pattern: a C major triad (C4 E4 G4) played up and down, so it sounds right away.
 Pattern makeDefaultPattern();
 
 // Changes the number of steps, re-bucketing every lane so its shape is kept: smooth lanes
@@ -133,6 +136,10 @@ struct Arrangement
 {
     std::array<Pattern, maxPatterns> patterns {};
     int numPatterns = 0;
+
+    // When above 0, everything starts over every loopLength ticks (see ticksPerBeat),
+    // cutting the natural loop short. 0 plays the natural loop.
+    int loopLength = 0;
 
     Arrangement();
 

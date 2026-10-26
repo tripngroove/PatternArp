@@ -12,7 +12,7 @@ constexpr int stripeWidth = 6;
 constexpr int headerHeight = 56;
 constexpr int tabHeight = 32;
 constexpr int graphHeight = 170;
-constexpr int keyboardHeight = 96;
+constexpr int keyboardHeight = 78;
 constexpr int defaultBoxWidth = 44;
 constexpr int titleWidth = 142;
 
@@ -280,7 +280,7 @@ void PatternPanel::paint (juce::Graphics& g)
         g.setColour (pattern.playing ? theme::patternColour (index) : (hover ? theme::hover : theme::panel));
         g.fillRoundedRectangle (r, 4.0f);
         g.setColour (theme::ink);
-        g.drawRoundedRectangle (r, 4.0f, 1.5f);
+        g.drawRoundedRectangle (r, 4.0f, 1.0f);
 
         const auto icon = r.withSizeKeepingCentre (12.0f, 12.0f);
         g.setColour (pattern.playing ? juce::Colours::white : theme::ink);
@@ -318,7 +318,7 @@ void PatternPanel::paint (juce::Graphics& g)
         g.setColour (on ? theme::fill : theme::panel);
         g.fillRect (tab);
         g.setColour (theme::ink);
-        g.drawRect (tab, on ? 2 : 1);
+        g.drawRect (tab, 1);
         g.setFont (theme::font (15.0f, on));
 
         auto text = tab.reduced (12, 0);
@@ -345,7 +345,7 @@ void PatternPanel::paint (juce::Graphics& g)
             g.setColour (on ? theme::fill : theme::panel);
             g.fillRect (r);
             g.setColour (theme::ink);
-            g.drawRect (r, on ? 2 : 1);
+            g.drawRect (r, 1);
             g.drawText (label, r, juce::Justification::centred);
         }
         g.setColour (theme::inkMuted);

@@ -10,7 +10,6 @@ namespace patternarp
 namespace
 {
 constexpr int switchWidth = 78;
-constexpr int scrollHeight = 14;
 constexpr int totalWhiteKeys = (NoteKeyboard::highestNote - NoteKeyboard::lowestNote) / 12 * 7 + 1;
 constexpr float minWhiteKeys = 8.0f;
 
@@ -56,24 +55,12 @@ void NoteKeyboard::setInputNotes (const std::bitset<128>& notes)
 
 juce::Rectangle<int> NoteKeyboard::switchArea() const
 {
-    return getLocalBounds().removeFromLeft (switchWidth).withTrimmedBottom (scrollHeight + 4).withTrimmedRight (8);
+    return getLocalBounds().removeFromLeft (switchWidth).withTrimmedRight (8);
 }
 
 juce::Rectangle<int> NoteKeyboard::keysArea() const
 {
-    return getLocalBounds().withTrimmedLeft (switchWidth).withTrimmedBottom (scrollHeight + 4);
-}
-
-juce::Rectangle<int> NoteKeyboard::scrollArea() const
-{
-    return getLocalBounds().withTrimmedLeft (switchWidth).removeFromBottom (scrollHeight);
-}
-
-juce::Rectangle<float> NoteKeyboard::thumbArea() const
-{
-    const auto track = scrollArea().toFloat().reduced (scrollHeight, 0.0f);
-    const float scale = track.getWidth() / static_cast<float> (totalWhiteKeys);
-    return { track.getX() + viewFirst * scale, track.getY(), viewCount * scale, track.getHeight() };
+    return getLocalBounds().withTrimmedLeft (switchWidth);
 }
 
 float NoteKeyboard::whiteKeyWidth() const
@@ -124,7 +111,7 @@ void NoteKeyboard::paint (juce::Graphics& g)
         g.drawText (labels[i], buttons[i], juce::Justification::centred);
     }
     g.setColour (theme::ink);
-    g.drawRect (sw, 2.0f);
+    g.drawRect (sw, 1.0f);
     g.drawHorizontalLine (juce::roundToInt (sw.getCentreY()), sw.getX(), sw.getRight());
 
     // Keys.
@@ -174,37 +161,12 @@ void NoteKeyboard::paint (juce::Graphics& g)
     }
 
     g.setColour (theme::ink);
-    g.drawRect (area, 2);
-
-    // Scrollbar with arrow ends; the thumb's ends resize the view.
-    const auto bar = scrollArea().toFloat();
-    g.setColour (theme::panel);
-    g.fillRect (bar);
-    g.setColour (theme::ink);
-    g.drawRect (bar, 1.5f);
-
-    auto arrow = [&] (juce::Rectangle<float> r, bool left) {
-        r = r.withSizeKeepingCentre (6.0f, 8.0f);
-        juce::Path p;
-        if (left)
-            p.addTriangle (r.getRight(), r.getY(), r.getRight(), r.getBottom(), r.getX(), r.getCentreY());
-        else
-            p.addTriangle (r.getX(), r.getY(), r.getX(), r.getBottom(), r.getRight(), r.getCentreY());
-        g.fillPath (p);
-    };
-    arrow (bar.withWidth (static_cast<float> (scrollHeight)), true);
-    arrow (bar.withTrimmedLeft (bar.getWidth() - static_cast<float> (scrollHeight)), false);
-
-    const auto thumb = thumbArea().reduced (0.0f, 3.0f);
-    g.setColour (isMouseOver() && scrollArea().contains (getMouseXYRelative()) ? theme::fillStrong : theme::gridLine);
-    g.fillRoundedRectangle (thumb, 3.0f);
+    g.drawRect (area, 1);
 }
 
 void NoteKeyboard::mouseDown (const juce::MouseEvent& e)
 {
-    drag = Drag::none;
-    dragStartFirst = viewFirst;
-    dragStartCount = viewCount;
+    paintingKeys = false;
 
     if (switchArea().contains (e.getPosition()))
     {
@@ -219,25 +181,6 @@ void NoteKeyboard::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    if (scrollArea().contains (e.getPosition()))
-    {
-        const auto bar = scrollArea();
-        const auto thumb = thumbArea();
-        if (e.x < bar.getX() + scrollHeight)
-            setView (viewFirst - 7.0f, viewCount);
-        else if (e.x > bar.getRight() - scrollHeight)
-            setView (viewFirst + 7.0f, viewCount);
-        else if (std::abs (e.position.x - thumb.getX()) < 6.0f)
-            drag = Drag::thumbStart;
-        else if (std::abs (e.position.x - thumb.getRight()) < 6.0f)
-            drag = Drag::thumbEnd;
-        else if (thumb.contains (e.position))
-            drag = Drag::thumb;
-        else
-            setView (viewFirst + (e.position.x < thumb.getX() ? -viewCount : viewCount), viewCount);
-        return;
-    }
-
     if (source != NoteSource::select)
         return;
 
@@ -245,7 +188,7 @@ void NoteKeyboard::mouseDown (const juce::MouseEvent& e)
     if (n < 0)
         return;
 
-    drag = Drag::keys;
+    paintingKeys = true;
     paintValue = ! enabled.test (static_cast<size_t> (n));
     lastPainted = -1;
     mouseDrag (e);
@@ -253,51 +196,26 @@ void NoteKeyboard::mouseDown (const juce::MouseEvent& e)
 
 void NoteKeyboard::mouseDrag (const juce::MouseEvent& e)
 {
-    const float scale = thumbArea().getWidth() / juce::jmax (1.0f, viewCount);
-    const float delta = static_cast<float> (e.getDistanceFromDragStartX()) / scale;
+    if (! paintingKeys)
+        return;
 
-    switch (drag)
+    const int n = noteAt (e.position);
+    if (n < 0 || n == lastPainted)
+        return;
+
+    lastPainted = n;
+    if (enabled.test (static_cast<size_t> (n)) != paintValue)
     {
-        case Drag::none:
-            break;
-
-        case Drag::thumb:
-            setView (dragStartFirst + delta, dragStartCount);
-            break;
-
-        case Drag::thumbStart:
-        {
-            const float end = dragStartFirst + dragStartCount;
-            const float first = juce::jlimit (0.0f, end - minWhiteKeys, dragStartFirst + delta);
-            setView (first, end - first);
-            break;
-        }
-
-        case Drag::thumbEnd:
-            setView (dragStartFirst, dragStartCount + delta);
-            break;
-
-        case Drag::keys:
-        {
-            const int n = noteAt (e.position);
-            if (n < 0 || n == lastPainted)
-                break;
-            lastPainted = n;
-            if (enabled.test (static_cast<size_t> (n)) != paintValue)
-            {
-                enabled.set (static_cast<size_t> (n), paintValue);
-                repaint();
-                if (onNotesChange)
-                    onNotesChange (enabled);
-            }
-            break;
-        }
+        enabled.set (static_cast<size_t> (n), paintValue);
+        repaint();
+        if (onNotesChange)
+            onNotesChange (enabled);
     }
 }
 
 void NoteKeyboard::mouseUp (const juce::MouseEvent&)
 {
-    drag = Drag::none;
+    paintingKeys = false;
 }
 
 void NoteKeyboard::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)

@@ -56,6 +56,9 @@ public:
     // The incoming notes MIDI In patterns are using now (held or latched), for display.
     std::bitset<128> getInputNotes() const;
 
+    // Where playback is, in beats from the song start, or -1 when nothing is playing.
+    double getPlayPosition() const { return playPosition.load (std::memory_order_relaxed); }
+
     // Fires when the arrangement is replaced from outside the editor (project or preset load).
     juce::ChangeBroadcaster arrangementReplaced;
 
@@ -105,6 +108,7 @@ private:
     juce::MidiBuffer output;
 
     std::array<std::atomic<std::uint64_t>, 2> inputMask {}; // written by the audio thread
+    std::atomic<double> playPosition { -1.0 };
 
     double sampleRate = 44100.0;
     bool wasPlaying = false;

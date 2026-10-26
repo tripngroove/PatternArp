@@ -43,13 +43,15 @@ const char* timingName (Timing timing)
 Pattern makeDefaultPattern()
 {
     Pattern p;
-    for (int note : { 60, 62, 64, 65, 67, 69, 71, 72 })
+    for (int note : { 60, 64, 67 })
         p.enabledNotes.set (static_cast<size_t> (note));
 
+    // Up and down the triad: C E G E, C E G E...
+    constexpr float upDown[] = { 0.0f, 0.5f, 1.0f, 0.5f };
     for (int i = 0; i < maxSteps; ++i)
     {
         auto& s = p.steps[static_cast<size_t> (i)];
-        s.note = p.length > 1 ? std::min (1.0f, static_cast<float> (i) / static_cast<float> (p.length - 1)) : 0.0f;
+        s.note = upDown[i % 4];
         s.velocity = p.defaultVelocity;
         s.gate = p.defaultGate;
     }
