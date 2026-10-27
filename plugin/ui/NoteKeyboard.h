@@ -10,11 +10,11 @@
 namespace patternarp
 {
 
-// The Notes Enabled strip: a Select | MIDI In switch and a piano keyboard from C1 to C8.
+// The Notes Enabled strip: a Select | MIDI In switch and a piano keyboard from C0 to C7
+// (named the way Bitwig, Ableton and Logic name them: MIDI note 60 is C3).
 //
 // In Select mode clicking (or dragging across) keys turns them on and off. In MIDI In mode
-// the keyboard only shows the notes being played into the plugin. It starts fully zoomed
-// out; the scroll wheel zooms in around the mouse and sideways scrolling moves along.
+// the keyboard only shows the notes being played into the plugin.
 class NoteKeyboard final : public juce::Component
 {
 public:
@@ -31,28 +31,22 @@ public:
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
-    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
-    static constexpr int lowestNote = 24;  // C1
-    static constexpr int highestNote = 108; // C8
+    static constexpr int lowestNote = 24;  // C0
+    static constexpr int highestNote = 108; // C7
 
 private:
     juce::Rectangle<int> switchArea() const;
     juce::Rectangle<int> keysArea() const;
 
-    // The view is measured in white keys counted from C1.
     float whiteKeyWidth() const;
     juce::Rectangle<float> keyBounds (int note) const;
     int noteAt (juce::Point<float> p) const;
-    void setView (float first, float count);
 
     std::bitset<128> enabled;
     std::bitset<128> input;
     NoteSource source = NoteSource::select;
     juce::Colour colour;
-
-    float viewFirst = 0.0f;
-    float viewCount = 50.0f; // all of C1..C8
 
     bool paintingKeys = false;
     bool paintValue = true;

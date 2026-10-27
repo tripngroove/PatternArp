@@ -26,9 +26,24 @@ inline juce::Colour patternColour (int index)
     return colours[static_cast<size_t> (index) % std::size (colours)];
 }
 
+// Note names follow Bitwig, Ableton and Logic: MIDI note 60 is C3.
+inline constexpr int middleCOctave = 3;
+
 inline juce::Font font (float height, bool bold = false)
 {
     return juce::Font (juce::FontOptions (height, bold ? juce::Font::bold : juce::Font::plain));
+}
+
+// The length handle used by the preview and the lanes: a tab with three grip lines and a
+// 1px line from the tab down to lineBottom.
+inline void drawLengthHandle (juce::Graphics& g, juce::Rectangle<float> tab, float lineBottom)
+{
+    g.setColour (ink);
+    g.fillRect (juce::Rectangle<float> (tab.getCentreX() - 0.5f, tab.getCentreY(), 1.0f, lineBottom - tab.getCentreY()));
+    g.fillRoundedRectangle (tab, 3.0f);
+    g.setColour (panel);
+    for (int i = -1; i <= 1; ++i)
+        g.drawHorizontalLine (juce::roundToInt (tab.getCentreY()) + i * 3, tab.getX() + 3.0f, tab.getRight() - 3.0f);
 }
 
 } // namespace patternarp::theme

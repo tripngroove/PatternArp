@@ -140,7 +140,7 @@ juce::String LaneGraph::valueText (const Step& s) const
             if (numEnabled == 0)
                 return {};
             return juce::MidiMessage::getMidiNoteName (enabled[static_cast<size_t> (juce::roundToInt (s.note * static_cast<float> (numEnabled - 1)))],
-                                                       true, true, 4);
+                                                       true, true, theme::middleCOctave);
         case Lane::velocity: return juce::String (s.velocity);
         case Lane::gate:     return juce::String (s.gate) + "%";
         case Lane::octave:   return s.octave > 0 ? "+" + juce::String (s.octave) : juce::String (s.octave);
@@ -194,7 +194,7 @@ void LaneGraph::drawNoteGrid (juce::Graphics& g, juce::Rectangle<float> area) co
         if (i % labelEvery == 0)
         {
             g.setColour (theme::ink);
-            const auto name = juce::MidiMessage::getMidiNoteName (enabled[static_cast<size_t> (i)], false, true, 4);
+            const auto name = juce::MidiMessage::getMidiNoteName (enabled[static_cast<size_t> (i)], false, true, theme::middleCOctave);
             g.drawText (name, juce::Rectangle<float> (area.getRight() + 8.0f, y - 8.0f, static_cast<float> (labelGutter) - 8.0f, 16.0f),
                         juce::Justification::centredLeft);
         }
@@ -279,11 +279,8 @@ void LaneGraph::paint (juce::Graphics& g)
     const int laneSteps = currentLaneLength();
     const bool shortened = laneSteps < pattern.length;
     const float hx = area.getX() + stepWidth * static_cast<float> (laneSteps);
-    const auto tab = juce::Rectangle<float> (hx - 6.0f, 1.0f, 12.0f, static_cast<float> (handleStrip) - 3.0f);
-    g.setColour (shortened ? theme::fillStrong : theme::inkMuted);
-    g.fillRoundedRectangle (tab, 2.0f);
-    if (shortened)
-        g.fillRect (juce::Rectangle<float> (hx - 0.5f, area.getY(), 1.0f, area.getHeight()));
+    const auto tab = juce::Rectangle<float> (hx - 6.0f, 1.0f, 12.0f, static_cast<float> (handleStrip) - 2.0f);
+    theme::drawLengthHandle (g, tab, area.getBottom());
 
     g.setFont (theme::font (12.0f));
     const auto text = shortened ? juce::String (laneName (lane)) + " repeats every " + juce::String (laneSteps) + (laneSteps == 1 ? " step" : " steps")
@@ -292,10 +289,10 @@ void LaneGraph::paint (juce::Graphics& g)
     if (showText)
     {
         const float w = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (theme::font (12.0f), text)) + 4.0f;
-        const bool right = hx + 10.0f + w < area.getRight();
+        const bool right = tab.getRight() + 8.0f + w < area.getRight();
         g.setColour (theme::ink);
-        g.drawText (text, right ? juce::Rectangle<float> (hx + 10.0f, 0.0f, w, static_cast<float> (handleStrip))
-                                : juce::Rectangle<float> (hx - 10.0f - w, 0.0f, w, static_cast<float> (handleStrip)),
+        g.drawText (text, right ? juce::Rectangle<float> (tab.getRight() + 8.0f, 0.0f, w, static_cast<float> (handleStrip))
+                                : juce::Rectangle<float> (tab.getX() - 8.0f - w, 0.0f, w, static_cast<float> (handleStrip)),
                     right ? juce::Justification::centredLeft : juce::Justification::centredRight);
     }
 }

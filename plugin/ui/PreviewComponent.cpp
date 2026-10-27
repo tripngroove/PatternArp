@@ -173,13 +173,8 @@ void PreviewComponent::paint (juce::Graphics& g)
     g.drawRect (box, 1.0f);
 
     // Loop handle: a line through the roll with a grab tab and the repeat label in the ruler.
-    g.setColour (theme::ink);
-    g.fillRect (juce::Rectangle<float> (hx - 0.5f, 4.0f, 1.0f, box.getBottom() - 4.0f));
     const auto tab = juce::Rectangle<float> (hx - tabWidth / 2.0f, 2.0f, tabWidth, static_cast<float> (rulerHeight) - 4.0f);
-    g.fillRoundedRectangle (tab, 3.0f);
-    g.setColour (theme::panel);
-    for (int i = -1; i <= 1; ++i)
-        g.drawHorizontalLine (juce::roundToInt (tab.getCentreY()) + i * 3, tab.getX() + 3.0f, tab.getRight() - 3.0f);
+    theme::drawLengthHandle (g, tab, box.getBottom());
 
     const auto text = label();
     const auto font = theme::font (15.0f, true);

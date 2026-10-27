@@ -11,7 +11,6 @@ namespace
 {
 constexpr int switchWidth = 78;
 constexpr int totalWhiteKeys = (NoteKeyboard::highestNote - NoteKeyboard::lowestNote) / 12 * 7 + 1;
-constexpr float minWhiteKeys = 8.0f;
 
 bool isBlack (int note)
 {
@@ -19,7 +18,7 @@ bool isBlack (int note)
     return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
 }
 
-// Position of a key in white keys from C1. Black keys sit on the line between two whites.
+// Position of a key in white keys from the lowest C. Black keys sit on the line between two whites.
 float whitePosition (int note)
 {
     static const float offsets[] = { 0.0f, 1.0f, 1.0f, 2.0f, 2.0f, 3.0f, 4.0f, 4.0f, 5.0f, 5.0f, 6.0f, 6.0f };
@@ -65,14 +64,14 @@ juce::Rectangle<int> NoteKeyboard::keysArea() const
 
 float NoteKeyboard::whiteKeyWidth() const
 {
-    return static_cast<float> (keysArea().getWidth()) / viewCount;
+    return static_cast<float> (keysArea().getWidth()) / static_cast<float> (totalWhiteKeys);
 }
 
 juce::Rectangle<float> NoteKeyboard::keyBounds (int note) const
 {
     const auto area = keysArea().toFloat();
     const float w = whiteKeyWidth();
-    const float x = area.getX() + (whitePosition (note) - viewFirst) * w;
+    const float x = area.getX() + whitePosition (note) * w;
     if (isBlack (note))
         return { x - w * 0.3f, area.getY(), w * 0.6f, area.getHeight() * 0.6f };
     return { x, area.getY(), w, area.getHeight() };
@@ -85,13 +84,6 @@ int NoteKeyboard::noteAt (juce::Point<float> p) const
             if (isBlack (n) == (pass == 0) && keyBounds (n).contains (p))
                 return n;
     return -1;
-}
-
-void NoteKeyboard::setView (float first, float count)
-{
-    viewCount = juce::jlimit (minWhiteKeys, static_cast<float> (totalWhiteKeys), count);
-    viewFirst = juce::jlimit (0.0f, static_cast<float> (totalWhiteKeys) - viewCount, first);
-    repaint();
 }
 
 void NoteKeyboard::paint (juce::Graphics& g)
@@ -146,7 +138,7 @@ void NoteKeyboard::paint (juce::Graphics& g)
             {
                 g.setColour (theme::inkMuted);
                 g.setFont (theme::font (11.0f));
-                g.drawText (juce::MidiMessage::getMidiNoteName (n, false, true, 4), r.withTrimmedTop (r.getHeight() - 16.0f),
+                g.drawText (juce::MidiMessage::getMidiNoteName (n, false, true, theme::middleCOctave), r.withTrimmedTop (r.getHeight() - 16.0f),
                             juce::Justification::centred);
             }
         }
@@ -216,22 +208,6 @@ void NoteKeyboard::mouseDrag (const juce::MouseEvent& e)
 void NoteKeyboard::mouseUp (const juce::MouseEvent&)
 {
     paintingKeys = false;
-}
-
-void NoteKeyboard::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
-{
-    // Sideways scrolling moves the view; up/down zooms around the mouse.
-    if (std::abs (wheel.deltaX) > std::abs (wheel.deltaY))
-    {
-        setView (viewFirst - wheel.deltaX * 20.0f, viewCount);
-        return;
-    }
-
-    const auto area = keysArea().toFloat();
-    const float anchor = viewFirst + (e.position.x - area.getX()) / whiteKeyWidth();
-    const float factor = std::pow (0.8f, wheel.deltaY * (wheel.isReversed ? -1.0f : 1.0f) * 4.0f);
-    const float count = juce::jlimit (minWhiteKeys, static_cast<float> (totalWhiteKeys), viewCount * factor);
-    setView (anchor - (anchor - viewFirst) * count / viewCount, count);
 }
 
 } // namespace patternarp

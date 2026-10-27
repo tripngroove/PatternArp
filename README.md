@@ -17,7 +17,7 @@ Each pattern has:
 | Period | n:m takes n of every m notes. 1:1 is a "fill" pattern that plays whatever the others leave. If two patterns claim the same note, the higher one wins and the other gets the next free note. |
 | Direction | Forward, Backward, Ping-pong, Random, Walk (random step up or down) |
 | Play / Pause | The button by the pattern name. A paused pattern is taken out of the rotation entirely; the others close up the gap. Automatable as "P1 Play"... |
-| Notes (Select / MIDI In) | Select: the notes switched on in its keyboard. MIDI In: the notes you hold, with the Notes lane running from the lowest held note to the highest. A MIDI In pattern rests while nothing is held; Latch keeps the last chord. |
+| Notes (Select / MIDI In) | Select: the notes switched on in its keyboard. MIDI In: the notes you hold, with the Notes lane running from the lowest held note to the highest. A MIDI In pattern rests while nothing is held; Latch keeps the last chord. Note names follow Bitwig, Ableton and Logic: MIDI note 60 is C3. |
 
 Drag a pattern by its colour stripe or title to reorder it; it keeps its colour.
 
