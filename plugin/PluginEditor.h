@@ -29,6 +29,7 @@ private:
     void layoutContent();
     void updatePreview();
     void showSettingsMenu();
+    void copyStateForDebugging();
     void setLoopLength (double beats); // 0 = natural length
     juce::Rectangle<int> titleArea() const;
 
@@ -49,8 +50,6 @@ private:
     void updatePlayhead();
 
     juce::TooltipWindow tooltips { this, 500 };
-    juce::ToggleButton latchButton { "Latch" };
-    juce::ButtonParameterAttachment latchAttachment;
     PreviewComponent preview;
     OrderLane order;
 

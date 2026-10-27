@@ -49,13 +49,8 @@ juce::PropertiesFile::Options settingsOptions()
 } // namespace
 
 PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
-    : AudioProcessorEditor (p), arp (p), settings (std::make_unique<juce::PropertiesFile> (settingsOptions())), latchAttachment (p.getLatchParameter(), latchButton)
+    : AudioProcessorEditor (p), arp (p), settings (std::make_unique<juce::PropertiesFile> (settingsOptions()))
 {
-    latchButton.setColour (juce::ToggleButton::textColourId, theme::ink);
-    latchButton.setColour (juce::ToggleButton::tickColourId, theme::ink);
-    latchButton.setColour (juce::ToggleButton::tickDisabledColourId, theme::inkMuted);
-    latchButton.setTooltip ("MIDI In patterns keep playing the last chord after you let go");
-    addAndMakeVisible (latchButton);
     preview.onLoopChange = [this] (double beats) { setLoopLength (beats); };
     addAndMakeVisible (preview);
 
@@ -136,6 +131,14 @@ void PatternArpEditor::showSettingsMenu()
 
     juce::PopupMenu menu;
     menu.addSectionHeader ("Settings");
+
+    // Latch is a host parameter (automatable and saved with the project), not a user setting.
+    auto& latch = arp.getLatchParameter();
+    menu.addItem ("Latch (MIDI In patterns keep playing the last chord after you let go)", true, latch.get(), [&latch] {
+        latch.beginChangeGesture();
+        latch = ! latch.get();
+        latch.endChangeGesture();
+    });
     menu.addSubMenu ("Chance steps in dragged-out clips", dragOut);
 
     // DAWs such as Bitwig round a dropped MIDI clip up to a whole bar, which leaves a gap in
@@ -157,6 +160,9 @@ void PatternArpEditor::showSettingsMenu()
     });
     menu.addSubMenu ("Loop handle snaps to", snap);
 
+    menu.addSeparator();
+    menu.addItem ("Copy state for debugging", [this] { copyStateForDebugging(); });
+
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (
         localAreaToGlobal (titleArea().withTrimmedTop (topBarHeight - 8))));
 }
@@ -164,9 +170,7 @@ void PatternArpEditor::showSettingsMenu()
 void PatternArpEditor::resized()
 {
     auto area = getLocalBounds();
-    auto bar = area.removeFromTop (topBarHeight).reduced (gap, 0);
-    latchButton.setBounds (bar.removeFromRight (90).withSizeKeepingCentre (90, 28));
-
+    area.removeFromTop (topBarHeight);
     area.reduce (gap, 0);
     preview.setBounds (area.removeFromTop (previewHeight));
     area.removeFromTop (orderGap);
@@ -269,6 +273,34 @@ void PatternArpEditor::deletePattern (int index)
         if (self != nullptr)
             self->syncPanels();
     });
+}
+
+// Puts the saved state on the clipboard, with what the editor worked out from it, so it
+// can be pasted into a bug report.
+void PatternArpEditor::copyStateForDebugging()
+{
+    juce::MemoryBlock state;
+    arp.getStateInformation (state);
+    const auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), static_cast<int> (state.getSize()));
+    if (xml == nullptr)
+        return;
+
+    Arrangement natural = shown;
+    natural.loopLength = 0;
+    const auto naturalLoop = findLoop (natural);
+    const auto loop = findLoop (shown);
+
+    auto* debug = xml->createNewChildElement ("Debug");
+    debug->setAttribute ("naturalRepeats", naturalLoop.repeats);
+    debug->setAttribute ("naturalBeats", naturalLoop.lengthBeats);
+    debug->setAttribute ("naturalSlots", static_cast<int> (naturalLoop.lengthSlots));
+    debug->setAttribute ("loopBeats", loop.lengthBeats);
+    debug->setAttribute ("previewPassBeats", previewPassBeats);
+    debug->setAttribute ("playPosition", arp.getPlayPosition());
+    debug->setAttribute ("loopSnap", settings->getValue (loopSnapKey, "timing"));
+    debug->setAttribute ("exportEveryNote", settings->getBoolValue (exportEveryNoteKey, true));
+    debug->setAttribute ("exportWholeBars", settings->getBoolValue (exportWholeBarsKey, true));
+    juce::SystemClipboard::copyTextToClipboard (xml->toString());
 }
 
 void PatternArpEditor::updatePreview()
