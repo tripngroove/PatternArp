@@ -152,6 +152,10 @@ struct Pattern
 // Steps a lane loops over: its own length if set and shorter, else the pattern's.
 int laneLength (const Pattern& pattern, Lane lane);
 
+// Puts one lane of a step back to its default: the lowest note, the pattern's default velocity
+// and gate, no octave shift, no ratchet, always plays.
+void resetStep (Step& step, Lane lane, const Pattern& pattern);
+
 // A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away.
 Pattern makeDefaultPattern();
 

@@ -48,6 +48,19 @@ int laneLength (const Pattern& p, Lane lane)
     return own > 0 ? std::min (own, p.length) : p.length;
 }
 
+void resetStep (Step& s, Lane lane, const Pattern& p)
+{
+    switch (lane)
+    {
+        case Lane::notes:    s.note = 0.0f; break;
+        case Lane::velocity: s.velocity = p.defaultVelocity; break;
+        case Lane::gate:     s.gate = p.defaultGate; break;
+        case Lane::octave:   s.octave = 0; break;
+        case Lane::ratchet:  s.ratchet = 1; break;
+        case Lane::chance:   s.chance = 100; break;
+    }
+}
+
 Pattern makeDefaultPattern()
 {
     Pattern p;

@@ -34,12 +34,12 @@ public:
     void mouseExit (const juce::MouseEvent& e) override;
 
     static constexpr int labelGutter = 44;
-    static constexpr int handleStrip = 16; // above the graph, holds the lane length handle
 
 private:
     juce::Rectangle<float> graphArea() const;
     int currentLaneLength() const { return laneLength (pattern, lane); }
-    bool isInHandleStrip (juce::Point<float> p) const { return p.y < graphArea().getY(); }
+    float handleX() const; // where the lane length handle's line is
+    bool isOnHandle (juce::Point<float> p) const;
     void setLaneLengthFromX (float x);
     int stepAt (float x) const;
     bool isBipolar() const;

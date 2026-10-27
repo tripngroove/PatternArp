@@ -12,7 +12,7 @@ namespace patternarp
 {
 
 // One pattern: its settings row, the lane tabs and graph, and the Notes Enabled keyboard.
-// New / Clone / Delete appear while the mouse is over the panel.
+// Clone and Delete appear while the mouse is over the panel.
 class PatternPanel final : public juce::Component, private juce::Timer
 {
 public:
@@ -25,11 +25,15 @@ public:
     std::function<void (const Pattern&)> onChange;
     std::function<void()> onClone, onDelete;
 
-    static constexpr int preferredHeight = 406;
+    static constexpr int preferredHeight = 400;
 
     void paint (juce::Graphics& g) override;
+    void paintOverChildren (juce::Graphics& g) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDoubleClick (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
+    void mouseExit (const juce::MouseEvent& e) override;
 
 private:
     void timerCallback() override;
@@ -37,6 +41,7 @@ private:
     void updateHoverButtons();
     void updatePausedLook();
     void layoutTabs();
+    int tabAt (juce::Point<int> p) const; // -1 if none
     void setDefault (Lane lane, int value);
 
     Pattern pattern;
@@ -45,7 +50,8 @@ private:
     LaneGraph graph;
     NoteKeyboard keyboard;
 
-    std::array<juce::Rectangle<int>, numLanes> tabs {};
+    std::array<juce::Rectangle<int>, numLanes> tabs {}; // full height; closed tabs are drawn lower
+    int hoveredTab = -1;
     std::array<juce::Rectangle<int>, numChanceModes> chanceModeButtons {}; // Rest, Skip, Extend
     juce::Rectangle<int> playButton;
     juce::Label defaultEditor;

@@ -15,8 +15,7 @@ namespace patternarp
 namespace
 {
 constexpr float padding = 10.0f; // keeps the first/last and highest/lowest notes off the frame
-constexpr float handleGrab = 8.0f;
-constexpr float tabWidth = 12.0f;
+constexpr float handleGrab = 6.0f; // either side of the handle's line
 } // namespace
 
 PreviewComponent::PreviewComponent()
@@ -81,7 +80,7 @@ void PreviewComponent::setPlayhead (double beat)
 
 juce::Rectangle<float> PreviewComponent::boxArea() const
 {
-    return getLocalBounds().toFloat().withTrimmedTop (static_cast<float> (rulerHeight)).reduced (1.0f);
+    return getLocalBounds().toFloat().reduced (1.0f);
 }
 
 juce::Rectangle<float> PreviewComponent::rollArea() const
@@ -102,7 +101,8 @@ juce::String PreviewComponent::label() const
 
 bool PreviewComponent::isOverHandle (juce::Point<float> p) const
 {
-    return std::abs (p.x - beatToX (handleBeats)) < handleGrab;
+    const float hx = beatToX (handleBeats);
+    return std::abs (p.x - hx) < handleGrab || theme::lengthHandleTab (hx, boxArea().getVerticalRange()).expanded (4.0f).contains (p);
 }
 
 void PreviewComponent::paint (juce::Graphics& g)
@@ -194,19 +194,9 @@ void PreviewComponent::paint (juce::Graphics& g)
     g.setColour (theme::ink);
     g.drawRect (box, 1.0f);
 
-    // Loop handle: a line through the roll with a grab tab and the repeat label in the ruler.
-    const auto tab = juce::Rectangle<float> (hx - tabWidth / 2.0f, 2.0f, tabWidth, static_cast<float> (rulerHeight) - 4.0f);
-    theme::drawLengthHandle (g, tab, box.getBottom());
-
-    const auto text = label();
-    const auto font = theme::font (15.0f, true);
-    const float textWidth = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (font, text)) + 4.0f;
-    const bool fitsRight = tab.getRight() + 8.0f + textWidth < static_cast<float> (getWidth());
-    const auto textArea = fitsRight ? juce::Rectangle<float> (tab.getRight() + 8.0f, 0.0f, textWidth, static_cast<float> (rulerHeight))
-                                    : juce::Rectangle<float> (tab.getX() - 8.0f - textWidth, 0.0f, textWidth, static_cast<float> (rulerHeight));
-    g.setFont (font);
-    g.setColour (theme::ink);
-    g.drawText (text, textArea, fitsRight ? juce::Justification::centredLeft : juce::Justification::centredRight);
+    // Loop handle: a line through the roll with a grab tab, and the repeat length beside it.
+    theme::drawLengthHandle (g, hx, box.getVerticalRange());
+    theme::drawLengthHandleLabel (g, label(), theme::font (13.0f, true), hx, box.getVerticalRange(), box.getRight() - 4.0f);
 }
 
 void PreviewComponent::mouseMove (const juce::MouseEvent& e)

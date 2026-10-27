@@ -10,10 +10,9 @@ namespace
 constexpr float labelWidth = 116.0f; // "ROTATION" and, when open, "Pattern A"...
 constexpr float rightMargin = 12.0f;
 constexpr float headerHeight = static_cast<float> (OrderLane::collapsedHeight); // the label stays put when opened
-constexpr float handleStrip = 16.0f;
 constexpr float stepHeight = 24.0f; // a step's box, the same open or closed
 constexpr float rowHeight = stepHeight + 4.0f;
-constexpr float bottomMargin = 10.0f;
+constexpr float gridMargin = 8.0f; // above and below the open grid, as around the closed row
 constexpr float maxStepWidth = 40.0f;
 
 // A small triangle pointing right (closed) or down (open).
@@ -50,7 +49,7 @@ int OrderLane::getPreferredHeight() const
         return collapsedHeight;
 
     const auto rows = static_cast<float> (juce::jmax (1, arrangement.numPatterns));
-    return juce::roundToInt (headerHeight + handleStrip + rows * rowHeight + bottomMargin);
+    return juce::roundToInt (headerHeight + gridMargin + rows * rowHeight + gridMargin);
 }
 
 void OrderLane::setExpanded (bool shouldExpand)
@@ -70,10 +69,14 @@ juce::Rectangle<float> OrderLane::headerArea() const
     return expanded ? boxArea().withHeight (headerHeight) : boxArea();
 }
 
-juce::Rectangle<float> OrderLane::handleArea() const
+float OrderLane::handleX() const
 {
-    const auto grid = gridArea();
-    return { grid.getX() - 8.0f, headerHeight, grid.getWidth() + 16.0f, handleStrip };
+    return gridArea().getX() + stepWidth() * static_cast<float> (arrangement.orderLength);
+}
+
+bool OrderLane::isOnHandle (juce::Point<float> p) const
+{
+    return expanded && theme::lengthHandleTab (handleX(), gridArea().getVerticalRange()).expanded (4.0f).contains (p);
 }
 
 float OrderLane::stepWidth() const
@@ -88,7 +91,7 @@ juce::Rectangle<float> OrderLane::gridArea() const
         return { labelWidth, (headerHeight - stepHeight) / 2.0f, width, stepHeight };
 
     const auto rows = static_cast<float> (juce::jmax (1, arrangement.numPatterns));
-    return { labelWidth, headerHeight + handleStrip, width, rows * rowHeight };
+    return { labelWidth, headerHeight + gridMargin, width, rows * rowHeight };
 }
 
 int OrderLane::stepAt (float x) const
@@ -205,40 +208,31 @@ void OrderLane::paintExpanded (juce::Graphics& g)
     g.setColour (theme::ink);
     g.drawRect (grid, 1.0f);
 
-    paintStrip (g);
+    paintHandle (g);
 }
 
-void OrderLane::paintStrip (juce::Graphics& g)
+void OrderLane::paintHandle (juce::Graphics& g)
 {
-    // Length handle: a tab above the grid and a line down through it, like the lane graphs.
+    // Length handle: a line through the grid with a grab tab, like the lane graphs.
     const auto grid = gridArea();
-    const float hx = grid.getX() + stepWidth() * static_cast<float> (arrangement.orderLength);
-    const bool active = drag == Drag::length || (isMouseOver() && handleArea().contains (getMouseXYRelative().toFloat()));
+    const float hx = handleX();
+    theme::drawLengthHandle (g, hx, grid.getVerticalRange());
 
-    const auto tab = juce::Rectangle<float> (hx - 6.0f, headerHeight + 1.0f, 12.0f, handleStrip - 2.0f);
-    theme::drawLengthHandle (g, tab, grid.getBottom());
-
-    if (active)
+    if (drag == Drag::length || (isMouseOver() && isOnHandle (getMouseXYRelative().toFloat())))
     {
         const int steps = arrangement.orderLength;
-        const auto text = juce::String (steps) + (steps == 1 ? " step" : " steps");
-        const float w = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (theme::font (12.0f), text)) + 4.0f;
-        const bool right = tab.getRight() + 8.0f + w < grid.getRight();
-        g.setColour (theme::ink);
-        g.setFont (theme::font (12.0f));
-        g.drawText (text, right ? juce::Rectangle<float> (tab.getRight() + 8.0f, headerHeight, w, handleStrip)
-                                : juce::Rectangle<float> (tab.getX() - 8.0f - w, headerHeight, w, handleStrip),
-                    right ? juce::Justification::centredLeft : juce::Justification::centredRight);
+        theme::drawLengthHandleLabel (g, juce::String (steps) + (steps == 1 ? " step" : " steps"), theme::font (12.0f), hx,
+                                      grid.getVerticalRange(), grid.getRight() - 2.0f);
     }
 }
 
 void OrderLane::mouseMove (const juce::MouseEvent& e)
 {
     auto shape = juce::MouseCursor::NormalCursor;
-    if (headerArea().contains (e.position))
-        shape = juce::MouseCursor::PointingHandCursor;
-    else if (handleArea().contains (e.position))
+    if (isOnHandle (e.position))
         shape = juce::MouseCursor::LeftRightResizeCursor;
+    else if (headerArea().contains (e.position))
+        shape = juce::MouseCursor::PointingHandCursor;
     setMouseCursor (shape);
     repaint();
 }
@@ -258,17 +252,17 @@ void OrderLane::mouseDown (const juce::MouseEvent& e)
     lastStep = -1;
     drag = Drag::none;
 
-    if (headerArea().contains (e.position))
-    {
-        setExpanded (! expanded);
-        return;
-    }
-
-    if (handleArea().contains (e.position))
+    if (isOnHandle (e.position))
     {
         drag = Drag::length;
         dragStart = arrangement;
         setLengthFromX (e.position.x);
+        return;
+    }
+
+    if (headerArea().contains (e.position))
+    {
+        setExpanded (! expanded);
         return;
     }
 

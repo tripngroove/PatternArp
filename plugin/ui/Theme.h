@@ -42,16 +42,41 @@ inline juce::Font font (float height, bool bold = false)
     return juce::Font (juce::FontOptions (height, bold ? juce::Font::bold : juce::Font::plain));
 }
 
-// The length handle used by the preview and the lanes: a tab with three grip lines and a
-// 1px line from the tab down to lineBottom.
-inline void drawLengthHandle (juce::Graphics& g, juce::Rectangle<float> tab, float lineBottom)
+// The length handles of the preview, the lanes and the Rotation lane all look alike: a 1px
+// line through what they shorten, with a grip tab centred on it.
+inline constexpr float handleWidth = 14.0f;
+inline constexpr float handleHeight = 28.0f;
+
+inline juce::Rectangle<float> lengthHandleTab (float x, juce::Range<float> line)
+{
+    return juce::Rectangle<float> (handleWidth, handleHeight).withCentre ({ x, (line.getStart() + line.getEnd()) / 2.0f });
+}
+
+inline void drawLengthHandle (juce::Graphics& g, float x, juce::Range<float> line)
 {
     g.setColour (ink);
-    g.fillRect (juce::Rectangle<float> (tab.getCentreX() - 0.5f, tab.getCentreY(), 1.0f, lineBottom - tab.getCentreY()));
-    g.fillRoundedRectangle (tab, 3.0f);
+    g.fillRect (juce::Rectangle<float> (x - 0.5f, line.getStart(), 1.0f, line.getLength()));
+    const auto tab = lengthHandleTab (x, line);
+    g.fillRoundedRectangle (tab, 4.0f);
     g.setColour (panel);
     for (int i = -1; i <= 1; ++i)
-        g.drawHorizontalLine (juce::roundToInt (tab.getCentreY()) + i * 3, tab.getX() + 3.0f, tab.getRight() - 3.0f);
+        g.drawHorizontalLine (juce::roundToInt (tab.getCentreY()) + i * 4, tab.getX() + 4.0f, tab.getRight() - 4.0f);
+}
+
+// A label beside a length handle, near the bottom of its line, on a backing so it reads over
+// whatever is drawn there. It goes right of the line if it fits before room's end, else left.
+inline void drawLengthHandleLabel (juce::Graphics& g, const juce::String& text, const juce::Font& textFont, float x,
+                                   juce::Range<float> line, float roomEnd)
+{
+    const float w = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (textFont, text)) + 12.0f;
+    const float h = textFont.getHeight() + 6.0f;
+    const bool right = x + 6.0f + w <= roomEnd;
+    const auto r = juce::Rectangle<float> (right ? x + 6.0f : x - 6.0f - w, line.getEnd() - h - 4.0f, w, h);
+    g.setColour (panel.withAlpha (0.9f));
+    g.fillRoundedRectangle (r, 3.0f);
+    g.setColour (ink);
+    g.setFont (textFont);
+    g.drawText (text, r, juce::Justification::centred);
 }
 
 } // namespace patternarp::theme

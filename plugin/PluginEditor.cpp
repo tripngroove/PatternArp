@@ -9,11 +9,12 @@ namespace patternarp
 
 namespace
 {
-constexpr int topBarHeight = 56;
-constexpr int previewHeight = PreviewComponent::rulerHeight + 112;
-constexpr int gap = 12;
-constexpr int orderGap = 6; // the Rotation (Order) lane sits just under the preview
-constexpr int addButtonWidth = 150;
+// Vertical spacing sticks to an 8-pixel grid.
+constexpr int topBarHeight = 48;
+constexpr int previewHeight = 120;
+constexpr int gap = 8;     // between the boxes
+constexpr int gutter = 16; // either side of the window
+constexpr int addButtonWidth = 152;
 constexpr double scrollMs = 280.0;
 
 constexpr double maxPreviewBeats = 64.0; // 16 bars on screen
@@ -103,7 +104,7 @@ void PatternArpEditor::paint (juce::Graphics& g)
 
 juce::Rectangle<int> PatternArpEditor::titleArea() const
 {
-    return { gap, 0, 130, topBarHeight };
+    return { gutter, 0, 130, topBarHeight };
 }
 
 void PatternArpEditor::mouseMove (const juce::MouseEvent& e)
@@ -173,9 +174,10 @@ void PatternArpEditor::resized()
 {
     auto area = getLocalBounds();
     area.removeFromTop (topBarHeight);
-    area.reduce (gap, 0);
+    area.removeFromBottom (gap);
+    area.reduce (gutter, 0);
     preview.setBounds (area.removeFromTop (previewHeight));
-    area.removeFromTop (orderGap);
+    area.removeFromTop (gap);
     auto row = area.removeFromTop (order.getPreferredHeight());
     addButton.setBounds (row.removeFromRight (addButtonWidth).withHeight (OrderLane::collapsedHeight));
     row.removeFromRight (gap);

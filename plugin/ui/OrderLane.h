@@ -12,9 +12,10 @@ namespace patternarp
 // The Rotation lane (the Order lane in code): whose turn each step of the arp is.
 //
 // Collapsed, it shows the order as a row of lettered steps in each pattern's colour; click it
-// to open the grid, which has a row per pattern and keeps every step where and as it was. Click or drag in the grid to give steps to a
-// pattern (clicking a step a pattern already has makes it a rest), and drag the handle above
-// the grid to change how many steps the lane loops over. Click the header to close it again.
+// to open the grid, which has a row per pattern and keeps every step where and as it was.
+// Click or drag in the grid to give steps to a pattern (clicking a step a pattern already has
+// makes it a rest), and drag the handle on the grid to change how many steps the lane loops
+// over. Click the header to close it again.
 class OrderLane final : public juce::Component
 {
 public:
@@ -51,10 +52,11 @@ private:
         length
     };
 
-    juce::Rectangle<float> boxArea() const { return getLocalBounds().toFloat().reduced (0.5f); }
+    juce::Rectangle<float> boxArea() const { return getLocalBounds().toFloat(); }
     juce::Rectangle<float> headerArea() const;
-    juce::Rectangle<float> handleArea() const; // expanded only: the strip above the grid
-    juce::Rectangle<float> gridArea() const;   // collapsed: the row of steps
+    juce::Rectangle<float> gridArea() const; // collapsed: the row of steps
+    float handleX() const;
+    bool isOnHandle (juce::Point<float> p) const; // expanded only
     float stepWidth() const;
     int stepAt (float x) const;
     int rowAt (float y) const;
@@ -63,7 +65,7 @@ private:
     void paintExpanded (juce::Graphics& g);
     juce::Rectangle<float> stepBox (int step, float y) const; // a step's box, its top at y
     void paintStep (juce::Graphics& g, juce::Rectangle<float> r, int owner) const;
-    void paintStrip (juce::Graphics& g); // the length handle
+    void paintHandle (juce::Graphics& g); // the length handle
 
     void applyAt (juce::Point<float> position);
     void setLengthFromX (float x);

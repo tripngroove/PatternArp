@@ -347,6 +347,23 @@ struct WindowedEditor
         time += 1000; // so the next click is not a double-click
     }
 
+    void doubleClick (juce::Point<float> position)
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            mouse (position, true);
+            mouse (position, false);
+        }
+        time += 1000;
+    }
+
+    std::unique_ptr<juce::XmlElement> state() const
+    {
+        juce::MemoryBlock block;
+        plugin->getStateInformation (block);
+        return juce::AudioProcessor::getXmlFromBinary (block.getData(), static_cast<int> (block.getSize()));
+    }
+
     juce::ScopedJuceInitialiser_GUI juceInit;
     std::unique_ptr<juce::AudioProcessor> plugin { createPluginFilter() };
     std::unique_ptr<juce::AudioProcessorEditor> editor;
@@ -364,7 +381,7 @@ TEST_CASE ("clicking a pattern's play button pauses and resumes it")
     REQUIRE (play != nullptr);
 
     // The play button sits at the left of the panel's header (see PatternPanel::resized).
-    const auto button = w.editor->getLocalPoint (panel, juce::Point<float> (35.0f, 51.0f));
+    const auto button = w.editor->getLocalPoint (panel, juce::Point<float> (38.0f, 55.0f));
 
     CHECK (play->get());
     w.click (button);
@@ -397,16 +414,40 @@ TEST_CASE ("the Rotation lane opens on a click and paints steps")
     CHECK (lane->getHeight() > closedHeight);
 
     // Give the first step to pattern B: the grid starts right of the row labels (116), below
-    // the header (40) and the length handle strip (16), with a 28-pixel row per pattern (see
-    // OrderLane.cpp).
-    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (116.0f + 10.0f, 40.0f + 16.0f + 28.0f * 1.5f)));
+    // the header (40) and an 8-pixel margin, with a 28-pixel row per pattern (see OrderLane.cpp).
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (116.0f + 10.0f, 40.0f + 8.0f + 28.0f * 1.5f)));
 
-    juce::MemoryBlock state;
-    w.plugin->getStateInformation (state);
-    const auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), static_cast<int> (state.getSize()));
+    const auto xml = w.state();
     REQUIRE (xml != nullptr);
     const auto* arrangement = xml->getChildByName ("Arrangement");
     REQUIRE (arrangement != nullptr);
     CHECK (arrangement->getStringAttribute ("order") == "1,1");
+}
+
+TEST_CASE ("double-clicking a lane tab resets that lane")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panel = w.find ("Pattern A");
+    REQUIRE (panel != nullptr);
+
+    // Pattern A's notes as saved: the first number of each step.
+    const auto notes = [&w] {
+        juce::StringArray result;
+        if (const auto xml = w.state())
+            if (const auto* arrangement = xml->getChildByName ("Arrangement"))
+                if (const auto* pattern = arrangement->getChildByName ("Pattern"))
+                    for (const auto& step : juce::StringArray::fromTokens (pattern->getStringAttribute ("steps"), ";", {}))
+                        result.add (juce::String (step.upToFirstOccurrenceOf (" ", false, false).getFloatValue()));
+        return result;
+    };
+    REQUIRE (notes().joinIntoString (",").startsWith ("0,0.5,1"));
+
+    // The Notes tab is the first one, on top of the graph (see PatternPanel::resized).
+    w.doubleClick (w.editor->getLocalPoint (panel, juce::Point<float> (40.0f, 104.0f)));
+    const auto after = notes();
+    REQUIRE (! after.isEmpty());
+    for (const auto& note : after)
+        CHECK (note == "0");
 }
 #endif
