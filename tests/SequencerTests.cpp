@@ -625,6 +625,35 @@ TEST_CASE ("describeLength uses the largest whole unit")
     CHECK (describeLength (0.75) == "3 sixteenths");
 }
 
+TEST_CASE ("the loop is as long as it sounds, not as long as its counters")
+{
+    SECTION ("a shortened lane whose steps are all alike changes nothing")
+    {
+        auto p = patternOf ({ A, B, C, E });
+        p.laneLength[static_cast<size_t> (Lane::octave)] = 3; // every octave step is 0
+        const auto loop = findLoop (arrangementOf ({ p }));
+        CHECK (loop.lengthBeats == Catch::Approx (1.0)); // 4 sixteenths, not 12
+        CHECK (loop.lengthSlots == 4);
+    }
+
+    SECTION ("a pattern that repeats itself")
+    {
+        auto p = patternOf ({ C, E });
+        p.length = 4;
+        p.steps[2] = p.steps[0];
+        p.steps[3] = p.steps[1];
+        CHECK (findLoop (arrangementOf ({ p })).lengthBeats == Catch::Approx (0.5));
+    }
+
+    SECTION ("MIDI In patterns are measured with the held notes")
+    {
+        auto p = patternOf ({ C, E, F });
+        p.noteSource = NoteSource::midiIn;
+        CHECK (findLoop (arrangementOf ({ p }), { C, E, F }).lengthBeats == Catch::Approx (0.75));
+        CHECK (findLoop (arrangementOf ({ p }), { C }).lengthBeats == Catch::Approx (0.25)); // one note held
+    }
+}
+
 TEST_CASE ("loop length across different Order and pattern lengths")
 {
     auto a = patternOf ({ 60, 62, 64 });

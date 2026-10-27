@@ -287,8 +287,8 @@ void PatternArpEditor::copyStateForDebugging()
 
     Arrangement natural = shown;
     natural.loopLength = 0;
-    const auto naturalLoop = findLoop (natural);
-    const auto loop = findLoop (shown);
+    const auto naturalLoop = findLoop (natural, previewInput);
+    const auto loop = findLoop (shown, previewInput);
 
     auto* debug = xml->createNewChildElement ("Debug");
     debug->setAttribute ("naturalRepeats", naturalLoop.repeats);
@@ -319,10 +319,10 @@ void PatternArpEditor::updatePreview()
     // The preview always shows the natural loop, so the loop handle can be dragged back out.
     Arrangement natural = shown;
     natural.loopLength = 0;
-    const auto naturalLoop = findLoop (natural);
+    const auto naturalLoop = findLoop (natural, input);
     const double viewBeats = juce::jmin (naturalLoop.repeats ? naturalLoop.lengthBeats : nonRepeatingBeats, maxPreviewBeats);
 
-    const auto loop = findLoop (shown); // the loop length set by hand, if there is one
+    const auto loop = findLoop (shown, input); // the loop length set by hand, if there is one
     if (shown.loopLength > 0)
         previewPassBeats = juce::jmin (loop.lengthBeats, viewBeats);
     else

@@ -73,7 +73,7 @@ public:
     void fastForwardTo (double beat);
 
 private:
-    friend LoopInfo findLoop (const Arrangement&, std::int64_t);
+    friend LoopInfo findLoop (const Arrangement&, const std::vector<int>&, std::int64_t);
 
     enum class Outcome
     {
@@ -126,9 +126,10 @@ private:
     int numInputNotes = 0;
 };
 
-// Finds the loop length by working out when every pattern and the Order lane all line up
-// again. Gives up (repeats = false) past `maxSlots`.
-LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots = 1 << 16);
+// Finds how often the arp repeats: the shortest stretch after which the notes come round
+// again exactly. MIDI In patterns play `inputNotes` (ascending). Gives up (repeats = false)
+// past `maxSlots`.
+LoopInfo findLoop (const Arrangement& arrangement, const std::vector<int>& inputNotes = {}, std::int64_t maxSlots = 1 << 16);
 
 // Plays the arrangement from the start for `beats` beats and returns every note that starts
 // in that time, for the preview and for dragging out MIDI.

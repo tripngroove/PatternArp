@@ -387,7 +387,58 @@ void Sequencer::fastForwardTo (double beat)
     }
 }
 
-LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots)
+namespace
+{
+// Every counter lining up again is when the arp is sure to repeat, but it can sound the same
+// sooner (a shortened lane whose steps are all alike, say). The shortest repeat divides that
+// length, so try each whole number of ticks that does against the notes themselves.
+LoopInfo shortestRepeat (const Arrangement& certain, LoopInfo info, const std::vector<int>& inputNotes)
+{
+    const auto ticks = std::llround (info.lengthBeats * ticksPerBeat);
+    if (info.lengthSlots > (1 << 13) || std::abs (static_cast<double> (ticks) - info.lengthBeats * ticksPerBeat) > 1.0e-6)
+        return info;
+
+    const auto notes = render (certain, 2.0 * info.lengthBeats, inputNotes); // in time order
+    if (notes.empty())
+        return info;
+
+    // The notes of the first loop, moved on by `period`, are exactly the ones that follow.
+    const auto repeatsEvery = [&] (double period) {
+        size_t j = 0;
+        while (j < notes.size() && notes[j].start < period - epsilon)
+            ++j;
+        for (size_t i = 0; i < notes.size() && notes[i].start < info.lengthBeats - epsilon; ++i, ++j)
+        {
+            if (j == notes.size())
+                return false;
+            const auto& a = notes[i];
+            const auto& b = notes[j];
+            if (std::abs (a.start + period - b.start) > 1.0e-6 || std::abs (a.length - b.length) > 1.0e-6 || a.note != b.note
+                || a.velocity != b.velocity)
+                return false;
+        }
+        return true;
+    };
+
+    for (std::int64_t d = 1; d < ticks; ++d)
+    {
+        if (ticks % d != 0 || ! repeatsEvery (static_cast<double> (d) / ticksPerBeat))
+            continue;
+
+        info.lengthBeats = static_cast<double> (d) / ticksPerBeat;
+        Sequencer sequencer (certain);
+        sequencer.setInputNotes (inputNotes.data(), static_cast<int> (inputNotes.size()));
+        Slot slot;
+        info.lengthSlots = 0;
+        while (sequencer.position() < info.lengthBeats - epsilon && sequencer.next (slot))
+            ++info.lengthSlots;
+        break;
+    }
+    return info;
+}
+} // namespace
+
+LoopInfo findLoop (const Arrangement& arrangement, const std::vector<int>& inputNotes, std::int64_t maxSlots)
 {
     // Percent chances are left out: the loop is measured as if every such step plays, so a
     // pattern with a little randomness still shows its underlying length.
@@ -452,7 +503,7 @@ LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots)
             info.repeats = true;
             info.lengthSlots = n;
             info.lengthBeats = sequencer.nextStart;
-            return info;
+            return shortestRepeat (certain, info, inputNotes);
         }
     }
 
