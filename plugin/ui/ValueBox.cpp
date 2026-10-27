@@ -14,6 +14,7 @@ constexpr int pixelsPerStep = 8;
 
 ValueBox::ValueBox (juce::String captionText) : caption (std::move (captionText))
 {
+    setName (caption);
     setRepaintsOnMouseActivity (true);
 }
 
@@ -121,6 +122,29 @@ void ValueBox::mouseDrag (const juce::MouseEvent& e)
 
     draggingValue = true;
     change (dragStartValue - e.getDistanceFromDragStartY() / pixelsPerStep);
+}
+
+void ValueBox::mouseUp (const juce::MouseEvent& e)
+{
+    if (! draggingValue && boxArea().contains (e.getMouseDownPosition()) && ! arrowArea().contains (e.getMouseDownPosition()))
+        showList();
+}
+
+void ValueBox::showList()
+{
+    juce::PopupMenu menu;
+    for (int v = minValue; v <= maxValue; ++v)
+        menu.addItem (v - minValue + 1, toText (v), true, v == value);
+
+    menu.showMenuAsync (juce::PopupMenu::Options()
+                            .withTargetComponent (this)
+                            .withTargetScreenArea (localAreaToGlobal (boxArea()))
+                            .withMinimumWidth (boxArea().getWidth())
+                            .withItemThatMustBeVisible (value - minValue + 1),
+                        [safe = juce::Component::SafePointer<ValueBox> (this)] (int chosen) {
+                            if (safe != nullptr && chosen > 0)
+                                safe->change (safe->minValue + chosen - 1);
+                        });
 }
 
 void ValueBox::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)

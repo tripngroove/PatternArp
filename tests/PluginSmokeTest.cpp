@@ -344,6 +344,18 @@ TEST_CASE ("clicking a pattern's play button pauses and resumes it")
     CHECK (play->get());
 }
 
+TEST_CASE ("clicking a value box opens its list")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* timing = w.find ("Timing");
+    REQUIRE (timing != nullptr);
+
+    // Click the value, left of the arrows and below the caption.
+    w.click (w.editor->getLocalPoint (timing, juce::Point<float> (20.0f, static_cast<float> (timing->getHeight()) - 12.0f)));
+    CHECK (juce::PopupMenu::dismissAllActiveMenus());
+}
+
 TEST_CASE ("the Order lane opens on a click and paints steps")
 {
     WindowedEditor w;
