@@ -10,12 +10,15 @@
 namespace patternarp
 {
 
-// The Notes Enabled strip: a Select | MIDI In switch and a piano keyboard from C0 to C7
-// (named the way Bitwig, Ableton and Logic name them: MIDI note 60 is C3).
+// The Notes Enabled strip: a Piano Roll | MIDI Thru switch, a MIDI Learn button and a piano
+// keyboard from C0 to C7 (named the way Bitwig, Ableton and Logic name them: MIDI note 60
+// is C3).
 //
-// In Select mode clicking (or dragging across) keys turns them on and off. In MIDI In mode
-// the keyboard only shows the notes being played into the plugin.
-class NoteKeyboard final : public juce::Component
+// In Piano Roll mode clicking (or dragging across) keys turns them on and off. In MIDI Thru
+// mode the keyboard only shows the notes being played into the plugin. MIDI Learn arms the
+// keyboard, pulsing red, so notes played in are added (the panel does the adding); click it
+// again when done.
+class NoteKeyboard final : public juce::Component, private juce::Timer
 {
 public:
     NoteKeyboard();
@@ -26,8 +29,13 @@ public:
 
     std::function<void (const std::bitset<128>&)> onNotesChange;
     std::function<void (NoteSource)> onSourceChange;
+    std::function<void (bool)> onLearnChange; // armed or not
+
+    bool isLearning() const { return learning; }
+    void setLearning (bool shouldLearn);
 
     void paint (juce::Graphics& g) override;
+    void mouseMove (const juce::MouseEvent& e) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
@@ -36,7 +44,10 @@ public:
     static constexpr int highestNote = 108; // C7
 
 private:
-    juce::Rectangle<int> switchArea() const;
+    void timerCallback() override { repaint (learnArea()); } // the pulse
+
+    juce::Rectangle<int> switchArea() const; // Piano Roll over MIDI Thru
+    juce::Rectangle<int> learnArea() const;
     juce::Rectangle<int> keysArea() const;
 
     float whiteKeyWidth() const;
@@ -47,6 +58,7 @@ private:
     std::bitset<128> input;
     NoteSource source = NoteSource::select;
     juce::Colour colour;
+    bool learning = false;
 
     bool paintingKeys = false;
     bool paintValue = true;

@@ -61,6 +61,32 @@ void resetStep (Step& s, Lane lane, const Pattern& p)
     }
 }
 
+void NoteLearner::learn (Pattern& p, int note)
+{
+    if (note < 0 || note > 127)
+        return;
+
+    p.enabledNotes.set (static_cast<size_t> (note));
+    if (count < maxSteps)
+        played[static_cast<size_t> (count++)] = note;
+
+    for (; p.length < count; ++p.length)
+        for (int lane = 0; lane < numLanes; ++lane)
+            resetStep (p.steps[static_cast<size_t> (p.length)], static_cast<Lane> (lane), p);
+
+    // Steps pick from the enabled notes, lowest to highest, so a new note shifts the others:
+    // point every learned step at its note again.
+    std::array<int, 128> rank {};
+    int numEnabled = 0;
+    for (int n = 0; n < 128; ++n)
+        if (p.enabledNotes.test (static_cast<size_t> (n)))
+            rank[static_cast<size_t> (n)] = numEnabled++;
+
+    for (int i = 0; i < count; ++i)
+        p.steps[static_cast<size_t> (i)].note =
+            numEnabled > 1 ? static_cast<float> (rank[static_cast<size_t> (played[static_cast<size_t> (i)])]) / static_cast<float> (numEnabled - 1) : 0.0f;
+}
+
 Pattern makeDefaultPattern()
 {
     Pattern p;

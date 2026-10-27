@@ -22,6 +22,9 @@ public:
     void setPattern (const Pattern& pattern, bool canAdd);
     void setInputNotes (const std::bitset<128>& notes) { keyboard.setInputNotes (notes); }
 
+    // A note just played into the plugin: added to the pattern while MIDI Learn is armed.
+    void learnNote (int note);
+
     std::function<void (const Pattern&)> onChange;
     std::function<void()> onClone, onDelete;
 
@@ -49,6 +52,7 @@ private:
     ValueBox timing { "Timing" }, length { "Length" }, direction { "Direction" };
     LaneGraph graph;
     NoteKeyboard keyboard;
+    NoteLearner learner; // the current MIDI Learn take
 
     std::array<juce::Rectangle<int>, numLanes> tabs {}; // full height; closed tabs are drawn lower
     int hoveredTab = -1;

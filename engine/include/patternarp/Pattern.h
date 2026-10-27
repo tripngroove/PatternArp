@@ -164,6 +164,20 @@ Pattern makeDefaultPattern();
 // the nearest original step.
 void setPatternLength (Pattern& pattern, int newLength);
 
+// MIDI Learn: each note played is switched on and written into the Notes lane in the order
+// played, from the first step. The pattern grows to fit (up to maxSteps), with new steps at
+// their defaults, but never shrinks. Use a new learner for each take.
+class NoteLearner
+{
+public:
+    void learn (Pattern& pattern, int note);
+    int numLearned() const { return count; }
+
+private:
+    std::array<int, maxSteps> played {};
+    int count = 0;
+};
+
 // Keeps every value inside its legal range.
 void sanitise (Pattern& pattern);
 

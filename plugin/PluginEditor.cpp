@@ -137,7 +137,7 @@ void PatternArpEditor::showSettingsMenu()
 
     // Latch is a host parameter (automatable and saved with the project), not a user setting.
     auto& latch = arp.getLatchParameter();
-    menu.addItem ("Latch (MIDI In patterns keep playing the last chord after you let go)", true, latch.get(), [&latch] {
+    menu.addItem ("Latch (MIDI Thru patterns keep playing the last chord after you let go)", true, latch.get(), [&latch] {
         latch.beginChangeGesture();
         latch = ! latch.get();
         latch.endChangeGesture();
@@ -232,6 +232,10 @@ void PatternArpEditor::refreshFromProcessor()
         shown = current;
         syncPanels();
     }
+
+    for (const int note : arp.takePlayedNotes())
+        for (auto* panel : panels)
+            panel->learnNote (note);
 
     if (const auto input = arp.getInputNotes(); input != shownInput)
     {

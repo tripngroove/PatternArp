@@ -56,6 +56,9 @@ public:
     // The incoming notes MIDI In patterns are using now (held or latched), for display.
     std::bitset<128> getInputNotes() const;
 
+    // Notes played in since the last call, in the order they came in, for MIDI Learn.
+    std::vector<int> takePlayedNotes();
+
     // Where playback is, in beats from the song start, or -1 when nothing is playing.
     double getPlayPosition() const { return playPosition.load (std::memory_order_relaxed); }
 
@@ -107,6 +110,11 @@ private:
     juce::MidiBuffer output;
 
     std::array<std::atomic<std::uint64_t>, 2> inputMask {}; // written by the audio thread
+
+    // Note-ons from the audio thread to the editor. Notes that arrive while it is full (the
+    // editor is closed) are dropped.
+    juce::AbstractFifo playedFifo { 256 };
+    std::array<std::uint8_t, 256> playedNotes {};
     std::atomic<double> playPosition { -1.0 };
 
     double sampleRate = 44100.0;

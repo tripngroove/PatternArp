@@ -71,6 +71,15 @@ PatternPanel::PatternPanel()
         pattern.noteSource = source;
         changed();
     };
+    keyboard.onLearnChange = [this] (bool armed) {
+        if (armed)
+        {
+            learner = {}; // each take writes the Notes lane from the first step
+            graph.setLane (Lane::notes);
+            layoutTabs();
+            repaint();
+        }
+    };
 
     defaultEditor.setEditable (true, true, false);
     defaultEditor.setJustificationType (juce::Justification::centred);
@@ -139,6 +148,17 @@ void PatternPanel::setPattern (const Pattern& newPattern, bool canAdd)
         defaultEditor.setText (juce::String (graph.getLane() == Lane::velocity ? pattern.defaultVelocity : pattern.defaultGate),
                                juce::dontSendNotification);
     repaint();
+}
+
+void PatternPanel::learnNote (int note)
+{
+    if (! keyboard.isLearning())
+        return;
+
+    learner.learn (pattern, note);
+    length.setValue (pattern.length);
+    keyboard.setNotes (pattern.enabledNotes, pattern.noteSource);
+    changed();
 }
 
 void PatternPanel::updatePausedLook()

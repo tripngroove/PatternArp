@@ -1,6 +1,8 @@
 // Drives the real plugin processor like a host would: held notes, a playing transport,
 // then a stopped one, host automation and saved state, checking the MIDI that comes out.
 
+#include "PluginProcessor.h"
+
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <catch2/catch_approx.hpp>
@@ -187,6 +189,27 @@ TEST_CASE ("every parameter starts at its default value")
         INFO (parameter->getName (64));
         CHECK (parameter->getValue() == Catch::Approx (parameter->getDefaultValue()));
     }
+}
+
+TEST_CASE ("notes played in are kept in order for MIDI Learn")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+    auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*plugin);
+    FakePlayHead playHead;
+    plugin->setPlayHead (&playHead);
+    plugin->prepareToPlay (48000.0, 512);
+
+    juce::MidiBuffer input;
+    input.addEvent (juce::MidiMessage::noteOn (1, 64, 0.8f), 0);
+    input.addEvent (juce::MidiMessage::noteOn (1, 60, 0.8f), 10);
+    input.addEvent (juce::MidiMessage::noteOn (1, 67, static_cast<juce::uint8> (0)), 15); // a note-off in disguise
+    input.addEvent (juce::MidiMessage::noteOn (1, 67, 0.8f), 20);
+    render (*plugin, playHead, input, 1);
+
+    CHECK (arp.takePlayedNotes() == std::vector<int> { 64, 60, 67 });
+    CHECK (arp.takePlayedNotes().empty());
+    plugin->releaseResources();
 }
 
 TEST_CASE ("plugin state round-trips")
@@ -422,6 +445,25 @@ TEST_CASE ("the Rotation lane opens on a click and paints steps")
     const auto* arrangement = xml->getChildByName ("Arrangement");
     REQUIRE (arrangement != nullptr);
     CHECK (arrangement->getStringAttribute ("order") == "1,1");
+}
+
+TEST_CASE ("arming MIDI Learn switches a MIDI Thru pattern to Piano Roll")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panel = w.find ("Pattern A");
+    auto* source = w.parameter<juce::AudioParameterChoice> ("p1_notesource");
+    REQUIRE (panel != nullptr);
+    REQUIRE (source != nullptr);
+
+    // The keyboard row starts 304 pixels down the panel, with the Piano Roll / MIDI Thru
+    // switch at its left and the Learn button under it (see PatternPanel::resized and
+    // NoteKeyboard.cpp).
+    w.click (w.editor->getLocalPoint (panel, juce::Point<float> (60.0f, 304.0f + 37.0f)));
+    REQUIRE (source->getIndex() == 1);
+
+    w.click (w.editor->getLocalPoint (panel, juce::Point<float> (60.0f, 304.0f + 67.0f)));
+    CHECK (source->getIndex() == 0);
 }
 
 TEST_CASE ("double-clicking a lane tab resets that lane")

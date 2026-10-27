@@ -60,7 +60,7 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
         pp.length = add (std::make_unique<juce::AudioParameterInt> (id ("length"), label ("Length"), 1, maxSteps, defaults.length));
         pp.direction = add (std::make_unique<juce::AudioParameterChoice> (id ("direction"), label ("Direction"), directions, 0));
         pp.noteSource = add (std::make_unique<juce::AudioParameterChoice> (id ("notesource"), label ("Note Source"),
-                                                                           juce::StringArray { "Select", "MIDI In" }, 0));
+                                                                           juce::StringArray { "Piano Roll", "MIDI Thru" }, 0));
         pp.chanceMode = add (std::make_unique<juce::AudioParameterChoice> (id ("chancemode"), label ("Chance Mode"),
                                                                            juce::StringArray { "Rest", "Skip", "Extend" }, 0));
         pp.play = add (std::make_unique<juce::AudioParameterBool> (id ("play"), label ("Play"), true));
@@ -138,6 +138,14 @@ void PatternArpProcessor::setParameters (const ParameterSnapshot& values)
         for (auto* parameter : std::initializer_list<juce::RangedAudioParameter*> { pp.timing, pp.length, pp.direction,
                                                                                     pp.noteSource, pp.chanceMode, pp.play })
             setPlainValue (*parameter, *v++);
+}
+
+std::vector<int> PatternArpProcessor::takePlayedNotes()
+{
+    std::vector<int> notes;
+    const auto read = playedFifo.read (playedFifo.getNumReady());
+    read.forEach ([&] (int index) { notes.push_back (playedNotes[static_cast<size_t> (index)]); });
+    return notes;
 }
 
 std::bitset<128> PatternArpProcessor::getInputNotes() const
@@ -257,6 +265,8 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         {
             midiChannel = message.getChannel();
             engine.noteOn (message.getNoteNumber());
+            if (playedFifo.getFreeSpace() > 0)
+                playedFifo.write (1).forEach ([&] (int index) { playedNotes[static_cast<size_t> (index)] = static_cast<std::uint8_t> (message.getNoteNumber()); });
             if (! consumeNotes)
                 output.addEvent (message, metadata.samplePosition);
         }

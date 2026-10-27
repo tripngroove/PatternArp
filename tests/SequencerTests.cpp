@@ -794,3 +794,40 @@ TEST_CASE ("engine jumps land on the same notes as playing through")
 
     CHECK (onPitches (y) == expected);
 }
+
+TEST_CASE ("MIDI Learn switches on the notes played and plays them back in that order")
+{
+    auto p = patternOf ({ B });
+    p.steps[1].velocity = 30; // past the end: learning a second step starts it fresh
+
+    NoteLearner learner;
+    for (int note : { E, C, F, C })
+        learner.learn (p, note);
+
+    CHECK (learner.numLearned() == 4);
+    CHECK (p.length == 4);
+    CHECK (p.enabledNotes.count() == 4); // B stays on, as if the others were clicked
+    CHECK (p.steps[1].velocity == p.defaultVelocity);
+    CHECK (firstNotes (arrangementOf ({ p }), 8) == std::vector<int> { E, C, F, C, E, C, F, C });
+
+    SECTION ("a longer pattern keeps its length and the steps after the take")
+    {
+        auto q = patternOf ({ A, B, C, E, F });
+        NoteLearner take;
+        take.learn (q, F);
+        take.learn (q, A);
+        CHECK (q.length == 5);
+        CHECK (firstNotes (arrangementOf ({ q }), 5) == std::vector<int> { F, A, C, E, F });
+    }
+
+    SECTION ("a take stops writing steps after the last one")
+    {
+        NoteLearner take;
+        auto q = patternOf ({ C });
+        for (int i = 0; i < maxSteps + 4; ++i)
+            take.learn (q, 40 + i);
+        CHECK (q.length == maxSteps);
+        CHECK (q.enabledNotes.count() == static_cast<size_t> (maxSteps + 4 + 1));
+        CHECK (firstNotes (arrangementOf ({ q }), 1) == std::vector<int> { 40 });
+    }
+}
