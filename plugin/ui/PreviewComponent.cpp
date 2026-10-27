@@ -4,7 +4,10 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include <algorithm>
 #include <array>
+#include <numeric>
+#include <tuple>
 
 namespace patternarp
 {
@@ -140,14 +143,33 @@ void PreviewComponent::paint (juce::Graphics& g)
         const float rowHeight = juce::jmin (18.0f, roll.getHeight() / static_cast<float> (rows));
         const float bottom = roll.getCentreY() + rowHeight * static_cast<float> (rows) / 2.0f;
 
-        for (const auto& n : drawn)
+        // Walk each row in time order so back-to-back notes (ratchets, mostly) keep a 1px gap
+        // and still read as separate hits when zoomed far out.
+        std::vector<size_t> order (drawn.size());
+        std::iota (order.begin(), order.end(), size_t { 0 });
+        std::sort (order.begin(), order.end(), [&drawn] (size_t a, size_t b)
+                   { return std::tie (drawn[a].note, drawn[a].start) < std::tie (drawn[b].note, drawn[b].start); });
+
+        for (size_t k = 0; k < order.size(); ++k)
         {
+            const auto& n = drawn[order[k]];
+            const float x = roll.getX() + static_cast<float> (n.start) * pxPerBeat;
+            float width = juce::jmax (3.0f, static_cast<float> (n.length) * pxPerBeat - 1.0f);
+            if (k + 1 < order.size() && drawn[order[k + 1]].note == n.note)
+                width = juce::jmin (width, roll.getX() + static_cast<float> (drawn[order[k + 1]].start) * pxPerBeat - x - 1.0f);
+
             const auto row = static_cast<float> (rowOf[static_cast<size_t> (n.note)]);
-            const auto r = juce::Rectangle<float> (roll.getX() + static_cast<float> (n.start) * pxPerBeat,
-                                                   bottom - (row + 1.0f) * rowHeight,
-                                                   juce::jmax (3.0f, static_cast<float> (n.length) * pxPerBeat - 1.0f),
-                                                   juce::jmax (2.0f, rowHeight - 2.0f));
+            const auto r = juce::Rectangle<float> (x, bottom - (row + 1.0f) * rowHeight, juce::jmax (1.0f, width), juce::jmax (2.0f, rowHeight - 2.0f));
             const auto colour = theme::patternColour (colourOf[static_cast<size_t> (juce::jlimit (0, maxPatterns - 1, n.pattern))]);
+
+            // Slivers get a solid fill on whole pixels: an outline or blur would swallow them.
+            if (r.getWidth() < 4.0f)
+            {
+                g.setColour (colour.darker (0.2f));
+                g.fillRect (r.withX (std::round (x)).withWidth (juce::jmax (1.0f, std::round (r.getWidth()))));
+                continue;
+            }
+
             g.setColour (colour.withAlpha (0.45f + 0.55f * static_cast<float> (n.velocity) / 127.0f));
             g.fillRoundedRectangle (r, 1.5f);
             g.setColour (colour.darker (0.4f));
