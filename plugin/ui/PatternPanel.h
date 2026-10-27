@@ -58,7 +58,17 @@ private:
     int hoveredTab = -1;
     std::array<juce::Rectangle<int>, numChanceModes> chanceModeButtons {}; // Rest, Skip, Extend
     juce::Rectangle<int> playButton;
-    juce::Label defaultEditor;
+
+    // The default value in the Velocity and Gate tabs: drag it up or down, or click to type.
+    struct DefaultValue final : juce::Label
+    {
+        std::function<void()> onDragStart;
+        std::function<void (int)> onDrag; // units moved since the drag started, up is more
+        void mouseDown (const juce::MouseEvent& e) override;
+        void mouseDrag (const juce::MouseEvent& e) override;
+    };
+    DefaultValue defaultEditor;
+    Pattern defaultDragStart; // a drag works from the pattern as it was when grabbed
 
     juce::TextButton cloneButton { "Clone" }, deleteButton { "Delete" };
     bool confirmingDelete = false;

@@ -87,8 +87,19 @@ PatternPanel::PatternPanel()
     defaultEditor.setColour (juce::Label::textColourId, theme::ink);
     defaultEditor.setColour (juce::Label::backgroundColourId, theme::panel);
     defaultEditor.setColour (juce::Label::outlineColourId, theme::ink);
-    defaultEditor.setTooltip ("Default value: new and double-clicked steps use it");
+    defaultEditor.setTooltip ("Default value for new and reset steps: drag up or down, or click to type");
+    defaultEditor.setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+    defaultEditor.setComponentID ("defaultValue");
     defaultEditor.onTextChange = [this] { setDefault (graph.getLane(), defaultEditor.getText().getIntValue()); };
+    defaultEditor.onDragStart = [this] { defaultDragStart = pattern; };
+    defaultEditor.onDrag = [this] (int delta) {
+        // Start over from the grab each time, so steps the default passes on the way stay put.
+        const auto lane = graph.getLane();
+        pattern.steps = defaultDragStart.steps;
+        pattern.defaultVelocity = defaultDragStart.defaultVelocity;
+        pattern.defaultGate = defaultDragStart.defaultGate;
+        setDefault (lane, (lane == Lane::velocity ? pattern.defaultVelocity : pattern.defaultGate) + delta);
+    };
 
     cloneButton.setTooltip ("Add a copy of this pattern at the end");
     deleteButton.setTooltip ("Delete this pattern");
@@ -199,6 +210,20 @@ void PatternPanel::setDefault (Lane lane, int value)
     }
     defaultEditor.setText (juce::String (value), juce::dontSendNotification);
     changed();
+}
+
+void PatternPanel::DefaultValue::mouseDown (const juce::MouseEvent& e)
+{
+    juce::Label::mouseDown (e);
+    if (onDragStart)
+        onDragStart();
+}
+
+void PatternPanel::DefaultValue::mouseDrag (const juce::MouseEvent& e)
+{
+    juce::Label::mouseDrag (e);
+    if (onDrag && e.mouseWasDraggedSinceMouseDown())
+        onDrag (-e.getDistanceFromDragStartY() / 2);
 }
 
 void PatternPanel::timerCallback()

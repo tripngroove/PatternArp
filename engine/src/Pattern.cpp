@@ -94,6 +94,19 @@ void NoteLearner::learn (Pattern& p, int note)
             numEnabled > 1 ? static_cast<float> (rank[static_cast<size_t> (played[static_cast<size_t> (i)])]) / static_cast<float> (numEnabled - 1) : 0.0f;
 }
 
+void copyLaneValue (const Step& from, Step& to, Lane lane)
+{
+    switch (lane)
+    {
+        case Lane::notes:    to.note = from.note; break;
+        case Lane::velocity: to.velocity = from.velocity; break;
+        case Lane::gate:     to.gate = from.gate; break;
+        case Lane::octave:   to.octave = from.octave; break;
+        case Lane::ratchet:  to.ratchet = from.ratchet; break;
+        case Lane::chance:   to.chance = from.chance; break;
+    }
+}
+
 Pattern makeDefaultPattern()
 {
     Pattern p;

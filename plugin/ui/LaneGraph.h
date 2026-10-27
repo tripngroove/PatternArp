@@ -12,8 +12,9 @@ namespace patternarp
 const char* laneName (Lane lane);
 
 // The per-step bar graph. Click or drag across it to draw a shape; double-click a step to
-// reset it to the lane's default. The handle above the graph sets how many steps this lane
-// loops over (dragged fully right, it follows the pattern's length).
+// reset it to the lane's default; right-click a step to set every step to its value. The
+// handle on the graph sets how many steps this lane loops over (dragged fully right, it
+// follows the pattern's length).
 class LaneGraph final : public juce::Component
 {
 public:
@@ -51,6 +52,8 @@ private:
 
     void drawNoteGrid (juce::Graphics& g, juce::Rectangle<float> area) const;
     void applyAt (juce::Point<float> position);
+    void showStepMenu (int step);
+    void edited();
 
     Pattern pattern;
     Lane lane = Lane::notes;

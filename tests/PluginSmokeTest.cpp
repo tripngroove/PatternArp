@@ -492,4 +492,50 @@ TEST_CASE ("double-clicking a lane tab resets that lane")
     for (const auto& note : after)
         CHECK (note == "0");
 }
+
+TEST_CASE ("the Velocity default drags up and down")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panel = w.find ("Pattern A");
+    REQUIRE (panel != nullptr);
+
+    // Open the Velocity tab, the second one on top of the graph (see PatternPanel::layoutTabs).
+    w.click (w.editor->getLocalPoint (panel, juce::Point<float> (120.0f, 104.0f)));
+    auto* value = panel->findChildWithID ("defaultValue");
+    REQUIRE (value != nullptr);
+    REQUIRE (value->isVisible());
+
+    const auto defaultVelocity = [&w] {
+        const auto xml = w.state();
+        const auto* pattern = xml != nullptr && xml->getChildByName ("Arrangement") != nullptr
+                                  ? xml->getChildByName ("Arrangement")->getChildByName ("Pattern")
+                                  : nullptr;
+        return pattern != nullptr ? pattern->getIntAttribute ("defaultVelocity") : -1;
+    };
+    REQUIRE (defaultVelocity() == 100);
+
+    // Up 20 pixels is 10 more.
+    const auto start = w.editor->getLocalPoint (value, value->getLocalBounds().getCentre().toFloat());
+    w.mouse (start, true);
+    for (int i = 1; i <= 4; ++i)
+        w.mouse (start.translated (0.0f, -5.0f * static_cast<float> (i)), true);
+    w.mouse (start.translated (0.0f, -20.0f), false);
+    CHECK (defaultVelocity() == 110);
+}
+
+TEST_CASE ("right-clicking a step opens its menu")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panel = w.find ("Pattern A");
+    REQUIRE (panel != nullptr);
+
+    const auto point = w.editor->getLocalPoint (panel, juce::Point<float> (60.0f, 200.0f)); // the first step
+    w.peer->handleMouseEvent (juce::MouseInputSource::InputSourceType::mouse, point, juce::ModifierKeys::rightButtonModifier,
+                              juce::MouseInputSource::defaultPressure, 0.0f, w.time += 100);
+    w.peer->handleMouseEvent (juce::MouseInputSource::InputSourceType::mouse, point, juce::ModifierKeys(),
+                              juce::MouseInputSource::defaultPressure, 0.0f, w.time += 100);
+    CHECK (juce::PopupMenu::dismissAllActiveMenus());
+}
 #endif

@@ -827,3 +827,14 @@ TEST_CASE ("MIDI Learn starts afresh and plays the notes back in the order playe
         CHECK (firstNotes (arrangementOf ({ q }), 1) == std::vector<int> { 40 });
     }
 }
+
+TEST_CASE ("copying a lane value leaves the other lanes alone")
+{
+    Step from, to;
+    from.velocity = 40;
+    from.octave = 2;
+    to.octave = -1;
+    copyLaneValue (from, to, Lane::velocity);
+    CHECK (to.velocity == 40);
+    CHECK (to.octave == -1);
+}

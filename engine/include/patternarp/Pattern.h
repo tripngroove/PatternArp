@@ -156,6 +156,9 @@ int laneLength (const Pattern& pattern, Lane lane);
 // and gate, no octave shift, no ratchet, always plays.
 void resetStep (Step& step, Lane lane, const Pattern& pattern);
 
+// Copies one lane's value from a step to another, leaving the other lanes alone.
+void copyLaneValue (const Step& from, Step& to, Lane lane);
+
 // A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away.
 Pattern makeDefaultPattern();
 

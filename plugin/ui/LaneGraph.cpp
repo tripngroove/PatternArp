@@ -373,6 +373,13 @@ void LaneGraph::mouseExit (const juce::MouseEvent&)
 
 void LaneGraph::mouseDown (const juce::MouseEvent& e)
 {
+    if (e.mods.isPopupMenu())
+    {
+        if (graphArea().contains (e.position))
+            showStepMenu (stepAt (e.position.x));
+        return;
+    }
+
     lastStep = -1;
     draggingHandle = isOnHandle (e.position);
     if (draggingHandle)
@@ -383,6 +390,9 @@ void LaneGraph::mouseDown (const juce::MouseEvent& e)
 
 void LaneGraph::mouseDrag (const juce::MouseEvent& e)
 {
+    if (e.mods.isPopupMenu())
+        return;
+
     if (draggingHandle)
     {
         setLaneLengthFromX (e.position.x);
@@ -395,10 +405,32 @@ void LaneGraph::mouseDrag (const juce::MouseEvent& e)
 
 void LaneGraph::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    if (isOnHandle (e.position))
+    if (isOnHandle (e.position) || e.mods.isPopupMenu())
         return;
 
     resetStep (pattern.steps[static_cast<size_t> (stepAt (e.position.x))], lane, pattern);
+    edited();
+}
+
+void LaneGraph::showStepMenu (int step)
+{
+    const auto value = valueText (pattern.steps[static_cast<size_t> (step)]);
+    juce::PopupMenu menu;
+    menu.addItem (value.isEmpty() ? juce::String ("Set all steps to this one") : "Set all steps to " + value,
+                  [safe = juce::Component::SafePointer<LaneGraph> (this), step] {
+                      if (safe == nullptr || step >= safe->pattern.length)
+                          return;
+                      auto& p = safe->pattern;
+                      const auto from = p.steps[static_cast<size_t> (step)];
+                      for (int i = 0; i < p.length; ++i)
+                          copyLaneValue (from, p.steps[static_cast<size_t> (i)], safe->lane);
+                      safe->edited();
+                  });
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+}
+
+void LaneGraph::edited()
+{
     repaint();
     if (onEdit)
         onEdit (pattern);
