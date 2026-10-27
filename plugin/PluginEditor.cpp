@@ -57,9 +57,15 @@ PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
     addAndMakeVisible (preview);
 
     order.onEdit = [this] (const Arrangement& edited) {
+        // The Rotation lane can pause or play patterns too, by quieting or lighting their turns.
         shown.order = edited.order;
         shown.orderLength = edited.orderLength;
+        shown.quiet = edited.quiet;
+        for (int i = 0; i < shown.numPatterns; ++i)
+            shown.patterns[static_cast<size_t> (i)].playing = edited.patterns[static_cast<size_t> (i)].playing;
         arp.setArrangement (shown);
+        for (int i = 0; i < panels.size(); ++i)
+            panels[i]->setPattern (shown.patterns[static_cast<size_t> (i)], shown.numPatterns < maxPatterns);
         previewDirty = true;
     };
     order.onHeightChange = [this] { resized(); };
@@ -252,7 +258,13 @@ void PatternArpEditor::edit (int index, const Pattern& pattern)
     if (index >= shown.numPatterns)
         return;
 
+    const bool wasPlaying = shown.patterns[static_cast<size_t> (index)].playing;
     shown.patterns[static_cast<size_t> (index)] = pattern;
+    if (pattern.playing != wasPlaying)
+    {
+        shown.setPlaying (index, pattern.playing); // lights or quiets all of its turns
+        order.setArrangement (shown);
+    }
     arp.setArrangement (shown);
     previewDirty = true;
 }

@@ -61,7 +61,7 @@ Sequencer::Sequencer (const Arrangement& a)
 
 void Sequencer::setArrangement (const Arrangement& a)
 {
-    // Paused patterns are left out, as if they were not there.
+    // Only playing patterns get a place here; turns of paused ones are quiet (see below).
     arrangement.loopLength = std::max (0, a.loopLength);
     arrangement.numPatterns = 0;
     for (int i = 0; i < std::clamp (a.numPatterns, 0, maxPatterns); ++i)
@@ -74,8 +74,8 @@ void Sequencer::setArrangement (const Arrangement& a)
         sanitise (p);
     }
 
-    // The Order lane, renumbered to the playing patterns. Turns of paused patterns are left
-    // out, so they take no time.
+    // The Order lane, renumbered to the playing patterns. Quiet turns (all of a paused
+    // pattern's) stay, as rests as long as their pattern's steps, so nothing else moves.
     std::array<int, maxPatterns> playingIndex {};
     playingIndex.fill (-1);
     for (int i = 0; i < arrangement.numPatterns; ++i)
@@ -86,10 +86,11 @@ void Sequencer::setArrangement (const Arrangement& a)
     for (int i = 0; i < std::clamp (a.orderLength, 0, maxOrderSteps); ++i)
     {
         const int owner = a.order[static_cast<size_t> (i)];
-        if (owner < 0 || owner >= numSource)
-            turns[static_cast<size_t> (numTurns++)] = -1;
-        else if (const int playing = playingIndex[static_cast<size_t> (owner)]; playing >= 0)
-            turns[static_cast<size_t> (numTurns++)] = playing;
+        const bool known = owner >= 0 && owner < numSource;
+        const bool heard = known && a.isHeard (i);
+        turns[static_cast<size_t> (numTurns)] = heard ? playingIndex[static_cast<size_t> (owner)] : -1;
+        restBeats[static_cast<size_t> (numTurns)] = known && ! heard ? beatsPerStep (a.patterns[static_cast<size_t> (owner)].timing) : 0.0;
+        ++numTurns;
     }
 
     for (int i = 0; i < arrangement.numPatterns; ++i)
@@ -228,7 +229,8 @@ bool Sequencer::passesChance (int patternIndex, int step)
 
 Sequencer::Outcome Sequencer::playSlot (Slot& slot)
 {
-    const int owner = turns[static_cast<size_t> (slotIndex++ % numTurns)];
+    const auto turn = static_cast<size_t> (slotIndex++ % numTurns);
+    const int owner = turns[turn];
 
     slot.start = nextStart;
     slot.pattern = owner < 0 ? -1 : sourceIndex[static_cast<size_t> (owner)];
@@ -238,7 +240,7 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
 
     if (owner < 0)
     {
-        slot.length = shortestStep (arrangement);
+        slot.length = restBeats[turn] > 0.0 ? restBeats[turn] : shortestStep (arrangement);
         nextStart += slot.length;
         return Outcome::rest;
     }

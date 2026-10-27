@@ -103,7 +103,9 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
     chord.addEvent (juce::MidiMessage::controllerEvent (1, 74, 64), 0);
 
     // 1 beat at 120 bpm / 48 kHz = 24000 samples, so 46 blocks of 512 is just under 1 beat.
+    // Pausing B leaves its turns silent, so A alone needs twice as long for as many notes.
     constexpr int justUnderOneBeat = 46;
+    constexpr int justUnderTwoBeats = 93;
 
     SECTION ("with the transport playing, the default patterns take turns and input passes through")
     {
@@ -126,7 +128,7 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
         setParameter (*plugin, "p1_notesource", 1.0f);
         setParameter (*plugin, "p2_play", 0.0f);
         playHead.playing = true;
-        const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
+        const auto out = render (*plugin, playHead, chord, justUnderTwoBeats);
 
         CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60 });
         CHECK (out.controllers == 1);
@@ -136,7 +138,7 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
     {
         setParameter (*plugin, "p1_notesource", 1.0f);
         setParameter (*plugin, "p2_play", 0.0f);
-        const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
+        const auto out = render (*plugin, playHead, chord, justUnderTwoBeats);
         CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60 });
     }
 
@@ -145,7 +147,7 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
         setParameter (*plugin, "p1_notesource", 1.0f);
         setParameter (*plugin, "p2_play", 0.0f);
         playHead.playing = true;
-        const auto before = render (*plugin, playHead, chord, 26); // a little past the 3rd note
+        const auto before = render (*plugin, playHead, chord, 52); // a little past the 3rd note
 
         juce::MidiBuffer release;
         for (int n : { 60, 64, 67 })
@@ -169,11 +171,11 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
         playHead.playing = true;
         setParameter (*plugin, "p2_play", 0.0f);
         setParameter (*plugin, "p1_length", 2.0f);
-        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 62, 60, 62 });
+        CHECK (render (*plugin, playHead, {}, justUnderTwoBeats).noteOns == std::vector<int> { 60, 62, 60, 62 });
 
         setParameter (*plugin, "p1_length", 3.0f);
         playHead.ppq = 0.0;
-        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 62, 64, 60 });
+        CHECK (render (*plugin, playHead, {}, justUnderTwoBeats).noteOns == std::vector<int> { 60, 62, 64, 60 });
     }
 
     plugin->releaseResources();
@@ -218,6 +220,13 @@ TEST_CASE ("plugin state round-trips")
     std::unique_ptr<juce::AudioProcessor> original (createPluginFilter());
     setParameter (*original, "p1_timing", 5.0f); // 1/8
     setParameter (*original, "p1_notesource", 1.0f);
+    {
+        auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*original);
+        auto a = arp.getArrangement();
+        a.setOrderLength (4);
+        a.setQuiet (2, true);
+        arp.setArrangement (a);
+    }
 
     juce::MemoryBlock state;
     original->getStateInformation (state);
@@ -232,6 +241,11 @@ TEST_CASE ("plugin state round-trips")
     for (auto* p : restored->getParameters())
         if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (p); choice != nullptr && choice->getParameterID() == "p1_timing")
             CHECK (choice->getIndex() == 5);
+
+    const auto a = dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement();
+    CHECK (a.orderLength == 4);
+    CHECK (a.quiet[2]);
+    CHECK_FALSE (a.quiet[0]);
 }
 
 TEST_CASE ("saves from before 1/64 keep their timings and loop length")
@@ -445,6 +459,21 @@ TEST_CASE ("the Rotation lane opens on a click and paints steps")
     const auto* arrangement = xml->getChildByName ("Arrangement");
     REQUIRE (arrangement != nullptr);
     CHECK (arrangement->getStringAttribute ("order") == "1,1");
+
+    // Clicking B's lit steps quiets them; once both are quiet, B is paused.
+    auto* play = w.parameter<juce::AudioParameterBool> ("p2_play");
+    REQUIRE (play != nullptr);
+    const float stepWidth = std::min (40.0f, (static_cast<float> (lane->getWidth()) - 116.0f - 12.0f) / 16.0f);
+    const float rowB = 40.0f + 8.0f + 28.0f * 1.5f;
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (116.0f + stepWidth * 0.5f, rowB)));
+    CHECK (play->get());
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (116.0f + stepWidth * 1.5f, rowB)));
+    CHECK_FALSE (play->get());
+
+    // And clicking one again plays B with just that step lit.
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (116.0f + stepWidth * 1.5f, rowB)));
+    CHECK (play->get());
+    CHECK (w.state()->getChildByName ("Arrangement")->getStringAttribute ("quiet") == "0");
 }
 
 TEST_CASE ("arming MIDI Learn switches a MIDI Thru pattern to Piano Roll")

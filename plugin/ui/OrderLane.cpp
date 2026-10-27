@@ -141,22 +141,34 @@ juce::Rectangle<float> OrderLane::stepBox (int step, float y) const
     return juce::Rectangle<float> (gridArea().getX() + w * static_cast<float> (step), y, w, stepHeight).reduced (1.5f, 0.0f);
 }
 
-void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int owner) const
+void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn) const
 {
+    const int owner = arrangement.order[static_cast<size_t> (turn)];
     if (owner < 0 || owner >= arrangement.numPatterns)
     {
-        // A rest: an empty outline.
+        // A rest (from older saves): an empty outline.
         g.setColour (theme::inkMuted);
         g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
         return;
     }
 
+    // Lit: filled in the pattern's colour. Quiet (or paused): a pale outline of it.
     const auto& p = arrangement.patterns[static_cast<size_t> (owner)];
-    const float alpha = p.playing ? 1.0f : 0.35f; // a paused pattern's steps are skipped
-    g.setColour (theme::patternColour (p.colour).withAlpha (alpha));
-    g.fillRoundedRectangle (r, 3.0f);
-    g.setColour (juce::Colours::white.withAlpha (alpha));
+    const auto colour = theme::patternColour (p.colour);
     g.setFont (theme::font (13.0f, true));
+    if (arrangement.isHeard (turn))
+    {
+        g.setColour (colour);
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (juce::Colours::white);
+    }
+    else
+    {
+        g.setColour (colour.withAlpha (0.12f));
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (colour.withAlpha (0.5f));
+        g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
+    }
     g.drawText (theme::patternName (p), r, juce::Justification::centred);
 }
 
@@ -164,7 +176,7 @@ void OrderLane::paintCollapsed (juce::Graphics& g)
 {
     const auto y = gridArea().getY();
     for (int i = 0; i < arrangement.orderLength; ++i)
-        paintStep (g, stepBox (i, y), arrangement.order[static_cast<size_t> (i)]);
+        paintStep (g, stepBox (i, y), i);
 }
 
 void OrderLane::paintExpanded (juce::Graphics& g)
@@ -196,7 +208,7 @@ void OrderLane::paintExpanded (juce::Graphics& g)
 
         for (int i = 0; i < arrangement.orderLength; ++i)
             if (arrangement.order[static_cast<size_t> (i)] == row)
-                paintStep (g, stepBox (i, top + (rowHeight - stepHeight) / 2.0f), row);
+                paintStep (g, stepBox (i, top + (rowHeight - stepHeight) / 2.0f), i);
     }
 
     // Grid lines.
@@ -270,7 +282,10 @@ void OrderLane::mouseDown (const juce::MouseEvent& e)
     if (step < 0 || step >= arrangement.orderLength || row < 0 || row >= arrangement.numPatterns)
         return;
 
-    drag = arrangement.order[static_cast<size_t> (step)] == row ? Drag::clear : Drag::paint;
+    if (arrangement.order[static_cast<size_t> (step)] != row)
+        drag = Drag::paint;
+    else
+        drag = arrangement.isHeard (step) ? Drag::quiet : Drag::light;
     applyAt (e.position);
 }
 
@@ -301,17 +316,17 @@ void OrderLane::applyAt (juce::Point<float> position)
     bool changed = false;
     for (int i = from; i <= to; ++i)
     {
-        auto& owner = arrangement.order[static_cast<size_t> (i)];
-        if (drag == Drag::paint && owner != row)
-        {
-            owner = row;
-            changed = true;
-        }
-        else if (drag == Drag::clear && owner == row)
-        {
-            owner = -1;
-            changed = true;
-        }
+        const bool mine = arrangement.order[static_cast<size_t> (i)] == row;
+        const bool heard = arrangement.isHeard (i);
+        if (drag == Drag::paint && ! mine)
+            arrangement.setTurn (i, row);
+        else if (drag == Drag::quiet && mine && heard)
+            arrangement.setQuiet (i, true);
+        else if (drag == Drag::light && mine && ! heard)
+            arrangement.setQuiet (i, false);
+        else
+            continue;
+        changed = true;
     }
 
     if (changed)
@@ -323,11 +338,10 @@ void OrderLane::setLengthFromX (float x)
     const int steps = juce::jlimit (1, maxOrderSteps, juce::roundToInt ((x - gridArea().getX()) / stepWidth()));
     auto from = dragStart;
     from.setOrderLength (steps);
-    if (from.orderLength == arrangement.orderLength && from.order == arrangement.order)
+    if (from == arrangement)
         return;
 
-    arrangement.order = from.order;
-    arrangement.orderLength = from.orderLength;
+    arrangement = from;
     edited();
 }
 

@@ -13,9 +13,10 @@ namespace patternarp
 //
 // Collapsed, it shows the order as a row of lettered steps in each pattern's colour; click it
 // to open the grid, which has a row per pattern and keeps every step where and as it was.
-// Click or drag in the grid to give steps to a pattern (clicking a step a pattern already has
-// makes it a rest), and drag the handle on the grid to change how many steps the lane loops
-// over. Click the header to close it again.
+// Click or drag in the grid to give steps to a pattern. Clicking a step a pattern already has
+// quiets it (dimmed, silent, keeping its time) or lights it again; a pattern with every step
+// quiet is paused, and pausing a pattern dims all its steps. Drag the handle on the grid to
+// change how many steps the lane loops over. Click the header to close it again.
 class OrderLane final : public juce::Component
 {
 public:
@@ -48,7 +49,8 @@ private:
     {
         none,
         paint, // gives each step passed over to the pattern under the mouse
-        clear, // turns the passed-over steps of the pattern under the mouse into rests
+        quiet, // quiets the passed-over steps of the pattern under the mouse
+        light, // lights them again
         length
     };
 
@@ -64,7 +66,7 @@ private:
     void paintCollapsed (juce::Graphics& g);
     void paintExpanded (juce::Graphics& g);
     juce::Rectangle<float> stepBox (int step, float y) const; // a step's box, its top at y
-    void paintStep (juce::Graphics& g, juce::Rectangle<float> r, int owner) const;
+    void paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn) const;
     void paintHandle (juce::Graphics& g); // the length handle
 
     void applyAt (juce::Point<float> position);

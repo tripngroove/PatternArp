@@ -109,6 +109,7 @@ private:
     std::array<int, maxPatterns> sourceIndex {}; // each one's position in the full arrangement
     std::array<Cursor, maxPatterns> cursors {};
     std::array<int, maxOrderSteps> turns {}; // the Order lane, by playing pattern (-1 = rest)
+    std::array<double, maxOrderSteps> restBeats {}; // how long each rest lasts (0 = the shortest step)
     int numTurns = 0;
     std::array<std::array<int, 128>, maxPatterns> enabledNotes {}; // per pattern, ascending
     std::array<int, maxPatterns> numEnabledNotes {};

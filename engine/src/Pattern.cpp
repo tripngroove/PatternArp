@@ -259,6 +259,8 @@ bool Arrangement::addPattern (const Pattern& pattern)
     if (orderLength < maxOrderSteps)
         ++orderLength;
     order[static_cast<size_t> (orderLength - 1)] = numPatterns++;
+    quiet[static_cast<size_t> (orderLength - 1)] = false;
+    pauseFullyQuietPatterns(); // in case the last step was another pattern's only lit turn
     return true;
 }
 
@@ -277,6 +279,7 @@ void Arrangement::removePattern (int index)
         const int owner = order[static_cast<size_t> (i)];
         if (owner == index)
             continue;
+        quiet[static_cast<size_t> (kept)] = quiet[static_cast<size_t> (i)];
         order[static_cast<size_t> (kept++)] = owner > index ? owner - 1 : owner;
     }
     orderLength = kept;
@@ -290,6 +293,7 @@ void Arrangement::alternate()
     orderLength = std::max (1, numPatterns);
     for (int i = 0; i < maxOrderSteps; ++i)
         order[static_cast<size_t> (i)] = numPatterns > 0 ? i % numPatterns : -1;
+    quiet.fill (false);
 }
 
 void Arrangement::setOrderLength (int newLength)
@@ -297,17 +301,91 @@ void Arrangement::setOrderLength (int newLength)
     newLength = std::clamp (newLength, 1, maxOrderSteps);
     const int oldLength = std::clamp (orderLength, 1, maxOrderSteps);
     for (int i = oldLength; i < newLength; ++i)
+    {
         order[static_cast<size_t> (i)] = order[static_cast<size_t> (i % oldLength)];
+        quiet[static_cast<size_t> (i)] = quiet[static_cast<size_t> (i % oldLength)];
+    }
     orderLength = newLength;
+    pauseFullyQuietPatterns(); // shortening can leave a pattern only its quiet turns
+}
+
+bool Arrangement::isHeard (int turn) const
+{
+    if (turn < 0 || turn >= orderLength)
+        return false;
+    const int owner = order[static_cast<size_t> (turn)];
+    return owner >= 0 && owner < numPatterns && patterns[static_cast<size_t> (owner)].playing && ! quiet[static_cast<size_t> (turn)];
+}
+
+void Arrangement::setPlaying (int pattern, bool play)
+{
+    if (pattern < 0 || pattern >= numPatterns)
+        return;
+    patterns[static_cast<size_t> (pattern)].playing = play;
+    for (int i = 0; i < maxOrderSteps; ++i)
+        if (order[static_cast<size_t> (i)] == pattern)
+            quiet[static_cast<size_t> (i)] = false;
+}
+
+void Arrangement::setQuiet (int turn, bool shouldBeQuiet)
+{
+    if (turn < 0 || turn >= orderLength)
+        return;
+    const int owner = order[static_cast<size_t> (turn)];
+    if (owner < 0 || owner >= numPatterns)
+        return;
+
+    auto& p = patterns[static_cast<size_t> (owner)];
+    if (! shouldBeQuiet && ! p.playing)
+    {
+        // Every turn of a paused pattern is quiet: play it again with only this one lit.
+        p.playing = true;
+        for (int i = 0; i < orderLength; ++i)
+            if (order[static_cast<size_t> (i)] == owner)
+                quiet[static_cast<size_t> (i)] = true;
+    }
+    quiet[static_cast<size_t> (turn)] = shouldBeQuiet;
+    pauseFullyQuietPatterns();
+}
+
+void Arrangement::setTurn (int turn, int pattern)
+{
+    if (turn < 0 || turn >= orderLength || pattern < 0 || pattern >= numPatterns)
+        return;
+    order[static_cast<size_t> (turn)] = pattern;
+    quiet[static_cast<size_t> (turn)] = true;
+    setQuiet (turn, false);
+}
+
+// A pattern whose turns are all quiet is paused instead, so its play button and the host's
+// Play parameter say so.
+void Arrangement::pauseFullyQuietPatterns()
+{
+    for (int p = 0; p < numPatterns; ++p)
+    {
+        bool hasTurns = false, anyLit = false;
+        for (int i = 0; i < orderLength; ++i)
+        {
+            if (order[static_cast<size_t> (i)] != p)
+                continue;
+            hasTurns = true;
+            anyLit = anyLit || ! quiet[static_cast<size_t> (i)];
+        }
+        if (hasTurns && ! anyLit && patterns[static_cast<size_t> (p)].playing)
+            setPlaying (p, false);
+    }
 }
 
 void sanitise (Arrangement& a)
 {
     a.numPatterns = std::clamp (a.numPatterns, 0, maxPatterns);
     a.orderLength = std::clamp (a.orderLength, 1, maxOrderSteps);
-    for (auto& owner : a.order)
-        if (owner < 0 || owner >= a.numPatterns)
-            owner = -1;
+    for (size_t i = 0; i < a.order.size(); ++i)
+        if (a.order[i] < 0 || a.order[i] >= a.numPatterns)
+        {
+            a.order[i] = -1;
+            a.quiet[i] = false;
+        }
 }
 
 int Arrangement::unusedColour() const

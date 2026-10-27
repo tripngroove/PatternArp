@@ -11,6 +11,7 @@ const juce::Identifier arrangement { "Arrangement" };
 const juce::Identifier pattern { "Pattern" };
 const juce::Identifier loopLength { "loopLength" };
 const juce::Identifier order { "order" };
+const juce::Identifier quiet { "quiet" };
 const juce::Identifier timing { "timing" };
 const juce::Identifier length { "length" };
 const juce::Identifier direction { "direction" };
@@ -88,6 +89,14 @@ juce::ValueTree toValueTree (const Arrangement& a)
         order.add (juce::String (a.order[static_cast<size_t> (i)]));
     tree.setProperty (ids::order, order.joinIntoString (","), nullptr);
 
+    // Which turns are quiet, as the step numbers.
+    juce::StringArray quiet;
+    for (int i = 0; i < a.orderLength; ++i)
+        if (a.quiet[static_cast<size_t> (i)])
+            quiet.add (juce::String (i));
+    if (! quiet.isEmpty())
+        tree.setProperty (ids::quiet, quiet.joinIntoString (","), nullptr);
+
     for (int i = 0; i < a.numPatterns; ++i)
     {
         const auto& p = a.patterns[static_cast<size_t> (i)];
@@ -163,6 +172,9 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
         loaded.orderLength = juce::jmin (order.size(), maxOrderSteps);
         for (int i = 0; i < loaded.orderLength; ++i)
             loaded.order[static_cast<size_t> (i)] = order[i].getIntValue();
+        for (const auto& step : juce::StringArray::fromTokens (tree.getProperty (ids::quiet).toString(), ",", {}))
+            if (const int i = step.getIntValue(); i >= 0 && i < loaded.orderLength)
+                loaded.quiet[static_cast<size_t> (i)] = true;
     }
     sanitise (loaded);
 

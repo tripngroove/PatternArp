@@ -141,7 +141,7 @@ struct Pattern
 
     std::uint32_t seed = 1; // for random direction and percent chance
 
-    bool playing = true; // paused patterns are taken out of the rotation entirely
+    bool playing = true; // a paused pattern's turns stay in the Order lane, quiet
 
     int colour = 0; // index into the editor's palette
     int letter = 0; // its name (see patternLetter); stays the same when others are deleted
@@ -197,6 +197,10 @@ struct Arrangement
     std::array<int, maxOrderSteps> order {};
     int orderLength = 1;
 
+    // Quiet turns keep their place and their pattern's step length but play nothing, so
+    // nothing else moves. Every turn of a paused pattern is quiet too.
+    std::array<bool, maxOrderSteps> quiet {};
+
     // When above 0, everything starts over every loopLength ticks (see ticksPerBeat),
     // cutting the natural loop short. 0 plays the natural loop.
     int loopLength = 0;
@@ -225,7 +229,23 @@ struct Arrangement
 
     // Lengthening repeats the steps there already are (A B becomes A B A B...).
     void setOrderLength (int newLength);
+
+    // Whether a turn plays: its pattern exists and is playing, and the turn is not quiet.
+    bool isHeard (int turn) const;
+
+    // Play / pause for a whole pattern: lights or quiets every one of its turns.
+    void setPlaying (int pattern, bool play);
+
+    // Quiets one turn or lights it again. Quieting a pattern's last lit turn pauses the
+    // pattern; lighting a turn of a paused pattern plays that turn alone.
+    void setQuiet (int turn, bool shouldBeQuiet);
+
+    // Gives a turn to a pattern, lit.
+    void setTurn (int turn, int pattern);
     bool operator== (const Arrangement&) const = default;
+
+private:
+    void pauseFullyQuietPatterns();
 };
 
 // Keeps the pattern count and the Order lane inside their legal ranges (steps that name a

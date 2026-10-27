@@ -335,15 +335,34 @@ TEST_CASE ("a lane can loop over fewer steps than its pattern")
     }
 }
 
-TEST_CASE ("a paused pattern is taken out of the rotation")
+TEST_CASE ("a paused pattern keeps its turns, silent, so nothing else moves")
 {
     auto paused = patternOf ({ E, F });
+    paused.timing = Timing::eighth; // its turns rest for an eighth, not the others' sixteenth
     paused.playing = false;
     const auto a = arrangementOf ({ patternOf ({ A, B, C }), paused, patternOf ({ C }) });
 
     CHECK (firstNotes (a, 6) == std::vector<int> { A, C, B, C, C, C });
-    CHECK (owners (a, 4) == std::vector<int> { 0, 2, 0, 2 }); // indices still match the editor
-    CHECK (findLoop (a).lengthSlots == 6);
+    CHECK (owners (a, 4) == std::vector<int> { 0, -1, 2, 0 }); // indices still match the editor
+
+    // A at 0, the paused turn from 0.25 to 0.75, then C, and round again a beat later.
+    std::vector<double> starts;
+    for (const auto& n : render (a, 2.0))
+        starts.push_back (n.start);
+    CHECK (starts == std::vector<double> { 0.0, 0.75, 1.0, 1.75 });
+
+    // Unpaused, everything else lands where it did.
+    auto playing = a;
+    playing.patterns[1].playing = true;
+    std::vector<double> playingStarts;
+    for (const auto& n : render (playing, 2.0))
+        if (n.pattern != 1)
+            playingStarts.push_back (n.start);
+    CHECK (playingStarts == starts);
+
+    const auto loop = findLoop (a);
+    CHECK (loop.lengthSlots == 9);
+    CHECK (loop.lengthBeats == Catch::Approx (3.0));
 
     auto midiIn = patternOf ({ C });
     midiIn.noteSource = NoteSource::midiIn;
@@ -837,4 +856,68 @@ TEST_CASE ("copying a lane value leaves the other lanes alone")
     copyLaneValue (from, to, Lane::velocity);
     CHECK (to.velocity == 40);
     CHECK (to.octave == -1);
+}
+
+TEST_CASE ("quiet turns keep their time, and a pattern with every turn quiet is paused")
+{
+    auto a = withOrder (arrangementOf ({ patternOf ({ C, E }), patternOf ({ F }) }), { 0, 0, 1, 0 });
+
+    SECTION ("a quiet turn rests for its pattern's step and the pattern does not move on")
+    {
+        a.setQuiet (1, true);
+        CHECK (a.patterns[0].playing);
+        CHECK_FALSE (a.isHeard (1));
+        CHECK (firstNotes (a, 3) == std::vector<int> { C, F, E });
+
+        std::vector<double> starts;
+        for (const auto& n : render (a, 1.0))
+            starts.push_back (n.start);
+        CHECK (starts == std::vector<double> { 0.0, 0.5, 0.75 });
+    }
+
+    SECTION ("quieting a pattern's last lit turn pauses it; lighting one plays only that one")
+    {
+        a.setQuiet (2, true);
+        CHECK_FALSE (a.patterns[1].playing);
+        CHECK_FALSE (a.quiet[2]); // paused rather than quiet, so play lights it again
+
+        a.setPlaying (1, true);
+        CHECK (a.isHeard (2));
+
+        a.setPlaying (0, false);
+        CHECK_FALSE (a.isHeard (0));
+        CHECK_FALSE (a.isHeard (3));
+        a.setQuiet (3, false);
+        CHECK (a.patterns[0].playing);
+        CHECK (a.isHeard (3));
+        CHECK_FALSE (a.isHeard (0));
+        CHECK_FALSE (a.isHeard (1));
+    }
+
+    SECTION ("playing after a pause lights every turn again")
+    {
+        a.setQuiet (0, true);
+        a.setPlaying (0, false);
+        a.setPlaying (0, true);
+        CHECK (a.isHeard (0));
+        CHECK (a.isHeard (1));
+        CHECK (a.isHeard (3));
+    }
+
+    SECTION ("giving a turn to a paused pattern plays it")
+    {
+        a.setPlaying (1, false);
+        a.setTurn (0, 1);
+        CHECK (a.patterns[1].playing);
+        CHECK (a.isHeard (0));
+        CHECK_FALSE (a.isHeard (2)); // still quiet from the pause
+    }
+
+    SECTION ("shortening the lane past a pattern's lit turns pauses it")
+    {
+        a.setQuiet (0, true);
+        a.setQuiet (1, true);
+        a.setOrderLength (3);
+        CHECK_FALSE (a.patterns[0].playing);
+    }
 }
