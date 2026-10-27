@@ -795,39 +795,35 @@ TEST_CASE ("engine jumps land on the same notes as playing through")
     CHECK (onPitches (y) == expected);
 }
 
-TEST_CASE ("MIDI Learn switches on the notes played and plays them back in that order")
+TEST_CASE ("MIDI Learn starts afresh and plays the notes back in the order played")
 {
-    auto p = patternOf ({ B });
-    p.steps[1].velocity = 30; // past the end: learning a second step starts it fresh
+    auto p = patternOf ({ A, B, C, E, F });
+    p.steps[0].velocity = 30;
+    p.laneLength[static_cast<size_t> (Lane::octave)] = 2;
 
     NoteLearner learner;
-    for (int note : { E, C, F, C })
-        learner.learn (p, note);
+    learner.learn (p, E);
+    CHECK (p.length == 1); // a take starts from one step and no notes
+    CHECK (p.enabledNotes.count() == 1);
+    CHECK (p.steps[0].velocity == p.defaultVelocity);
+    CHECK (laneLength (p, Lane::octave) == 1);
 
+    for (int note : { C, F, C })
+        learner.learn (p, note);
     CHECK (learner.numLearned() == 4);
     CHECK (p.length == 4);
-    CHECK (p.enabledNotes.count() == 4); // B stays on, as if the others were clicked
-    CHECK (p.steps[1].velocity == p.defaultVelocity);
+    CHECK (p.enabledNotes.count() == 3);
+    CHECK (laneLength (p, Lane::octave) == 4);
     CHECK (firstNotes (arrangementOf ({ p }), 8) == std::vector<int> { E, C, F, C, E, C, F, C });
 
-    SECTION ("a longer pattern keeps its length and the steps after the take")
-    {
-        auto q = patternOf ({ A, B, C, E, F });
-        NoteLearner take;
-        take.learn (q, F);
-        take.learn (q, A);
-        CHECK (q.length == 5);
-        CHECK (firstNotes (arrangementOf ({ q }), 5) == std::vector<int> { F, A, C, E, F });
-    }
-
-    SECTION ("a take stops writing steps after the last one")
+    SECTION ("a take stops adding steps after the last one")
     {
         NoteLearner take;
         auto q = patternOf ({ C });
         for (int i = 0; i < maxSteps + 4; ++i)
             take.learn (q, 40 + i);
         CHECK (q.length == maxSteps);
-        CHECK (q.enabledNotes.count() == static_cast<size_t> (maxSteps + 4 + 1));
+        CHECK (q.enabledNotes.count() == static_cast<size_t> (maxSteps + 4));
         CHECK (firstNotes (arrangementOf ({ q }), 1) == std::vector<int> { 40 });
     }
 }

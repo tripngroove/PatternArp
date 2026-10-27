@@ -66,6 +66,13 @@ void NoteLearner::learn (Pattern& p, int note)
     if (note < 0 || note > 127)
         return;
 
+    if (count == 0)
+    {
+        p.enabledNotes.reset();
+        p.laneLength.fill (0);
+        p.length = 0; // the step for this note is added, at its defaults, below
+    }
+
     p.enabledNotes.set (static_cast<size_t> (note));
     if (count < maxSteps)
         played[static_cast<size_t> (count++)] = note;

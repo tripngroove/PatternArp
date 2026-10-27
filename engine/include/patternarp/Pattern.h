@@ -164,9 +164,11 @@ Pattern makeDefaultPattern();
 // the nearest original step.
 void setPatternLength (Pattern& pattern, int newLength);
 
-// MIDI Learn: each note played is switched on and written into the Notes lane in the order
-// played, from the first step. The pattern grows to fit (up to maxSteps), with new steps at
-// their defaults, but never shrinks. Use a new learner for each take.
+// MIDI Learn: a take starts the pattern afresh with the first note played (no notes, one
+// step, every lane at its default and full length), then each note played is switched on and
+// written into the Notes lane in the order played, growing the pattern a step at a time (up
+// to maxSteps). The pattern's settings (timing, direction...) stay. Use a new learner for
+// each take.
 class NoteLearner
 {
 public:
