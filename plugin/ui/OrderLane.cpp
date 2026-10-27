@@ -163,7 +163,7 @@ void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int owne
     {
         g.setColour (juce::Colours::white.withAlpha (alpha));
         g.setFont (theme::font (13.0f, true));
-        g.drawText (juce::String::charToString (patternLetter (owner)), r, juce::Justification::centred);
+        g.drawText (theme::patternName (p), r, juce::Justification::centred);
     }
 }
 
@@ -200,7 +200,7 @@ void OrderLane::paintExpanded (juce::Graphics& g)
         g.fillRoundedRectangle (juce::Rectangle<float> (12.0f, y + 6.0f, 10.0f, 10.0f), 2.0f);
         g.setColour (theme::ink.withAlpha (alpha));
         g.setFont (theme::font (14.0f, true));
-        g.drawText (juce::String::charToString (patternLetter (row)), juce::Rectangle<float> (30.0f, y, 30.0f, rowHeight),
+        g.drawText (theme::patternName (p), juce::Rectangle<float> (30.0f, y, 30.0f, rowHeight),
                     juce::Justification::centredLeft);
 
         for (int i = 0; i < arrangement.orderLength; ++i)
@@ -227,20 +227,19 @@ void OrderLane::paintStrip (juce::Graphics& g)
     const float hx = grid.getX() + stepWidth() * static_cast<float> (arrangement.orderLength);
     const bool active = drag == Drag::length || (isMouseOver() && handleArea().contains (getMouseXYRelative().toFloat()));
 
-    g.setColour (active ? theme::fillStrong : theme::inkMuted);
-    g.fillRoundedRectangle (juce::Rectangle<float> (hx - 6.0f, headerHeight + 1.0f, 12.0f, handleStrip - 3.0f), 2.0f);
-    g.setColour (theme::fillStrong);
-    g.fillRect (juce::Rectangle<float> (hx - 0.5f, grid.getY(), 1.0f, grid.getHeight()));
+    const auto tab = juce::Rectangle<float> (hx - 6.0f, headerHeight + 1.0f, 12.0f, handleStrip - 2.0f);
+    theme::drawLengthHandle (g, tab, grid.getBottom());
 
     if (active)
     {
         const int steps = arrangement.orderLength;
         const auto text = juce::String (steps) + (steps == 1 ? " step" : " steps");
         const float w = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (theme::font (12.0f), text)) + 4.0f;
-        const bool right = hx + 10.0f + w < grid.getRight();
+        const bool right = tab.getRight() + 8.0f + w < grid.getRight();
         g.setColour (theme::ink);
         g.setFont (theme::font (12.0f));
-        g.drawText (text, right ? juce::Rectangle<float> (hx + 10.0f, headerHeight, w, handleStrip) : juce::Rectangle<float> (hx - 10.0f - w, headerHeight, w, handleStrip),
+        g.drawText (text, right ? juce::Rectangle<float> (tab.getRight() + 8.0f, headerHeight, w, handleStrip)
+                                : juce::Rectangle<float> (tab.getX() - 8.0f - w, headerHeight, w, handleStrip),
                     right ? juce::Justification::centredLeft : juce::Justification::centredRight);
     }
 }

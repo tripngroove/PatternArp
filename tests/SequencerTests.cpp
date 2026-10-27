@@ -72,6 +72,15 @@ std::vector<int> owners (const Arrangement& a, int count)
 constexpr int A = 57, B = 59, C = 60, E = 64, F = 65;
 } // namespace
 
+TEST_CASE ("a new arrangement is A (C3 D3 E3) and B (F4 G4 A4 B4) taking turns")
+{
+    const Arrangement a;
+    CHECK (firstNotes (a, 8) == std::vector<int> { 60, 77, 62, 79, 64, 81, 60, 83 });
+    CHECK (a.patterns[0].letter == 0);
+    CHECK (a.patterns[1].letter == 1);
+    CHECK (findLoop (a).lengthBeats == Catch::Approx (6.0));
+}
+
 TEST_CASE ("the design doc example: two patterns alternate by default")
 {
     const auto a = arrangementOf ({ patternOf ({ A, B, C }), patternOf ({ E, F }) });
@@ -291,6 +300,22 @@ TEST_CASE ("editing patterns keeps the Order lane in step")
         CHECK (a.orderLength == 2);
         CHECK (a.order[0] == 0);
         CHECK (a.order[1] == 1);
+    }
+
+    SECTION ("letters stay with their pattern; new ones follow the highest")
+    {
+        a.patterns[0].letter = 0;
+        a.patterns[1].letter = 1;
+        a.addPattern (patternOf ({ C })); // C
+        a.removePattern (1);              // A C
+        REQUIRE (a.addPattern (patternOf ({ C })));
+        CHECK (a.patterns[0].letter == 0);
+        CHECK (a.patterns[1].letter == 2);
+        CHECK (a.patterns[2].letter == 3); // D, leaving no B
+
+        a.patterns[2].letter = numLetters - 1; // Z
+        REQUIRE (a.addPattern (patternOf ({ C })));
+        CHECK (a.patterns[3].letter == 1); // past Z: the first free letter, B
     }
 
     SECTION ("lengthening repeats the steps there are")

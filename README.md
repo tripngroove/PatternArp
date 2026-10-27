@@ -6,7 +6,11 @@ An arpeggiator plugin that stacks simple musical shapes (pitch, rhythm, octave, 
 
 ## How it plays
 
-Patterns interleave: with pattern A = C, D, E and pattern B = G, A, the arp plays C G D A E G C A ... and repeats once every pattern lines up again. The header shows how long that takes ("Repeats every 3 beats").
+Patterns interleave: with pattern A = C, D, E and pattern B = G, A, the arp plays C G D A E G C A ... and repeats once every pattern lines up again. The header shows how long that takes ("Repeats every 3 beats"). A new instance starts with two patterns taking turns: A = C3 D3 E3 and B = F4 G4 A4 B4.
+
+The **Order** lane, just under the preview, decides whose turn each step is. Closed, it shows the order as lettered steps (A B by default). Click it to open a grid with a row per pattern: click or drag to give steps to a pattern, click a pattern's own step to make it a rest, and drag the handle above the grid to set how many steps the order loops over (1 to 16; lengthening repeats the steps there are). A A A B, for example, plays B on every fourth note. Steps of a paused pattern are skipped.
+
+Patterns keep their letter and colour. New and cloned patterns go at the end of the list, take the next step of the order, and get the letter after the highest one in use; deleting a pattern removes its steps from the order and closes the gaps. There can be up to 8 patterns.
 
 Each pattern has:
 
@@ -14,12 +18,9 @@ Each pattern has:
 | --- | --- |
 | Timing | How long each of its notes lasts, 1/32 to a whole note (triplets included) |
 | Length | Number of steps, 1 to 16. Changing it in the editor resamples the drawn lanes; automating it just plays fewer or more steps and keeps the rest. |
-| Period | n:m takes n of every m notes. 1:1 is a "fill" pattern that plays whatever the others leave. If two patterns claim the same note, the higher one wins and the other gets the next free note. |
 | Direction | Forward, Backward, Ping-pong, Random, Walk (random step up or down) |
-| Play / Pause | The button by the pattern name. A paused pattern is taken out of the rotation entirely; the others close up the gap. Automatable as "P1 Play"... |
+| Play / Pause | The button by the pattern name. A paused pattern's steps in the order are skipped; the others close up the gap. Automatable as "P1 Play"... |
 | Notes (Select / MIDI In) | Select: the notes switched on in its keyboard. MIDI In: the notes you hold, with the Notes lane running from the lowest held note to the highest. A MIDI In pattern rests while nothing is held; Latch keeps the last chord. Note names follow Bitwig, Ableton and Logic: MIDI note 60 is C3. |
-
-Drag a pattern by its colour stripe or title to reorder it; it keeps its colour.
 
 Drawn lanes, one bar per step: Notes, Velocity, Gate, Octave (-3 to +3), Ratchet (1 to 8 repeats in a step) and Chance (percent above the line, every Nth time below it; failed steps either rest or are skipped). "Repeats every" ignores percent chances, so it shows the underlying loop. Double-click a step to reset it. The handle above each lane makes that lane loop over fewer steps than the pattern (say, octave every 3 steps of a 4-step pattern); shortened lanes show their length on the tab. Velocity and Gate have a default value, set in their tab.
 
@@ -29,7 +30,7 @@ The preview strip shows what will play, with a playhead. Drag the handle at its 
 
 ### Host automation
 
-Each of the 8 pattern slots exposes Play, Timing, Length, Period, Direction, Note Source and Chance Mode as parameters ("P1 Timing"...), plus a global Latch. The drawn lanes and note selections are saved with the project but are not automatable.
+Each of the 8 pattern slots exposes Play, Timing, Length, Direction, Note Source and Chance Mode as parameters ("P1 Timing"...), plus a global Latch. Slots count from the top of the list, so after a delete "P2" may be pattern C. The Order lane, drawn lanes and note selections are saved with the project but are not automatable.
 
 ## Formats
 

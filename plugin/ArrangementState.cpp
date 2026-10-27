@@ -21,6 +21,7 @@ const juce::Identifier defaultGate { "defaultGate" };
 const juce::Identifier seed { "seed" };
 const juce::Identifier playing { "playing" };
 const juce::Identifier colour { "colour" };
+const juce::Identifier letter { "letter" };
 const juce::Identifier notes { "notes" };
 const juce::Identifier steps { "steps" };
 const juce::Identifier laneLengths { "laneLengths" };
@@ -101,6 +102,7 @@ juce::ValueTree toValueTree (const Arrangement& a)
         child.setProperty (ids::seed, static_cast<juce::int64> (p.seed), nullptr);
         child.setProperty (ids::playing, p.playing, nullptr);
         child.setProperty (ids::colour, p.colour, nullptr);
+        child.setProperty (ids::letter, p.letter, nullptr);
         child.setProperty (ids::notes, enabledNotesToString (p.enabledNotes), nullptr);
         child.setProperty (ids::steps, stepsToString (p), nullptr);
 
@@ -138,6 +140,7 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
         p.seed = static_cast<std::uint32_t> (static_cast<juce::int64> (child.getProperty (ids::seed, 1)));
         p.playing = child.getProperty (ids::playing, true);
         p.colour = child.getProperty (ids::colour, loaded.numPatterns); // older saves: by position
+        p.letter = child.getProperty (ids::letter, loaded.numPatterns);
         p.enabledNotes = enabledNotesFromString (child.getProperty (ids::notes).toString());
         stepsFromString (child.getProperty (ids::steps).toString(), p);
 

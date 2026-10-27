@@ -209,7 +209,7 @@ void PatternArpEditor::syncPanels()
 
     for (int i = 0; i < panels.size(); ++i)
     {
-        panels[i]->setPattern (shown.patterns[static_cast<size_t> (i)], i, shown.numPatterns < maxPatterns);
+        panels[i]->setPattern (shown.patterns[static_cast<size_t> (i)], shown.numPatterns < maxPatterns);
         panels[i]->setInputNotes (shownInput);
     }
 

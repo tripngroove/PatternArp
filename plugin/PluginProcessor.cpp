@@ -39,7 +39,8 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
     for (int i = 0; i < maxPatterns; ++i)
     {
         const auto id = [i] (const char* name) { return juce::ParameterID ("p" + juce::String (i + 1) + "_" + name, 1); };
-        const auto label = [i] (const char* name) { return juce::String::charToString (patternLetter (i)) + " " + name; };
+        // Named by slot, not letter: a slot's letter changes when an earlier pattern is deleted.
+        const auto label = [i] (const char* name) { return "P" + juce::String (i + 1) + " " + name; };
         auto& pp = patternParameters[static_cast<size_t> (i)];
 
         auto add = [this] (auto parameter) {

@@ -111,6 +111,7 @@ void sanitise (Pattern& p)
     p.defaultVelocity = std::clamp (p.defaultVelocity, 1, 127);
     p.defaultGate = std::clamp (p.defaultGate, 1, 100);
     p.colour = std::clamp (p.colour, 0, maxPatterns - 1);
+    p.letter = std::clamp (p.letter, 0, numLetters - 1);
     for (auto& l : p.laneLength)
         l = std::clamp (l, 0, maxSteps);
 
@@ -131,7 +132,7 @@ void sanitise (Pattern& p)
 namespace
 {
 // A pattern that walks up `notes` (ascending MIDI note numbers), one per step.
-Pattern makeRisingPattern (std::initializer_list<int> notes, int colour)
+Pattern makeRisingPattern (std::initializer_list<int> notes, int colourAndLetter)
 {
     Pattern p = makeDefaultPattern();
     p.enabledNotes.reset();
@@ -144,7 +145,8 @@ Pattern makeRisingPattern (std::initializer_list<int> notes, int colour)
         const int step = i % p.length; // steps past the end repeat, in case it is lengthened
         p.steps[static_cast<size_t> (i)].note = p.length > 1 ? static_cast<float> (step) / static_cast<float> (p.length - 1) : 0.0f;
     }
-    p.colour = colour;
+    p.colour = colourAndLetter;
+    p.letter = colourAndLetter;
     return p;
 }
 } // namespace
@@ -159,14 +161,31 @@ Arrangement::Arrangement()
     alternate();
 }
 
+int Arrangement::nextLetter() const
+{
+    const auto used = patterns.begin() + numPatterns;
+    int highest = -1;
+    for (auto p = patterns.begin(); p != used; ++p)
+        highest = std::max (highest, p->letter);
+    if (highest + 1 < numLetters)
+        return highest + 1;
+
+    for (int letter = 0; letter < numLetters; ++letter)
+        if (std::none_of (patterns.begin(), used, [letter] (const Pattern& p) { return p.letter == letter; }))
+            return letter;
+    return 0;
+}
+
 bool Arrangement::addPattern (const Pattern& pattern)
 {
     if (numPatterns >= maxPatterns)
         return false;
 
+    const int letter = nextLetter();
     auto& added = patterns[static_cast<size_t> (numPatterns)];
     added = pattern;
     added.colour = unusedColour();
+    added.letter = letter;
 
     if (orderLength < maxOrderSteps)
         ++orderLength;

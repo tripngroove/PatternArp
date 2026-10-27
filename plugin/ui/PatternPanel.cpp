@@ -116,11 +116,10 @@ PatternPanel::~PatternPanel()
     removeMouseListener (&hoverWatcher);
 }
 
-void PatternPanel::setPattern (const Pattern& newPattern, int newIndex, bool canAdd)
+void PatternPanel::setPattern (const Pattern& newPattern, bool canAdd)
 {
     pattern = newPattern;
-    index = newIndex;
-    setName ("Pattern " + juce::String::charToString (patternLetter (index)));
+    setName ("Pattern " + theme::patternName (pattern));
 
     timing.setValue (static_cast<int> (pattern.timing));
     length.setValue (pattern.length);
@@ -287,7 +286,7 @@ void PatternPanel::paint (juce::Graphics& g)
     auto title = playButton.withX (playButton.getRight() + 10).withWidth (titleWidth - playButton.getWidth() - 10);
     g.setColour (pattern.playing ? theme::ink : theme::inkMuted);
     g.setFont (theme::font (17.0f, true));
-    g.drawText ("PATTERN " + juce::String::charToString (patternLetter (index)), title, juce::Justification::centredLeft);
+    g.drawText ("PATTERN " + theme::patternName (pattern), title, juce::Justification::centredLeft);
     if (! pattern.playing)
     {
         g.setFont (theme::font (12.0f));

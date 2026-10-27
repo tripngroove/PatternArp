@@ -11,9 +11,10 @@ namespace patternarp
 constexpr int maxSteps = 16;
 constexpr int maxPatterns = 8;
 constexpr int maxOrderSteps = 16;
+constexpr int numLetters = 26;
 
-// Patterns are named by position: A, B, C...
-constexpr char patternLetter (int index) { return static_cast<char> ('A' + index); }
+// Patterns are named by letter: 0 = A, 1 = B...
+constexpr char patternLetter (int letter) { return static_cast<char> ('A' + letter); }
 
 // Loop lengths are counted in 24ths of a beat, which every Timing divides into evenly.
 constexpr int ticksPerBeat = 24;
@@ -117,7 +118,8 @@ struct Pattern
 
     bool playing = true; // paused patterns are taken out of the rotation entirely
 
-    int colour = 0; // index into the editor's palette; stays with the pattern if others are deleted
+    int colour = 0; // index into the editor's palette
+    int letter = 0; // its name (see patternLetter); stays the same when others are deleted
 
     bool operator== (const Pattern&) const = default;
 };
@@ -158,8 +160,13 @@ struct Arrangement
     // The first palette colour no pattern uses yet (for a new pattern).
     int unusedColour() const;
 
-    // Adds a pattern at the end, with a new colour, and gives it the next step of the Order
-    // lane (the last step, if the lane is already full). Returns false when there is no room.
+    // The letter for a new pattern: the one after the highest in use, or once that would pass
+    // Z, the first one free.
+    int nextLetter() const;
+
+    // Adds a pattern at the end, with a new colour and letter, and gives it the next step of
+    // the Order lane (the last step, if the lane is already full). Returns false when there is
+    // no room.
     bool addPattern (const Pattern& pattern);
 
     // Deletes a pattern; its Order steps are removed and the steps after them close up.

@@ -19,7 +19,7 @@ public:
     PatternPanel();
     ~PatternPanel() override;
 
-    void setPattern (const Pattern& pattern, int index, bool canAdd);
+    void setPattern (const Pattern& pattern, bool canAdd);
     void setInputNotes (const std::bitset<128>& notes) { keyboard.setInputNotes (notes); }
 
     std::function<void (const Pattern&)> onChange;
@@ -40,7 +40,6 @@ private:
     void setDefault (Lane lane, int value);
 
     Pattern pattern;
-    int index = 0;
 
     ValueBox timing { "Timing" }, length { "Length" }, direction { "Direction" };
     LaneGraph graph;

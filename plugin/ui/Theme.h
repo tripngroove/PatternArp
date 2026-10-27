@@ -1,5 +1,7 @@
 #pragma once
 
+#include "patternarp/Pattern.h"
+
 #include <juce_gui_basics/juce_gui_basics.h>
 
 namespace patternarp::theme
@@ -24,6 +26,12 @@ inline juce::Colour patternColour (int index)
         juce::Colour (0xffd64545), juce::Colour (0xff3a8f8f), juce::Colour (0xffc9a227), juce::Colour (0xff6b6fd6),
     };
     return colours[static_cast<size_t> (index) % std::size (colours)];
+}
+
+// A pattern's letter, as shown everywhere in the editor.
+inline juce::String patternName (const Pattern& pattern)
+{
+    return juce::String::charToString (patternLetter (pattern.letter));
 }
 
 // Note names follow Bitwig, Ableton and Logic: MIDI note 60 is C3.
