@@ -11,6 +11,7 @@ namespace
 {
 constexpr double epsilon = 1.0e-9;
 constexpr std::uint64_t passSalt = 0x2545f4914f6cdd1dULL; // mixes the loop pass into random choices
+constexpr int maxHeldSteps = 64; // how far a note held by extend steps is followed
 
 std::uint64_t hash (std::uint64_t a, std::uint64_t b)
 {
@@ -101,6 +102,24 @@ void Sequencer::setArrangement (const Arrangement& a)
                 enabledNotes[static_cast<size_t> (i)][static_cast<size_t> (count++)] = note;
     }
 
+    holdsNotes = false;
+    for (int i = 0; i < arrangement.numPatterns; ++i)
+        holdsNotes = holdsNotes || arrangement.patterns[static_cast<size_t> (i)].chanceMode == ChanceMode::extend;
+
+    // A hand-set loop starts over every pass, so measure how often each Chance-lane step
+    // comes up in one pass; A:B ratios carry their count on from there.
+    visitsPerPass = {};
+    if (const double loop = loopBeats(); loop > 0.0 && arrangement.numPatterns > 0 && numTurns > 0)
+    {
+        Sequencer probe = *this;
+        probe.startCycle (0.0);
+        Slot slot;
+        while (probe.nextStart < loop - epsilon)
+            probe.nextInCycle (slot);
+        for (int i = 0; i < arrangement.numPatterns; ++i)
+            visitsPerPass[static_cast<size_t> (i)] = probe.cursors[static_cast<size_t> (i)].visits;
+    }
+
     restart();
 }
 
@@ -118,12 +137,18 @@ void Sequencer::restart()
 
 void Sequencer::startCycle (double beat)
 {
-    cursors = {};
     slotIndex = 0;
     cycleStart = beat;
     nextStart = beat;
     const double loop = loopBeats();
     pass = loop > 0.0 ? static_cast<std::uint64_t> (std::llround (beat / loop)) : 0;
+
+    // A:B ratios count on from earlier passes. 840 is a multiple of every B, so the count
+    // keeps its exact remainder without growing.
+    cursors = {};
+    for (int i = 0; i < arrangement.numPatterns; ++i)
+        for (size_t s = 0; s < maxSteps; ++s)
+            cursors[static_cast<size_t> (i)].visits[s] = static_cast<std::int64_t> (pass % 840) * visitsPerPass[static_cast<size_t> (i)][s];
 }
 
 std::array<int, numLanes> Sequencer::advanceCursor (int patternIndex)
@@ -193,11 +218,12 @@ bool Sequencer::passesChance (int patternIndex, int step)
     if (chance >= 100)
         return true;
 
-    if (chance > 0)
+    if (chance >= 0)
         return static_cast<int> (hash (p.seed + 0x9e37u + pass * passSalt, static_cast<std::uint64_t> (c.played)) % 100u) < chance;
 
-    // 1:N plays on the first of every N passes through this step.
-    return floorMod (c.visits[static_cast<size_t> (step)] - 1, -chance) == 0;
+    // A:B plays on the A-th of every B times this step comes up.
+    const auto ratio = chanceRatio (chance);
+    return floorMod (c.visits[static_cast<size_t> (step)] - 1, ratio.b) == ratio.a - 1;
 }
 
 Sequencer::Outcome Sequencer::playSlot (Slot& slot)
@@ -208,6 +234,7 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
     slot.pattern = owner < 0 ? -1 : sourceIndex[static_cast<size_t> (owner)];
     slot.step = -1;
     slot.numNotes = 0;
+    slot.tieEnd = 0.0;
 
     if (owner < 0)
     {
@@ -227,6 +254,12 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
     {
         if (p.chanceMode == ChanceMode::skip)
             return Outcome::skipped;
+
+        if (p.chanceMode == ChanceMode::extend)
+        {
+            const double sub = length / stepOf (Lane::ratchet).ratchet;
+            slot.tieEnd = nextStart + length - sub + sub * stepOf (Lane::gate).gate / 100.0;
+        }
 
         nextStart += length;
         return Outcome::rest;
@@ -266,19 +299,50 @@ bool Sequencer::next (Slot& slot)
     if (arrangement.numPatterns == 0 || numTurns == 0)
         return false;
 
+    produce (slot);
+
+    // Steps coming up that lose their chance in extend mode hold this slot's last note: look
+    // ahead on a copy (so held MIDI In notes are still read live) and lengthen the note.
+    if (holdsNotes && slot.numNotes > 0)
+    {
+        auto& held = slot.notes[static_cast<size_t> (slot.numNotes - 1)];
+        Sequencer ahead = *this;
+        Slot tied;
+        for (int i = 0; i < maxHeldSteps; ++i)
+        {
+            ahead.produce (tied);
+            if (tied.tieEnd <= 0.0)
+                break;
+            held.length = std::max (held.length, tied.tieEnd - held.start);
+        }
+    }
+    return true;
+}
+
+void Sequencer::produce (Slot& slot)
+{
     const double loop = loopBeats();
     if (loop <= 0.0)
-        return nextInCycle (slot);
+    {
+        nextInCycle (slot);
+        return;
+    }
 
     const double cycleEnd = cycleStart + loop;
-    if (nextStart >= cycleEnd - epsilon)
+    const bool newPass = nextStart >= cycleEnd - epsilon;
+    if (newPass)
         startCycle (cycleEnd);
 
     nextInCycle (slot);
 
+    // A pass starts afresh, so its first step has no note before it to hold.
+    if (newPass)
+        slot.tieEnd = 0.0;
+
     // Nothing may sound past the end of the loop: cut the slot (and its ratchets) there.
     const double end = cycleStart + loop;
     slot.length = std::min (slot.length, end - slot.start);
+    slot.tieEnd = std::min (slot.tieEnd, end);
     int kept = 0;
     for (int i = 0; i < slot.numNotes; ++i)
     {
@@ -290,7 +354,6 @@ bool Sequencer::next (Slot& slot)
     }
     slot.numNotes = kept;
     nextStart = std::min (nextStart, end);
-    return true;
 }
 
 bool Sequencer::nextInCycle (Slot& slot)
@@ -306,6 +369,7 @@ bool Sequencer::nextInCycle (Slot& slot)
     slot.length = shortestStep (arrangement);
     slot.pattern = -1;
     slot.numNotes = 0;
+    slot.tieEnd = 0.0;
     nextStart += slot.length;
     return true;
 }
@@ -314,8 +378,8 @@ void Sequencer::fastForwardTo (double beat)
 {
     // With a set loop length, jump straight to the loop pass that contains `beat`.
     if (const double loop = loopBeats(); loop > 0.0)
-        if (const double pass = std::floor ((beat + epsilon) / loop) * loop; pass > cycleStart + epsilon)
-            startCycle (pass);
+        if (const double passStart = std::floor ((beat + epsilon) / loop) * loop; passStart > cycleStart + epsilon)
+            startCycle (passStart);
 
     Slot slot;
     while (nextStart < beat - epsilon && next (slot))
@@ -347,7 +411,7 @@ LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots)
         return info;
 
     // Every part of the sequencer is a counter that wraps: the Order lane and each pattern's
-    // step cycle (times any 1:N chance). The whole thing repeats the first time they are all
+    // step cycle (times any A:B chance). The whole thing repeats the first time they are all
     // back at zero together.
     std::array<std::int64_t, maxPatterns> patternCycle {};
 
@@ -355,7 +419,7 @@ LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots)
     {
         const auto& p = a.patterns[static_cast<size_t> (i)];
 
-        // Each lane has its own cycle; the Chance lane's also waits for every 1:N count.
+        // Each lane has its own cycle; the Chance lane's also waits for every A:B count.
         std::int64_t cycle = 1;
         for (int lane = 0; lane < numLanes; ++lane)
         {
@@ -367,7 +431,7 @@ LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots)
             if (static_cast<Lane> (lane) == Lane::chance)
                 for (int s = 0; s < length; ++s)
                     if (const int chance = p.steps[static_cast<size_t> (s)].chance; chance < 0)
-                        laneCycle = std::lcm (laneCycle, directionCycle (p.direction, length) * -chance);
+                        laneCycle = std::lcm (laneCycle, directionCycle (p.direction, length) * chanceRatio (chance).b);
 
             cycle = std::lcm (cycle, laneCycle);
         }

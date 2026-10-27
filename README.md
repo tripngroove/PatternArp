@@ -12,7 +12,7 @@ The **Order** lane, just under the preview, decides whose turn each step is. Clo
 
 Patterns keep their letter and colour. New and cloned patterns go at the end of the list, take the next step of the order, and get the letter after the highest one in use; deleting a pattern removes its steps from the order and closes the gaps. There can be up to 8 patterns.
 
-Each pattern has:
+Each pattern has these settings. Click a value to pick from a list, or use its arrows, drag it up and down, or scroll over it.
 
 | Setting | What it does |
 | --- | --- |
@@ -22,7 +22,7 @@ Each pattern has:
 | Play / Pause | The button by the pattern name. A paused pattern's steps in the order are skipped; the others close up the gap. Automatable as "P1 Play"... |
 | Notes (Select / MIDI In) | Select: the notes switched on in its keyboard. MIDI In: the notes you hold, with the Notes lane running from the lowest held note to the highest. A MIDI In pattern rests while nothing is held; Latch keeps the last chord. Note names follow Bitwig, Ableton and Logic: MIDI note 60 is C3. |
 
-Drawn lanes, one bar per step: Notes, Velocity, Gate, Octave (-3 to +3), Ratchet (1 to 8 repeats in a step) and Chance (percent above the line, every Nth time below it; failed steps either rest or are skipped). "Repeats every" ignores percent chances, so it shows the underlying loop. Double-click a step to reset it. The handle above each lane makes that lane loop over fewer steps than the pattern (say, octave every 3 steps of a 4-step pattern); shortened lanes show their length on the tab. Velocity and Gate have a default value, set in their tab.
+Drawn lanes, one bar per step: Notes, Velocity, Gate, Octave (-3 to +3), Ratchet (1 to 8 repeats in a step) and Chance (percent above the line in 5% steps, 0% to 100%; below it Elektron-style ratios from 1:2 to 8:8, where 3:4 plays the third of every four times the step comes up, counting on across passes of a hand-shortened loop). Failed steps rest, are skipped, or extend: the note before them is held until the failed step's note would have ended, so a 0% extend step is a tie. "Repeats every" ignores percent chances, so it shows the underlying loop. Double-click a step to reset it. The handle above each lane makes that lane loop over fewer steps than the pattern (say, octave every 3 steps of a 4-step pattern); shortened lanes show their length on the tab. Velocity and Gate have a default value, set in their tab.
 
 Incoming notes pass straight through unless a pattern uses MIDI In. With the transport stopped, MIDI In patterns play from the first key press on their own clock.
 

@@ -60,7 +60,7 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
         pp.noteSource = add (std::make_unique<juce::AudioParameterChoice> (id ("notesource"), label ("Note Source"),
                                                                            juce::StringArray { "Select", "MIDI In" }, 0));
         pp.chanceMode = add (std::make_unique<juce::AudioParameterChoice> (id ("chancemode"), label ("Chance Mode"),
-                                                                           juce::StringArray { "Rest", "Skip" }, 0));
+                                                                           juce::StringArray { "Rest", "Skip", "Extend" }, 0));
         pp.play = add (std::make_unique<juce::AudioParameterBool> (id ("play"), label ("Play"), true));
     }
 

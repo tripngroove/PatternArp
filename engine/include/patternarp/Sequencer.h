@@ -29,6 +29,10 @@ struct Slot
     int step = -1;
     int numNotes = 0;
     std::array<SequencedNote, 8> notes {};
+
+    // Set when the step lost its chance in extend mode: where its note would have ended. The
+    // note before it is held until then.
+    double tieEnd = 0.0;
 };
 
 // How long until the whole arrangement repeats exactly.
@@ -82,6 +86,10 @@ private:
     Outcome playSlot (Slot& slot);
     bool nextInCycle (Slot& slot);
 
+    // The next slot, cut at the end of a hand-set loop. next() also runs this on a copy to
+    // see steps coming that will hold the current note.
+    void produce (Slot& slot);
+
     // Starts the arrangement over at `beat` (used for loop lengths set by hand).
     void startCycle (double beat);
     double loopBeats() const { return static_cast<double> (arrangement.loopLength) / ticksPerBeat; }
@@ -90,7 +98,7 @@ private:
     {
         std::int64_t played = 0;                  // notes this pattern has contributed so far
         std::array<int, numLanes> walk {};        // position of each lane for random walk
-        std::array<std::int64_t, maxSteps> visits {}; // per Chance-lane step, for 1:N
+        std::array<std::int64_t, maxSteps> visits {}; // per Chance-lane step, for A:B ratios
     };
 
     // Moves the pattern on one step; returns the step each lane is on.
@@ -108,6 +116,12 @@ private:
     double nextStart = 0.0;
     double cycleStart = 0.0;
     std::uint64_t pass = 0; // which pass of a hand-set loop; random choices differ per pass
+
+    // How often each Chance-lane step comes up in one pass of a hand-set loop, so A:B ratios
+    // keep counting from pass to pass.
+    std::array<std::array<std::int64_t, maxSteps>, maxPatterns> visitsPerPass {};
+
+    bool holdsNotes = false; // some playing pattern uses ChanceMode::extend
     std::array<int, 128> inputNotes {}; // ascending
     int numInputNotes = 0;
 };

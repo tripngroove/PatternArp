@@ -46,7 +46,8 @@ private:
     NoteKeyboard keyboard;
 
     std::array<juce::Rectangle<int>, numLanes> tabs {};
-    juce::Rectangle<int> restButton, skipButton, playButton;
+    std::array<juce::Rectangle<int>, numChanceModes> chanceModeButtons {}; // Rest, Skip, Extend
+    juce::Rectangle<int> playButton;
     juce::Label defaultEditor;
 
     juce::TextButton newButton { "New" }, cloneButton { "Clone" }, deleteButton { "Delete" };

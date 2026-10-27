@@ -81,9 +81,9 @@ float LaneGraph::valueToY (const Step& s) const
         case Lane::ratchet:  return bottom - static_cast<float> (s.ratchet) / 8.0f * h;
         case Lane::octave:   return centre - static_cast<float> (s.octave) / 3.5f * (h / 2.0f);
         case Lane::chance:
-            if (s.chance > 0)
+            if (s.chance >= 0)
                 return centre - static_cast<float> (s.chance) / 100.0f * (h / 2.0f);
-            return centre + static_cast<float> (-s.chance - 1) / 7.0f * (h / 2.0f);
+            return centre + static_cast<float> (chanceRatioIndex (chanceRatio (s.chance)) + 1) / static_cast<float> (numChanceRatios) * (h / 2.0f);
     }
     juce::ignoreUnused (top);
     return bottom;
@@ -122,10 +122,16 @@ void LaneGraph::setFromY (Step& s, float y) const
             break;
 
         case Lane::chance:
+            // Percent above the line in 5% steps (0% sits on it), ratios below.
             if (y <= centre)
-                s.chance = juce::jlimit (1, 100, juce::roundToInt ((centre - y) / (h / 2.0f) * 100.0f));
+            {
+                s.chance = juce::jlimit (0, 100, juce::roundToInt ((centre - y) / (h / 2.0f) * 20.0f) * 5);
+            }
             else
-                s.chance = -juce::jlimit (2, 8, juce::roundToInt (1.0f + (y - centre) / (h / 2.0f) * 7.0f));
+            {
+                const auto index = static_cast<int> (std::ceil ((y - centre) / (h / 2.0f) * static_cast<float> (numChanceRatios))) - 1;
+                s.chance = ratioChance (chanceRatioAt (juce::jlimit (0, numChanceRatios - 1, index)));
+            }
             break;
     }
 }
@@ -145,7 +151,13 @@ juce::String LaneGraph::valueText (const Step& s) const
         case Lane::gate:     return juce::String (s.gate) + "%";
         case Lane::octave:   return s.octave > 0 ? "+" + juce::String (s.octave) : juce::String (s.octave);
         case Lane::ratchet:  return "x" + juce::String (s.ratchet);
-        case Lane::chance:   return s.chance > 0 ? juce::String (s.chance) + "%" : "1:" + juce::String (-s.chance);
+        case Lane::chance:
+        {
+            if (s.chance >= 0)
+                return juce::String (s.chance) + "%";
+            const auto ratio = chanceRatio (s.chance);
+            return juce::String (ratio.a) + ":" + juce::String (ratio.b);
+        }
     }
     return {};
 }
@@ -235,9 +247,10 @@ void LaneGraph::paint (juce::Graphics& g)
         {
             g.setColour (theme::ink.withAlpha (0.7f));
             g.setFont (theme::font (12.0f));
-            auto label = juce::Rectangle<float> (x, y < base ? y - 16.0f : y, stepWidth, 16.0f);
-            if (label.getY() < area.getY())
-                label.setY (area.getY());
+            // Above the bar's end for bars going up (and 0% chance, which sits on the line).
+            const bool above = y < base || (lane == Lane::chance && s.chance >= 0);
+            auto label = juce::Rectangle<float> (x, above ? y - 16.0f : y, stepWidth, 16.0f);
+            label.setY (juce::jlimit (area.getY(), area.getBottom() - 16.0f, label.getY()));
             g.drawText (valueText (s), label, juce::Justification::centred);
         }
     }
@@ -267,8 +280,9 @@ void LaneGraph::paint (juce::Graphics& g)
         else
         {
             g.drawText ("100%", gutter.withHeight (16.0f), juce::Justification::centredLeft);
-            g.drawText ("1:2", gutter.withY (area.getCentreY() + 2.0f).withHeight (16.0f), juce::Justification::centredLeft);
-            g.drawText ("1:8", gutter.withY (area.getBottom() - 16.0f).withHeight (16.0f), juce::Justification::centredLeft);
+            g.drawText ("0%", gutter.withY (area.getCentreY() - 17.0f).withHeight (16.0f), juce::Justification::centredLeft);
+            g.drawText ("1:2", gutter.withY (area.getCentreY() + 1.0f).withHeight (16.0f), juce::Justification::centredLeft);
+            g.drawText ("8:8", gutter.withY (area.getBottom() - 16.0f).withHeight (16.0f), juce::Justification::centredLeft);
         }
     }
 

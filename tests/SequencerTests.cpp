@@ -172,6 +172,138 @@ TEST_CASE ("a loop length set by hand starts everything over")
     }
 }
 
+TEST_CASE ("chance ratios are Elektron's, 1:2 to 8:8")
+{
+    CHECK (chanceRatioAt (0).a == 1);
+    CHECK (chanceRatioAt (0).b == 2);
+    CHECK (chanceRatioAt (1).a == 2);
+    CHECK (chanceRatioAt (1).b == 2);
+    CHECK (chanceRatioAt (2).a == 1);
+    CHECK (chanceRatioAt (2).b == 3);
+    CHECK (chanceRatioAt (numChanceRatios - 1).a == 8);
+    CHECK (chanceRatioAt (numChanceRatios - 1).b == 8);
+
+    for (int i = 0; i < numChanceRatios; ++i)
+    {
+        const auto r = chanceRatioAt (i);
+        CHECK (chanceRatioIndex (r) == i);
+        CHECK (chanceRatio (ratioChance (r)).a == r.a);
+        CHECK (chanceRatio (ratioChance (r)).b == r.b);
+    }
+
+    for (int b = 2; b <= 8; ++b)
+        CHECK (ratioChance ({ 1, b }) == -b); // older saves stored 1:N as -N
+}
+
+TEST_CASE ("A:B ratios keep counting through a loop set by hand")
+{
+    auto p = patternOf ({ C, E });
+    p.steps[0].chance = ratioChance ({ 1, 4 });
+    auto a = arrangementOf ({ p });
+    a.loopLength = ticksPerBeat / 2; // one pass of the pattern
+
+    // C comes up once a pass, so it plays every fourth pass.
+    std::vector<int> pitches;
+    for (const auto& n : render (a, 4.0))
+        pitches.push_back (n.note);
+    CHECK (pitches == std::vector<int> { C, E, E, E, E, C, E, E, E, E });
+
+    std::vector<int> jumped;
+    for (const auto& n : render (a, 2.0, 2.5, {}))
+        jumped.push_back (n.note);
+    CHECK (jumped == std::vector<int> { C, E });
+}
+
+TEST_CASE ("extend holds the note before a step that lost its chance")
+{
+    auto p = patternOf ({ C, E, F });
+    p.chanceMode = ChanceMode::extend;
+    for (auto& s : p.steps)
+        s.gate = 50;
+    p.steps[1].chance = 0;
+
+    const auto notes = render (arrangementOf ({ p }), 0.75);
+    REQUIRE (notes.size() == 2);
+    CHECK (notes[0].note == C);
+    CHECK (notes[0].length == Catch::Approx (0.375)); // to where E's note would have ended
+    CHECK (notes[1].note == F);
+    CHECK (notes[1].start == Catch::Approx (0.5));
+    CHECK (notes[1].length == Catch::Approx (0.125));
+
+    SECTION ("a run of them makes one long note")
+    {
+        p.steps[2].chance = 0;
+        const auto held = render (arrangementOf ({ p }), 0.75);
+        REQUIRE (held.size() == 1);
+        CHECK (held[0].length == Catch::Approx (0.625));
+    }
+
+    SECTION ("it holds the last repeat of a ratchet")
+    {
+        p.steps[0].ratchet = 2;
+        const auto held = render (arrangementOf ({ p }), 0.75);
+        REQUIRE (held.size() == 3);
+        CHECK (held[0].length == Catch::Approx (0.0625));
+        CHECK (held[1].start == Catch::Approx (0.125));
+        CHECK (held[1].length == Catch::Approx (0.25));
+    }
+
+    SECTION ("it holds whatever note came before, from any pattern")
+    {
+        auto tie = patternOf ({ E });
+        tie.chanceMode = ChanceMode::extend;
+        tie.steps[0].chance = 0;
+        const auto held = render (arrangementOf ({ patternOf ({ C }), tie }), 1.0);
+        REQUIRE (held.size() == 2);
+        CHECK (held[0].note == C);
+        CHECK (held[0].length == Catch::Approx (0.475)); // through E's 90% gate
+        CHECK (held[1].start == Catch::Approx (0.5));
+    }
+
+    SECTION ("after a rest there is nothing to hold")
+    {
+        auto silent = patternOf ({ C });
+        silent.steps[0].chance = 0;
+        auto tie = patternOf ({ E });
+        tie.chanceMode = ChanceMode::extend;
+        tie.steps[0].chance = 0;
+        CHECK (render (arrangementOf ({ silent, tie }), 2.0).empty());
+    }
+
+    SECTION ("a loop set by hand does not hold a note into the next pass")
+    {
+        auto q = patternOf ({ C, E });
+        q.chanceMode = ChanceMode::extend;
+        q.steps[0].chance = 0;
+        q.steps[1].gate = 50;
+        auto a = arrangementOf ({ q });
+        a.loopLength = ticksPerBeat / 2;
+
+        const auto held = render (a, 1.0);
+        REQUIRE (held.size() == 2);
+        CHECK (held[0].note == E);
+        CHECK (held[0].length == Catch::Approx (0.125));
+        CHECK (held[1].start == Catch::Approx (0.75));
+    }
+
+    SECTION ("jumping ahead lands on the same notes")
+    {
+        const auto a = arrangementOf ({ p });
+        std::vector<SequencedNote> expected;
+        for (const auto& n : render (a, 3.0))
+            if (n.start >= 1.5 - 1.0e-9)
+                expected.push_back (n);
+
+        const auto jumped = render (a, 1.5, 3.0, {});
+        REQUIRE (jumped.size() == expected.size());
+        for (size_t i = 0; i < jumped.size(); ++i)
+        {
+            CHECK (jumped[i].start == Catch::Approx (expected[i].start));
+            CHECK (jumped[i].length == Catch::Approx (expected[i].length));
+        }
+    }
+}
+
 TEST_CASE ("a lane can loop over fewer steps than its pattern")
 {
     auto p = patternOf ({ A, B, C, E });
@@ -401,15 +533,25 @@ TEST_CASE ("per-step lanes")
         CHECK (slot.length == Catch::Approx (0.25));
     }
 
-    SECTION ("1:N chance plays every Nth pass, rest keeps time")
+    SECTION ("A:B chance plays on the A-th of every B times its step comes up, rest keeps time")
     {
-        p.steps[1].chance = -2;
+        p.steps[1].chance = -2; // 1:2, as saved before ratios had an A
         const auto notes = firstNotes (arrangementOf ({ p }), 4);
         CHECK (notes == std::vector<int> { 60, 64, 60, 60 });
 
         const auto loop = findLoop (arrangementOf ({ p }));
         CHECK (loop.repeats);
         CHECK (loop.lengthBeats == Catch::Approx (1.0)); // 4 slots incl. the rest
+
+        p.steps[1].chance = ratioChance ({ 2, 3 });
+        CHECK (firstNotes (arrangementOf ({ p }), 7) == std::vector<int> { 60, 60, 64, 60, 60, 60, 64 });
+        CHECK (findLoop (arrangementOf ({ p })).lengthBeats == Catch::Approx (1.5));
+    }
+
+    SECTION ("0% never plays")
+    {
+        p.steps[1].chance = 0;
+        CHECK (firstNotes (arrangementOf ({ p }), 3) == std::vector<int> { 60, 60, 60 });
     }
 
     SECTION ("skip takes no time")

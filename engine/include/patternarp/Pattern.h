@@ -51,9 +51,33 @@ constexpr int numDirections = 5;
 // What a step that loses its chance roll does.
 enum class ChanceMode
 {
-    rest, // stays silent for the step's length
-    skip  // takes no time; the arp moves straight on
+    rest,  // stays silent for the step's length
+    skip,  // takes no time; the arp moves straight on
+    extend // holds the note before it until this step's note would have ended
 };
+
+constexpr int numChanceModes = 3;
+
+// An "A:B" chance plays on the A-th of every B times its step comes up, the way Elektron
+// trig conditions do. Step::chance stores it as -(B + 100 * (A - 1)), so 1:N is -N.
+struct ChanceRatio
+{
+    int a = 1, b = 2;
+};
+
+constexpr int ratioChance (ChanceRatio r) { return -(r.b + 100 * (r.a - 1)); }
+constexpr ChanceRatio chanceRatio (int chance) { return { -chance / 100 + 1, -chance % 100 }; }
+
+// The ratios the Chance lane offers, in order: 1:2, 2:2, 1:3, 2:3, 3:3 ... 8:8.
+constexpr int numChanceRatios = 35;
+constexpr int chanceRatioIndex (ChanceRatio r) { return (r.b - 2) * (r.b + 1) / 2 + r.a - 1; }
+constexpr ChanceRatio chanceRatioAt (int index)
+{
+    int b = 2;
+    while (index >= b)
+        index -= b++;
+    return { index + 1, b };
+}
 
 // Where a pattern's notes come from.
 enum class NoteSource
@@ -82,7 +106,7 @@ struct Step
     int gate = 90;      // 1..100, percent of the step length
     int octave = 0;     // -3..+3
     int ratchet = 1;    // 1..8 notes in the step
-    int chance = 100;   // 1..100 = percent chance; -2..-8 = plays every Nth pass ("1:N")
+    int chance = 100;   // 0..100 = percent chance; below 0 = an A:B ratio (see ChanceRatio)
 
     bool operator== (const Step& other) const
     {

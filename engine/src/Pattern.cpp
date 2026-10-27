@@ -106,6 +106,7 @@ void sanitise (Pattern& p)
 {
     p.timing = static_cast<Timing> (std::clamp (static_cast<int> (p.timing), 0, numTimings - 1));
     p.direction = static_cast<Direction> (std::clamp (static_cast<int> (p.direction), 0, numDirections - 1));
+    p.chanceMode = static_cast<ChanceMode> (std::clamp (static_cast<int> (p.chanceMode), 0, numChanceModes - 1));
     p.noteSource = p.noteSource == NoteSource::midiIn ? NoteSource::midiIn : NoteSource::select;
     p.length = std::clamp (p.length, 1, maxSteps);
     p.defaultVelocity = std::clamp (p.defaultVelocity, 1, 127);
@@ -123,9 +124,16 @@ void sanitise (Pattern& p)
         s.octave = std::clamp (s.octave, -3, 3);
         s.ratchet = std::clamp (s.ratchet, 1, 8);
         if (s.chance < 0)
-            s.chance = std::clamp (s.chance, -8, -2);
+        {
+            auto r = chanceRatio (s.chance);
+            r.b = std::clamp (r.b, 2, 8);
+            r.a = std::clamp (r.a, 1, r.b);
+            s.chance = ratioChance (r);
+        }
         else
-            s.chance = std::clamp (s.chance, 1, 100);
+        {
+            s.chance = std::clamp (s.chance, 0, 100);
+        }
     }
 }
 

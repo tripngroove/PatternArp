@@ -200,10 +200,10 @@ void PatternPanel::layoutTabs()
         row.removeFromLeft (4);
     }
 
-    // Rest / Skip choice for the Chance tab sits at the end of the row.
-    auto choice = row.removeFromRight (140).reduced (0, 4);
-    restButton = choice.removeFromLeft (70);
-    skipButton = choice;
+    // Rest / Skip / Extend choice for the Chance tab sits at the end of the row.
+    auto choice = row.removeFromRight (66 * numChanceModes).reduced (0, 4);
+    for (auto& button : chanceModeButtons)
+        button = choice.removeFromLeft (66);
 
     const auto lane = graph.getLane();
     if (hasDefault (lane))
@@ -335,19 +335,21 @@ void PatternPanel::paint (juce::Graphics& g)
 
     if (active == Lane::chance)
     {
-        const bool skip = pattern.chanceMode == ChanceMode::skip;
+        static constexpr const char* labels[] = { "Rest", "Skip", "Extend" };
         g.setFont (theme::font (14.0f));
-        for (const auto& [r, on, label] : { std::tuple { restButton, ! skip, "Rest" }, std::tuple { skipButton, skip, "Skip" } })
+        for (int i = 0; i < numChanceModes; ++i)
         {
-            g.setColour (on ? theme::fill : theme::panel);
+            const auto r = chanceModeButtons[static_cast<size_t> (i)];
+            g.setColour (static_cast<int> (pattern.chanceMode) == i ? theme::fill : theme::panel);
             g.fillRect (r);
             g.setColour (theme::ink);
             g.drawRect (r, 1);
-            g.drawText (label, r, juce::Justification::centred);
+            g.drawText (labels[i], r, juce::Justification::centred);
         }
+        const auto first = chanceModeButtons.front();
         g.setColour (theme::inkMuted);
         g.setFont (theme::font (12.0f));
-        g.drawText ("Failed steps:", restButton.withX (restButton.getX() - 90).withWidth (86), juce::Justification::centredRight);
+        g.drawText ("Failed steps:", first.withX (first.getX() - 90).withWidth (86), juce::Justification::centredRight);
     }
 }
 
@@ -372,11 +374,13 @@ void PatternPanel::mouseDown (const juce::MouseEvent& e)
         }
     }
 
-    if (graph.getLane() == Lane::chance && (restButton.contains (pos) || skipButton.contains (pos)))
-    {
-        pattern.chanceMode = skipButton.contains (pos) ? ChanceMode::skip : ChanceMode::rest;
-        changed();
-    }
+    if (graph.getLane() == Lane::chance)
+        for (int i = 0; i < numChanceModes; ++i)
+            if (chanceModeButtons[static_cast<size_t> (i)].contains (pos))
+            {
+                pattern.chanceMode = static_cast<ChanceMode> (i);
+                changed();
+            }
 }
 
 void PatternPanel::updateHoverButtons()
