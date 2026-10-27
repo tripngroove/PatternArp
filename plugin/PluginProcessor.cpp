@@ -35,13 +35,17 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
         timings.add (timingName (static_cast<Timing> (i)));
     directions.addArray ({ "Forward", "Backward", "Ping-pong", "Random", "Random walk" });
 
-    const auto defaults = makeDefaultPattern();
+    // Each slot's defaults match the pattern a new instance starts with there, so the host
+    // sees the same values before and after the arrangement is pushed to the parameters.
+    const Arrangement initial;
+    const auto newPattern = makeDefaultPattern();
     for (int i = 0; i < maxPatterns; ++i)
     {
         const auto id = [i] (const char* name) { return juce::ParameterID ("p" + juce::String (i + 1) + "_" + name, 1); };
         // Named by slot, not letter: a slot's letter changes when an earlier pattern is deleted.
         const auto label = [i] (const char* name) { return "P" + juce::String (i + 1) + " " + name; };
         auto& pp = patternParameters[static_cast<size_t> (i)];
+        const auto& defaults = i < initial.numPatterns ? initial.patterns[static_cast<size_t> (i)] : newPattern;
 
         auto add = [this] (auto parameter) {
             auto* raw = parameter.get();

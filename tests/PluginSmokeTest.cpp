@@ -3,6 +3,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <functional>
@@ -174,6 +175,18 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
     }
 
     plugin->releaseResources();
+}
+
+TEST_CASE ("every parameter starts at its default value")
+{
+    // clap-validator's param-default-values test checks the same thing.
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+    for (auto* parameter : plugin->getParameters())
+    {
+        INFO (parameter->getName (64));
+        CHECK (parameter->getValue() == Catch::Approx (parameter->getDefaultValue()));
+    }
 }
 
 TEST_CASE ("plugin state round-trips")
