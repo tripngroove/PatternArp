@@ -68,7 +68,7 @@ private:
         void mouseDrag (const juce::MouseEvent& e) override;
     };
     DefaultValue defaultEditor;
-    Pattern defaultDragStart; // a drag works from the pattern as it was when grabbed
+    int defaultDragStart = 0; // the default value when a drag began
 
     juce::TextButton cloneButton { "Clone" }, deleteButton { "Delete" };
     bool confirmingDelete = false;

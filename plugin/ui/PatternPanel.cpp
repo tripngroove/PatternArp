@@ -87,19 +87,14 @@ PatternPanel::PatternPanel()
     defaultEditor.setColour (juce::Label::textColourId, theme::ink);
     defaultEditor.setColour (juce::Label::backgroundColourId, theme::panel);
     defaultEditor.setColour (juce::Label::outlineColourId, theme::ink);
-    defaultEditor.setTooltip ("Default value for new and reset steps: drag up or down, or click to type");
+    defaultEditor.setTooltip ("Sets every step, and new and reset ones: drag up or down, or click to type");
     defaultEditor.setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
     defaultEditor.setComponentID ("defaultValue");
     defaultEditor.onTextChange = [this] { setDefault (graph.getLane(), defaultEditor.getText().getIntValue()); };
-    defaultEditor.onDragStart = [this] { defaultDragStart = pattern; };
-    defaultEditor.onDrag = [this] (int delta) {
-        // Start over from the grab each time, so steps the default passes on the way stay put.
-        const auto lane = graph.getLane();
-        pattern.steps = defaultDragStart.steps;
-        pattern.defaultVelocity = defaultDragStart.defaultVelocity;
-        pattern.defaultGate = defaultDragStart.defaultGate;
-        setDefault (lane, (lane == Lane::velocity ? pattern.defaultVelocity : pattern.defaultGate) + delta);
+    defaultEditor.onDragStart = [this] {
+        defaultDragStart = graph.getLane() == Lane::velocity ? pattern.defaultVelocity : pattern.defaultGate;
     };
+    defaultEditor.onDrag = [this] (int delta) { setDefault (graph.getLane(), defaultDragStart + delta); };
 
     cloneButton.setTooltip ("Add a copy of this pattern at the end");
     deleteButton.setTooltip ("Delete this pattern");
@@ -191,21 +186,19 @@ void PatternPanel::changed()
 
 void PatternPanel::setDefault (Lane lane, int value)
 {
-    // Steps still at the old default follow the new one.
+    // Every step takes the new value, edited or not.
     if (lane == Lane::velocity)
     {
         value = juce::jlimit (1, 127, value);
         for (auto& s : pattern.steps)
-            if (s.velocity == pattern.defaultVelocity)
-                s.velocity = value;
+            s.velocity = value;
         pattern.defaultVelocity = value;
     }
     else if (lane == Lane::gate)
     {
         value = juce::jlimit (1, 100, value);
         for (auto& s : pattern.steps)
-            if (s.gate == pattern.defaultGate)
-                s.gate = value;
+            s.gate = value;
         pattern.defaultGate = value;
     }
     defaultEditor.setText (juce::String (value), juce::dontSendNotification);

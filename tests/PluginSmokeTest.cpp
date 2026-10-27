@@ -493,9 +493,24 @@ TEST_CASE ("double-clicking a lane tab resets that lane")
         CHECK (note == "0");
 }
 
-TEST_CASE ("the Velocity default drags up and down")
+TEST_CASE ("the Velocity default drags up and down and sets every step")
 {
-    WindowedEditor w;
+    // Start with pattern A's second step at velocity 40.
+    juce::String stateXml;
+    {
+        WindowedEditor original;
+        auto xml = original.state();
+        REQUIRE (xml != nullptr);
+        auto* pattern = xml->getChildByName ("Arrangement")->getChildByName ("Pattern");
+        auto steps = juce::StringArray::fromTokens (pattern->getStringAttribute ("steps"), ";", {});
+        auto second = juce::StringArray::fromTokens (steps[1], " ", {});
+        second.set (1, "40");
+        steps.set (1, second.joinIntoString (" "));
+        pattern->setAttribute ("steps", steps.joinIntoString (";"));
+        stateXml = xml->toString();
+    }
+
+    WindowedEditor w (stateXml.toRawUTF8());
     REQUIRE (w.peer != nullptr);
     auto* panel = w.find ("Pattern A");
     REQUIRE (panel != nullptr);
@@ -506,14 +521,22 @@ TEST_CASE ("the Velocity default drags up and down")
     REQUIRE (value != nullptr);
     REQUIRE (value->isVisible());
 
-    const auto defaultVelocity = [&w] {
+    // Pattern A's default velocity, then each step's velocity.
+    const auto velocities = [&w] {
+        std::vector<int> result;
         const auto xml = w.state();
-        const auto* pattern = xml != nullptr && xml->getChildByName ("Arrangement") != nullptr
-                                  ? xml->getChildByName ("Arrangement")->getChildByName ("Pattern")
-                                  : nullptr;
-        return pattern != nullptr ? pattern->getIntAttribute ("defaultVelocity") : -1;
+        if (const auto* arrangement = xml != nullptr ? xml->getChildByName ("Arrangement") : nullptr)
+            if (const auto* pattern = arrangement->getChildByName ("Pattern"))
+            {
+                result.push_back (pattern->getIntAttribute ("defaultVelocity"));
+                for (const auto& step : juce::StringArray::fromTokens (pattern->getStringAttribute ("steps"), ";", {}))
+                    result.push_back (juce::StringArray::fromTokens (step, " ", {})[1].getIntValue());
+            }
+        return result;
     };
-    REQUIRE (defaultVelocity() == 100);
+    REQUIRE (velocities().size() > 3);
+    REQUIRE (velocities()[0] == 100);
+    REQUIRE (velocities()[2] == 40);
 
     // Up 20 pixels is 10 more.
     const auto start = w.editor->getLocalPoint (value, value->getLocalBounds().getCentre().toFloat());
@@ -521,7 +544,8 @@ TEST_CASE ("the Velocity default drags up and down")
     for (int i = 1; i <= 4; ++i)
         w.mouse (start.translated (0.0f, -5.0f * static_cast<float> (i)), true);
     w.mouse (start.translated (0.0f, -20.0f), false);
-    CHECK (defaultVelocity() == 110);
+    for (const int velocity : velocities())
+        CHECK (velocity == 110);
 }
 
 TEST_CASE ("right-clicking a step opens its menu")
