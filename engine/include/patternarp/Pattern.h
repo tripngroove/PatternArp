@@ -10,6 +10,10 @@ namespace patternarp
 
 constexpr int maxSteps = 16;
 constexpr int maxPatterns = 8;
+constexpr int maxOrderSteps = 16;
+
+// Patterns are named by position: A, B, C...
+constexpr char patternLetter (int index) { return static_cast<char> ('A' + index); }
 
 // Loop lengths are counted in 24ths of a beat, which every Timing divides into evenly.
 constexpr int ticksPerBeat = 24;
@@ -92,15 +96,10 @@ struct Pattern
     Timing timing = Timing::sixteenth;
     int length = 8; // 1..maxSteps
 
-    // Period n:m - this pattern claims n of every m notes of the arp. n == m (e.g. 1:1)
-    // makes it a fill pattern that plays the slots no other pattern claimed.
-    int periodHits = 1;
-    int periodSlots = 1;
-
     Direction direction = Direction::forward;
     ChanceMode chanceMode = ChanceMode::rest;
 
-    // Notes the Notes lane picks from, as MIDI note numbers (C4 = 60), when the source is
+    // Notes the Notes lane picks from, as MIDI note numbers (C3 = 60), when the source is
     // `select`. With `midiIn` the held notes are used instead.
     NoteSource noteSource = NoteSource::select;
     std::bitset<128> enabledNotes;
@@ -118,37 +117,21 @@ struct Pattern
 
     bool playing = true; // paused patterns are taken out of the rotation entirely
 
-    int colour = 0; // index into the editor's palette; stays with the pattern when reordered
+    int colour = 0; // index into the editor's palette; stays with the pattern if others are deleted
 
-    bool isFill() const { return periodHits >= periodSlots; }
     bool operator== (const Pattern&) const = default;
 };
 
 // Steps a lane loops over: its own length if set and shorter, else the pattern's.
 int laneLength (const Pattern& pattern, Lane lane);
 
-// A new pattern: a C major triad (C4 E4 G4) played up and down, so it sounds right away.
+// A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away.
 Pattern makeDefaultPattern();
 
 // Changes the number of steps, re-bucketing every lane so its shape is kept: smooth lanes
 // (notes, velocity, gate) are interpolated, stepped lanes (octave, ratchet, chance) take
 // the nearest original step.
 void setPatternLength (Pattern& pattern, int newLength);
-
-// The Period settings offered in the editor and to host automation, sparsest first.
-struct Period
-{
-    int hits;
-    int slots;
-};
-
-inline constexpr std::array<Period, 20> periodChoices { {
-    { 1, 8 }, { 1, 7 }, { 1, 6 }, { 1, 5 }, { 1, 4 }, { 2, 7 }, { 1, 3 }, { 3, 8 }, { 2, 5 }, { 3, 7 },
-    { 1, 2 }, { 3, 5 }, { 5, 8 }, { 2, 3 }, { 5, 7 }, { 3, 4 }, { 4, 5 }, { 5, 6 }, { 7, 8 }, { 1, 1 },
-} };
-
-// Index into periodChoices closest to hits:slots.
-int nearestPeriodChoice (int hits, int slots);
 
 // Keeps every value inside its legal range.
 void sanitise (Pattern& pattern);
@@ -158,6 +141,11 @@ struct Arrangement
 {
     std::array<Pattern, maxPatterns> patterns {};
     int numPatterns = 0;
+
+    // The Order lane: whose turn each step of the arp is, by pattern position, or -1 for a
+    // rest. It loops over its first orderLength steps.
+    std::array<int, maxOrderSteps> order {};
+    int orderLength = 1;
 
     // When above 0, everything starts over every loopLength ticks (see ticksPerBeat),
     // cutting the natural loop short. 0 plays the natural loop.
@@ -169,7 +157,24 @@ struct Arrangement
 
     // The first palette colour no pattern uses yet (for a new pattern).
     int unusedColour() const;
+
+    // Adds a pattern at the end, with a new colour, and gives it the next step of the Order
+    // lane (the last step, if the lane is already full). Returns false when there is no room.
+    bool addPattern (const Pattern& pattern);
+
+    // Deletes a pattern; its Order steps are removed and the steps after them close up.
+    void removePattern (int index);
+
+    // Makes the Order lane take every pattern in turn: A B C...
+    void alternate();
+
+    // Lengthening repeats the steps there already are (A B becomes A B A B...).
+    void setOrderLength (int newLength);
     bool operator== (const Arrangement&) const = default;
 };
+
+// Keeps the pattern count and the Order lane inside their legal ranges (steps that name a
+// pattern that does not exist become rests).
+void sanitise (Arrangement& arrangement);
 
 } // namespace patternarp

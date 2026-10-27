@@ -9,7 +9,7 @@ namespace patternarp
 namespace
 {
 const juce::Identifier stateType { "PatternArpState" };
-constexpr int stateVersion = 3;
+constexpr int stateVersion = 4;
 
 const juce::ParameterID latchId { "latch", 1 };
 } // namespace
@@ -30,18 +30,16 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
     latch = latchParameter.get();
     addParameter (latchParameter.release());
 
-    juce::StringArray timings, periods, directions;
+    juce::StringArray timings, directions;
     for (int i = 0; i < numTimings; ++i)
         timings.add (timingName (static_cast<Timing> (i)));
-    for (const auto& p : periodChoices)
-        periods.add (juce::String (p.hits) + ":" + juce::String (p.slots));
     directions.addArray ({ "Forward", "Backward", "Ping-pong", "Random", "Random walk" });
 
     const auto defaults = makeDefaultPattern();
     for (int i = 0; i < maxPatterns; ++i)
     {
         const auto id = [i] (const char* name) { return juce::ParameterID ("p" + juce::String (i + 1) + "_" + name, 1); };
-        const auto label = [i] (const char* name) { return "P" + juce::String (i + 1) + " " + name; };
+        const auto label = [i] (const char* name) { return juce::String::charToString (patternLetter (i)) + " " + name; };
         auto& pp = patternParameters[static_cast<size_t> (i)];
 
         auto add = [this] (auto parameter) {
@@ -53,8 +51,6 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
         pp.timing = add (std::make_unique<juce::AudioParameterChoice> (id ("timing"), label ("Timing"), timings,
                                                                        static_cast<int> (defaults.timing)));
         pp.length = add (std::make_unique<juce::AudioParameterInt> (id ("length"), label ("Length"), 1, maxSteps, defaults.length));
-        pp.period = add (std::make_unique<juce::AudioParameterChoice> (id ("period"), label ("Period"), periods,
-                                                                       nearestPeriodChoice (defaults.periodHits, defaults.periodSlots)));
         pp.direction = add (std::make_unique<juce::AudioParameterChoice> (id ("direction"), label ("Direction"), directions, 0));
         pp.noteSource = add (std::make_unique<juce::AudioParameterChoice> (id ("notesource"), label ("Note Source"),
                                                                            juce::StringArray { "Select", "MIDI In" }, 0));
@@ -76,7 +72,6 @@ PatternArpProcessor::ParameterSnapshot PatternArpProcessor::readParameters() con
     {
         *v++ = pp.timing->getIndex();
         *v++ = pp.length->get();
-        *v++ = pp.period->getIndex();
         *v++ = pp.direction->getIndex();
         *v++ = pp.noteSource->getIndex();
         *v++ = pp.chanceMode->getIndex();
@@ -93,12 +88,10 @@ void PatternArpProcessor::applyParameters (const ParameterSnapshot& values, Arra
         auto& p = a.patterns[static_cast<size_t> (i)];
         p.timing = static_cast<Timing> (v[0]);
         p.length = v[1]; // automation only shortens or lengthens; the steps stay as drawn
-        p.periodHits = periodChoices[static_cast<size_t> (v[2])].hits;
-        p.periodSlots = periodChoices[static_cast<size_t> (v[2])].slots;
-        p.direction = static_cast<Direction> (v[3]);
-        p.noteSource = static_cast<NoteSource> (v[4]);
-        p.chanceMode = static_cast<ChanceMode> (v[5]);
-        p.playing = v[6] != 0;
+        p.direction = static_cast<Direction> (v[2]);
+        p.noteSource = static_cast<NoteSource> (v[3]);
+        p.chanceMode = static_cast<ChanceMode> (v[4]);
+        p.playing = v[5] != 0;
         sanitise (p);
     }
 }
@@ -124,7 +117,6 @@ void PatternArpProcessor::pushToParameters (const Arrangement& a)
         auto& pp = patternParameters[static_cast<size_t> (i)];
         setPlainValue (*pp.timing, static_cast<int> (p.timing));
         setPlainValue (*pp.length, p.length);
-        setPlainValue (*pp.period, nearestPeriodChoice (p.periodHits, p.periodSlots));
         setPlainValue (*pp.direction, static_cast<int> (p.direction));
         setPlainValue (*pp.noteSource, static_cast<int> (p.noteSource));
         setPlainValue (*pp.chanceMode, static_cast<int> (p.chanceMode));
@@ -136,7 +128,7 @@ void PatternArpProcessor::setParameters (const ParameterSnapshot& values)
 {
     const auto* v = values.data();
     for (auto& pp : patternParameters)
-        for (auto* parameter : std::initializer_list<juce::RangedAudioParameter*> { pp.timing, pp.length, pp.period, pp.direction,
+        for (auto* parameter : std::initializer_list<juce::RangedAudioParameter*> { pp.timing, pp.length, pp.direction,
                                                                                     pp.noteSource, pp.chanceMode, pp.play })
             setPlainValue (*parameter, *v++);
 }

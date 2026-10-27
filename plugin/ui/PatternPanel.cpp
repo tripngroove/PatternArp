@@ -43,17 +43,6 @@ PatternPanel::PatternPanel()
         changed();
     };
 
-    period.setRange (0, static_cast<int> (periodChoices.size()) - 1);
-    period.toText = [] (int v) {
-        const auto& p = periodChoices[static_cast<size_t> (v)];
-        return juce::String (p.hits) + ":" + juce::String (p.slots);
-    };
-    period.onChange = [this] (int v) {
-        pattern.periodHits = periodChoices[static_cast<size_t> (v)].hits;
-        pattern.periodSlots = periodChoices[static_cast<size_t> (v)].slots;
-        changed();
-    };
-
     direction.setRange (0, numDirections - 1);
     direction.toText = [] (int v) { return juce::String (directionName (v)); };
     direction.onChange = [this] (int v) {
@@ -86,8 +75,8 @@ PatternPanel::PatternPanel()
     defaultEditor.setTooltip ("Default value: new and double-clicked steps use it");
     defaultEditor.onTextChange = [this] { setDefault (graph.getLane(), defaultEditor.getText().getIntValue()); };
 
-    newButton.setTooltip ("Add a new pattern after this one");
-    cloneButton.setTooltip ("Add a copy of this pattern after it");
+    newButton.setTooltip ("Add a new pattern at the end");
+    cloneButton.setTooltip ("Add a copy of this pattern at the end");
     deleteButton.setTooltip ("Delete this pattern");
     newButton.onClick = [this] { if (onNew) onNew(); };
     cloneButton.onClick = [this] { if (onClone) onClone(); };
@@ -115,7 +104,7 @@ PatternPanel::PatternPanel()
     }
     deleteButton.setColour (juce::TextButton::textColourOffId, theme::danger);
 
-    for (auto* c : std::initializer_list<juce::Component*> { &timing, &length, &period, &direction, &graph, &keyboard })
+    for (auto* c : std::initializer_list<juce::Component*> { &timing, &length, &direction, &graph, &keyboard })
         addAndMakeVisible (c);
     addChildComponent (defaultEditor);
 
@@ -131,11 +120,10 @@ void PatternPanel::setPattern (const Pattern& newPattern, int newIndex, bool can
 {
     pattern = newPattern;
     index = newIndex;
-    setName ("Pattern " + juce::String (index + 1));
+    setName ("Pattern " + juce::String::charToString (patternLetter (index)));
 
     timing.setValue (static_cast<int> (pattern.timing));
     length.setValue (pattern.length);
-    period.setValue (nearestPeriodChoice (pattern.periodHits, pattern.periodSlots));
     direction.setValue (static_cast<int> (pattern.direction));
     graph.setPattern (pattern);
     keyboard.setNotes (pattern.enabledNotes, pattern.noteSource);
@@ -155,7 +143,7 @@ void PatternPanel::updatePausedLook()
 {
     // A paused pattern stays editable but is drawn faded.
     const float alpha = pattern.playing ? 1.0f : 0.45f;
-    for (auto* c : std::initializer_list<juce::Component*> { &timing, &length, &period, &direction, &graph, &keyboard })
+    for (auto* c : std::initializer_list<juce::Component*> { &timing, &length, &direction, &graph, &keyboard })
         c->setAlpha (alpha);
 }
 
@@ -251,8 +239,6 @@ void PatternPanel::resized()
     header.removeFromLeft (12);
     length.setBounds (header.removeFromLeft (90));
     header.removeFromLeft (12);
-    period.setBounds (header.removeFromLeft (96));
-    header.removeFromLeft (12);
     direction.setBounds (header.removeFromLeft (140));
 
     area.removeFromTop (10 + tabHeight + 6);
@@ -301,7 +287,7 @@ void PatternPanel::paint (juce::Graphics& g)
     auto title = playButton.withX (playButton.getRight() + 10).withWidth (titleWidth - playButton.getWidth() - 10);
     g.setColour (pattern.playing ? theme::ink : theme::inkMuted);
     g.setFont (theme::font (17.0f, true));
-    g.drawText ("PATTERN " + juce::String (index + 1), title, juce::Justification::centredLeft);
+    g.drawText ("PATTERN " + juce::String::charToString (patternLetter (index)), title, juce::Justification::centredLeft);
     if (! pattern.playing)
     {
         g.setFont (theme::font (12.0f));
@@ -366,43 +352,9 @@ void PatternPanel::paint (juce::Graphics& g)
     }
 }
 
-bool PatternPanel::isInGrip (juce::Point<int> p) const
-{
-    // The colour stripe, and the title next to the play button.
-    if (p.x < margin + stripeWidth + 2)
-        return true;
-    const auto title = juce::Rectangle<int> (playButton.getRight(), margin, titleWidth - playButton.getWidth(), headerHeight);
-    return title.contains (p);
-}
-
-void PatternPanel::mouseMove (const juce::MouseEvent& e)
-{
-    setMouseCursor (isInGrip (e.getPosition()) ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
-}
-
-void PatternPanel::mouseDrag (const juce::MouseEvent& e)
-{
-    if (! reordering && isInGrip (e.getMouseDownPosition()) && std::abs (e.getDistanceFromDragStartY()) > 4)
-        reordering = true;
-
-    if (reordering && onReorderDrag && getParentComponent() != nullptr)
-        onReorderDrag (e.getEventRelativeTo (getParentComponent()).y - grabY);
-}
-
-void PatternPanel::mouseUp (const juce::MouseEvent&)
-{
-    if (reordering)
-    {
-        reordering = false;
-        if (onReorderEnd)
-            onReorderEnd();
-    }
-}
-
 void PatternPanel::mouseDown (const juce::MouseEvent& e)
 {
     const auto pos = e.getPosition();
-    grabY = e.y;
     if (playButton.contains (pos))
     {
         pattern.playing = ! pattern.playing;

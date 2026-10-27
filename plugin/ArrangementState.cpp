@@ -10,10 +10,9 @@ namespace ids
 const juce::Identifier arrangement { "Arrangement" };
 const juce::Identifier pattern { "Pattern" };
 const juce::Identifier loopLength { "loopLength" };
+const juce::Identifier order { "order" };
 const juce::Identifier timing { "timing" };
 const juce::Identifier length { "length" };
-const juce::Identifier periodHits { "periodHits" };
-const juce::Identifier periodSlots { "periodSlots" };
 const juce::Identifier direction { "direction" };
 const juce::Identifier chanceMode { "chanceMode" };
 const juce::Identifier noteSource { "noteSource" };
@@ -83,14 +82,17 @@ juce::ValueTree toValueTree (const Arrangement& a)
     juce::ValueTree tree (ids::arrangement);
     tree.setProperty (ids::loopLength, a.loopLength, nullptr);
 
+    juce::StringArray order;
+    for (int i = 0; i < a.orderLength; ++i)
+        order.add (juce::String (a.order[static_cast<size_t> (i)]));
+    tree.setProperty (ids::order, order.joinIntoString (","), nullptr);
+
     for (int i = 0; i < a.numPatterns; ++i)
     {
         const auto& p = a.patterns[static_cast<size_t> (i)];
         juce::ValueTree child (ids::pattern);
         child.setProperty (ids::timing, static_cast<int> (p.timing), nullptr);
         child.setProperty (ids::length, p.length, nullptr);
-        child.setProperty (ids::periodHits, p.periodHits, nullptr);
-        child.setProperty (ids::periodSlots, p.periodSlots, nullptr);
         child.setProperty (ids::direction, static_cast<int> (p.direction), nullptr);
         child.setProperty (ids::chanceMode, static_cast<int> (p.chanceMode), nullptr);
         child.setProperty (ids::noteSource, static_cast<int> (p.noteSource), nullptr);
@@ -128,8 +130,6 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
         Pattern p = makeDefaultPattern();
         p.timing = static_cast<Timing> (static_cast<int> (child.getProperty (ids::timing, static_cast<int> (p.timing))));
         p.length = child.getProperty (ids::length, p.length);
-        p.periodHits = child.getProperty (ids::periodHits, p.periodHits);
-        p.periodSlots = child.getProperty (ids::periodSlots, p.periodSlots);
         p.direction = static_cast<Direction> (static_cast<int> (child.getProperty (ids::direction, 0)));
         p.chanceMode = static_cast<ChanceMode> (static_cast<int> (child.getProperty (ids::chanceMode, 0)));
         p.noteSource = static_cast<NoteSource> (static_cast<int> (child.getProperty (ids::noteSource, 0)));
@@ -148,6 +148,20 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
 
         loaded.patterns[static_cast<size_t> (loaded.numPatterns++)] = p;
     }
+
+    // Saves from before the Order lane take every pattern in turn.
+    const auto order = juce::StringArray::fromTokens (tree.getProperty (ids::order).toString(), ",", {});
+    if (order.isEmpty())
+    {
+        loaded.alternate();
+    }
+    else
+    {
+        loaded.orderLength = juce::jmin (order.size(), maxOrderSteps);
+        for (int i = 0; i < loaded.orderLength; ++i)
+            loaded.order[static_cast<size_t> (i)] = order[i].getIntValue();
+    }
+    sanitise (loaded);
 
     a = loaded;
     return true;

@@ -12,6 +12,7 @@ namespace
 constexpr int topBarHeight = 56;
 constexpr int previewHeight = PreviewComponent::rulerHeight + 112;
 constexpr int gap = 12;
+constexpr int orderGap = 6; // the Order lane sits just under the preview
 constexpr int addButtonHeight = 44;
 
 constexpr double maxPreviewBeats = 64.0; // 16 bars on screen
@@ -58,9 +59,18 @@ PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
     preview.onLoopChange = [this] (double beats) { setLoopLength (beats); };
     addAndMakeVisible (preview);
 
+    order.onEdit = [this] (const Arrangement& edited) {
+        shown.order = edited.order;
+        shown.orderLength = edited.orderLength;
+        arp.setArrangement (shown);
+        previewDirty = true;
+    };
+    order.onHeightChange = [this] { resized(); };
+    addAndMakeVisible (order);
+
     addButton.setColour (juce::TextButton::buttonColourId, theme::panel);
     addButton.setColour (juce::TextButton::textColourOffId, theme::ink);
-    addButton.onClick = [this] { insertPattern (shown.numPatterns, makeDefaultPattern()); };
+    addButton.onClick = [this] { addPattern (makeDefaultPattern()); };
     content.addAndMakeVisible (addButton);
 
     viewport.setViewedComponent (&content, false);
@@ -159,6 +169,8 @@ void PatternArpEditor::resized()
 
     area.reduce (gap, 0);
     preview.setBounds (area.removeFromTop (previewHeight));
+    area.removeFromTop (orderGap);
+    order.setBounds (area.removeFromTop (order.getPreferredHeight()));
     area.removeFromTop (gap);
     viewport.setBounds (area);
     layoutContent();
@@ -169,22 +181,8 @@ void PatternArpEditor::layoutContent()
     const int width = viewport.getMaximumVisibleWidth();
     constexpr int pitch = PatternPanel::preferredHeight + gap;
 
-    // While a panel is dragged, it follows the mouse and the others make room at the slot it
-    // would drop into.
-    int slot = 0;
     for (int i = 0; i < panels.size(); ++i)
-    {
-        if (i == dragIndex)
-            continue;
-        if (slot == dropIndex)
-            ++slot;
-        panels[i]->setBounds (0, slot++ * pitch, width, PatternPanel::preferredHeight);
-    }
-    if (dragIndex >= 0)
-    {
-        panels[dragIndex]->setBounds (0, dragTop, width, PatternPanel::preferredHeight);
-        panels[dragIndex]->toFront (false);
-    }
+        panels[i]->setBounds (0, i * pitch, width, PatternPanel::preferredHeight);
 
     const int y = panels.size() * pitch;
 
@@ -203,11 +201,9 @@ void PatternArpEditor::syncPanels()
         auto* panel = panels.add (new PatternPanel());
         const int index = panels.size() - 1;
         panel->onChange = [this, index] (const Pattern& p) { edit (index, p); };
-        panel->onNew = [this, index] { insertPattern (index + 1, makeDefaultPattern()); };
-        panel->onClone = [this, index] { insertPattern (index + 1, shown.patterns[static_cast<size_t> (index)]); };
+        panel->onNew = [this] { addPattern (makeDefaultPattern()); };
+        panel->onClone = [this, index] { addPattern (shown.patterns[static_cast<size_t> (index)]); };
         panel->onDelete = [this, index] { deletePattern (index); };
-        panel->onReorderDrag = [this, index] (int top) { reorderDrag (index, top); };
-        panel->onReorderEnd = [this, index] { reorderEnd (index); };
         content.addAndMakeVisible (panel);
     }
 
@@ -217,6 +213,7 @@ void PatternArpEditor::syncPanels()
         panels[i]->setInputNotes (shownInput);
     }
 
+    order.setArrangement (shown);
     layoutContent();
     previewDirty = true;
 }
@@ -249,54 +246,12 @@ void PatternArpEditor::edit (int index, const Pattern& pattern)
     previewDirty = true;
 }
 
-void PatternArpEditor::insertPattern (int index, const Pattern& pattern)
+void PatternArpEditor::addPattern (const Pattern& pattern)
 {
-    if (shown.numPatterns >= maxPatterns)
+    if (! shown.addPattern (pattern))
         return;
 
-    index = juce::jlimit (0, shown.numPatterns, index);
-    auto added = pattern;
-    added.colour = shown.unusedColour();
-    for (int i = shown.numPatterns; i > index; --i)
-        shown.patterns[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i - 1)];
-    shown.patterns[static_cast<size_t> (index)] = added;
-    ++shown.numPatterns;
-
     arp.setArrangement (shown);
-    syncPanels();
-}
-
-void PatternArpEditor::reorderDrag (int index, int top)
-{
-    constexpr int pitch = PatternPanel::preferredHeight + gap;
-    dragIndex = index;
-    dragTop = juce::jlimit (0, (panels.size() - 1) * pitch, top);
-    dropIndex = juce::jlimit (0, panels.size() - 1, juce::roundToInt (static_cast<float> (dragTop) / static_cast<float> (pitch)));
-    layoutContent();
-
-    // Scroll when dragging near the top or bottom of the visible area.
-    const auto mouse = viewport.getLocalPoint (nullptr, juce::Desktop::getMousePosition());
-    viewport.autoScroll (mouse.x, mouse.y, 40, 12);
-}
-
-void PatternArpEditor::reorderEnd (int index)
-{
-    const int to = dropIndex;
-    dragIndex = dropIndex = -1;
-
-    if (index >= 0 && index < shown.numPatterns && to >= 0 && to != index)
-    {
-        const auto moved = shown.patterns[static_cast<size_t> (index)];
-        if (to > index)
-            for (int i = index; i < to; ++i)
-                shown.patterns[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i + 1)];
-        else
-            for (int i = index; i > to; --i)
-                shown.patterns[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i - 1)];
-        shown.patterns[static_cast<size_t> (to)] = moved;
-        arp.setArrangement (shown);
-    }
-
     syncPanels();
 }
 
@@ -305,10 +260,7 @@ void PatternArpEditor::deletePattern (int index)
     if (index < 0 || index >= shown.numPatterns)
         return;
 
-    for (int i = index; i < shown.numPatterns - 1; ++i)
-        shown.patterns[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i + 1)];
-    --shown.numPatterns;
-
+    shown.removePattern (index);
     arp.setArrangement (shown);
 
     // Called from the deleted panel's button, so let the click finish before removing it.
@@ -351,6 +303,9 @@ void PatternArpEditor::updatePreview()
 
     const bool anyPlaying = std::any_of (shown.patterns.begin(), shown.patterns.begin() + shown.numPatterns,
                                          [] (const Pattern& pt) { return pt.playing; });
+    const bool anyTurns = std::any_of (shown.order.begin(), shown.order.begin() + shown.orderLength, [this] (int owner) {
+        return owner < 0 || owner >= shown.numPatterns || shown.patterns[static_cast<size_t> (owner)].playing;
+    });
 
     juce::String label, description;
     if (shown.numPatterns == 0)
@@ -360,6 +315,10 @@ void PatternArpEditor::updatePreview()
     else if (! anyPlaying)
     {
         label = description = "All patterns paused";
+    }
+    else if (! anyTurns)
+    {
+        label = description = "Every pattern in the order is paused";
     }
     else if (loop.repeats)
     {

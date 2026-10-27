@@ -36,6 +36,15 @@ Arrangement arrangementOf (std::initializer_list<Pattern> patterns)
     a.numPatterns = 0;
     for (const auto& p : patterns)
         a.patterns[static_cast<size_t> (a.numPatterns++)] = p;
+    a.alternate();
+    return a;
+}
+
+Arrangement withOrder (Arrangement a, std::initializer_list<int> order)
+{
+    a.orderLength = 0;
+    for (int owner : order)
+        a.order[static_cast<size_t> (a.orderLength++)] = owner;
     return a;
 }
 
@@ -63,7 +72,7 @@ std::vector<int> owners (const Arrangement& a, int count)
 constexpr int A = 57, B = 59, C = 60, E = 64, F = 65;
 } // namespace
 
-TEST_CASE ("the design doc example: two 1:1 patterns alternate")
+TEST_CASE ("the design doc example: two patterns alternate by default")
 {
     const auto a = arrangementOf ({ patternOf ({ A, B, C }), patternOf ({ E, F }) });
     CHECK (firstNotes (a, 12) == std::vector<int> { A, E, B, F, C, E, A, F, B, E, C, F });
@@ -201,38 +210,96 @@ TEST_CASE ("a paused pattern is taken out of the rotation")
     CHECK_FALSE (arrangementOf ({ patternOf ({ C }), midiIn }).usesMidiIn());
 }
 
-TEST_CASE ("Period n:m claims n of every m slots")
+TEST_CASE ("the Order lane decides whose turn each step is")
 {
-    auto fill = patternOf ({ C });
-    auto insert = patternOf ({ E });
+    const auto fill = patternOf ({ C });
+    const auto insert = patternOf ({ E });
 
-    SECTION ("1:5 inserts every fifth note")
+    SECTION ("A A A A B puts B on every fifth note")
     {
-        insert.periodHits = 1;
-        insert.periodSlots = 5;
-        CHECK (owners (arrangementOf ({ fill, insert }), 10) == std::vector<int> { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0 });
+        const auto a = withOrder (arrangementOf ({ fill, insert }), { 0, 0, 0, 0, 1 });
+        CHECK (owners (a, 10) == std::vector<int> { 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 });
     }
 
-    SECTION ("2:3 takes two of every three")
+    SECTION ("an empty step is a rest as long as the shortest timing")
     {
-        insert.periodHits = 2;
-        insert.periodSlots = 3;
-        CHECK (owners (arrangementOf ({ fill, insert }), 6) == std::vector<int> { 1, 0, 1, 1, 0, 1 });
+        auto slow = fill;
+        slow.timing = Timing::eighth;
+        const auto a = withOrder (arrangementOf ({ slow, insert }), { 0, -1, 1 });
+        CHECK (owners (a, 6) == std::vector<int> { 0, -1, 1, 0, -1, 1 });
+        CHECK (findLoop (a).lengthBeats == Catch::Approx (0.5 + 0.25 + 0.25));
     }
 
-    SECTION ("a clash goes to the higher pattern; the other gets the next free slot")
+    SECTION ("a pattern with no steps in the lane stays silent")
     {
-        insert.periodHits = 1;
-        insert.periodSlots = 2;
-        auto second = insert;
-        CHECK (owners (arrangementOf ({ insert, second, fill }), 6) == std::vector<int> { 0, 1, 0, 1, 0, 1 });
+        const auto a = withOrder (arrangementOf ({ fill, insert }), { 1 });
+        CHECK (owners (a, 3) == std::vector<int> { 1, 1, 1 });
     }
 
-    SECTION ("with no fill pattern, unclaimed slots rest")
+    SECTION ("steps naming a pattern that does not exist are rests")
     {
-        insert.periodHits = 1;
-        insert.periodSlots = 2;
-        CHECK (owners (arrangementOf ({ insert }), 4) == std::vector<int> { 0, -1, 0, -1 });
+        const auto a = withOrder (arrangementOf ({ fill }), { 0, 5 });
+        CHECK (owners (a, 4) == std::vector<int> { 0, -1, 0, -1 });
+    }
+}
+
+TEST_CASE ("editing patterns keeps the Order lane in step")
+{
+    auto a = arrangementOf ({ patternOf ({ A }), patternOf ({ B }) });
+    REQUIRE (a.orderLength == 2);
+
+    SECTION ("a new pattern takes the next step")
+    {
+        REQUIRE (a.addPattern (patternOf ({ C })));
+        CHECK (a.numPatterns == 3);
+        CHECK (a.orderLength == 3);
+        CHECK (a.order[2] == 2);
+        CHECK (a.patterns[2].colour != a.patterns[0].colour);
+        CHECK (a.patterns[2].colour != a.patterns[1].colour);
+    }
+
+    SECTION ("a new pattern takes the last step of a full lane")
+    {
+        a.setOrderLength (maxOrderSteps);
+        REQUIRE (a.addPattern (patternOf ({ C })));
+        CHECK (a.orderLength == maxOrderSteps);
+        CHECK (a.order[maxOrderSteps - 1] == 2);
+    }
+
+    SECTION ("no more than eight patterns")
+    {
+        while (a.numPatterns < maxPatterns)
+            REQUIRE (a.addPattern (patternOf ({ C })));
+        CHECK_FALSE (a.addPattern (patternOf ({ C })));
+    }
+
+    SECTION ("deleting a pattern closes up its steps and renumbers the rest")
+    {
+        a.addPattern (patternOf ({ C }));
+        a = withOrder (a, { 0, 1, 2, 1, -1, 2 });
+        a.removePattern (1);
+        CHECK (a.numPatterns == 2);
+        CHECK (a.orderLength == 4);
+        CHECK (std::vector<int> (a.order.begin(), a.order.begin() + a.orderLength) == std::vector<int> { 0, 1, -1, 1 });
+    }
+
+    SECTION ("deleting the only pattern in the lane alternates the others")
+    {
+        a.addPattern (patternOf ({ C }));
+        a = withOrder (a, { 1, 1 });
+        a.removePattern (1);
+        CHECK (a.orderLength == 2);
+        CHECK (a.order[0] == 0);
+        CHECK (a.order[1] == 1);
+    }
+
+    SECTION ("lengthening repeats the steps there are")
+    {
+        a = withOrder (a, { 0, 0, 1 });
+        a.setOrderLength (7);
+        CHECK (std::vector<int> (a.order.begin(), a.order.begin() + 7) == std::vector<int> { 0, 0, 1, 0, 0, 1, 0 });
+        a.setOrderLength (99);
+        CHECK (a.orderLength == maxOrderSteps);
     }
 }
 
@@ -391,18 +458,19 @@ TEST_CASE ("describeLength uses the largest whole unit")
     CHECK (describeLength (0.75) == "3 sixteenths");
 }
 
-TEST_CASE ("loop length across different periods and lengths")
+TEST_CASE ("loop length across different Order and pattern lengths")
 {
     auto a = patternOf ({ 60, 62, 64 });
     auto b = patternOf ({ 67, 69 });
-    b.periodHits = 1;
-    b.periodSlots = 4;
+    b.timing = Timing::eighth;
+    const auto arrangement = withOrder (arrangementOf ({ a, b }), { 0, 0, 0, 1 });
 
-    const auto loop = findLoop (arrangementOf ({ a, b }));
+    const auto loop = findLoop (arrangement);
     REQUIRE (loop.repeats);
+    CHECK (loop.lengthSlots == 8); // two passes of the lane, so B plays both its notes
 
     // Rendering two loops' worth must repeat the first loop exactly.
-    const auto notes = render (arrangementOf ({ a, b }), loop.lengthBeats * 2.0);
+    const auto notes = render (arrangement, loop.lengthBeats * 2.0);
     REQUIRE (notes.size() % 2 == 0);
     const auto half = notes.size() / 2;
     for (size_t i = 0; i < half; ++i)

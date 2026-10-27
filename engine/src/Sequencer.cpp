@@ -27,12 +27,6 @@ std::int64_t floorMod (std::int64_t value, std::int64_t divisor)
     return r < 0 ? r + divisor : r;
 }
 
-bool claims (const Pattern& p, std::int64_t slot)
-{
-    // Euclidean spread of `periodHits` over `periodSlots`, starting on the first slot.
-    return floorMod (slot * p.periodHits, p.periodSlots) < p.periodHits;
-}
-
 double shortestStep (const Arrangement& a)
 {
     double shortest = 4.0;
@@ -79,13 +73,27 @@ void Sequencer::setArrangement (const Arrangement& a)
         sanitise (p);
     }
 
-    numFills = 0;
+    // The Order lane, renumbered to the playing patterns. Turns of paused patterns are left
+    // out, so they take no time.
+    std::array<int, maxPatterns> playingIndex {};
+    playingIndex.fill (-1);
+    for (int i = 0; i < arrangement.numPatterns; ++i)
+        playingIndex[static_cast<size_t> (sourceIndex[static_cast<size_t> (i)])] = i;
+
+    numTurns = 0;
+    const int numSource = std::clamp (a.numPatterns, 0, maxPatterns);
+    for (int i = 0; i < std::clamp (a.orderLength, 0, maxOrderSteps); ++i)
+    {
+        const int owner = a.order[static_cast<size_t> (i)];
+        if (owner < 0 || owner >= numSource)
+            turns[static_cast<size_t> (numTurns++)] = -1;
+        else if (const int playing = playingIndex[static_cast<size_t> (owner)]; playing >= 0)
+            turns[static_cast<size_t> (numTurns++)] = playing;
+    }
+
     for (int i = 0; i < arrangement.numPatterns; ++i)
     {
         const auto& p = arrangement.patterns[static_cast<size_t> (i)];
-        if (p.isFill())
-            fills[static_cast<size_t> (numFills++)] = i;
-
         auto& count = numEnabledNotes[static_cast<size_t> (i)];
         count = 0;
         for (int note = 0; note < 128; ++note)
@@ -111,49 +119,11 @@ void Sequencer::restart()
 void Sequencer::startCycle (double beat)
 {
     cursors = {};
-    owed = {};
     slotIndex = 0;
-    fillCounter = 0;
     cycleStart = beat;
     nextStart = beat;
     const double loop = loopBeats();
     pass = loop > 0.0 ? static_cast<std::uint64_t> (std::llround (beat / loop)) : 0;
-}
-
-int Sequencer::ownerOfSlot (std::int64_t slot)
-{
-    // Patterns with a Period like 1:5 claim their slots first, top of the list winning.
-    // A pattern that loses a slot is owed one and gets the next slot nobody claims, so every
-    // pattern keeps its rate. Fill patterns (1:1) take turns over whatever is left.
-    int winner = -1;
-    for (int i = 0; i < arrangement.numPatterns; ++i)
-    {
-        const auto& p = arrangement.patterns[static_cast<size_t> (i)];
-        if (p.isFill() || ! claims (p, slot))
-            continue;
-
-        if (winner < 0)
-            winner = i;
-        else
-            owed[static_cast<size_t> (i)] = std::min (owed[static_cast<size_t> (i)] + 1, p.periodHits);
-    }
-
-    if (winner >= 0)
-        return winner;
-
-    for (int i = 0; i < arrangement.numPatterns; ++i)
-    {
-        if (owed[static_cast<size_t> (i)] > 0)
-        {
-            --owed[static_cast<size_t> (i)];
-            return i;
-        }
-    }
-
-    if (numFills == 0)
-        return -1;
-
-    return fills[static_cast<size_t> (floorMod (fillCounter++, numFills))];
 }
 
 std::array<int, numLanes> Sequencer::advanceCursor (int patternIndex)
@@ -232,7 +202,7 @@ bool Sequencer::passesChance (int patternIndex, int step)
 
 Sequencer::Outcome Sequencer::playSlot (Slot& slot)
 {
-    const int owner = ownerOfSlot (slotIndex++);
+    const int owner = turns[static_cast<size_t> (slotIndex++ % numTurns)];
 
     slot.start = nextStart;
     slot.pattern = owner < 0 ? -1 : sourceIndex[static_cast<size_t> (owner)];
@@ -293,7 +263,7 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
 
 bool Sequencer::next (Slot& slot)
 {
-    if (arrangement.numPatterns == 0)
+    if (arrangement.numPatterns == 0 || numTurns == 0)
         return false;
 
     const double loop = loopBeats();
@@ -373,20 +343,17 @@ LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots)
 
     Sequencer sequencer (certain);
     const auto& a = sequencer.arrangement; // sanitised copy
-    if (a.numPatterns == 0)
+    if (a.numPatterns == 0 || sequencer.numTurns == 0)
         return info;
 
-    // Every part of the sequencer is a counter that wraps: the Period cycle, the fill
-    // rotation, slots owed after a clash and each pattern's step cycle (times any 1:N chance). The whole thing repeats
-    // the first time they are all back at zero together.
-    std::int64_t periodCycle = 1;
+    // Every part of the sequencer is a counter that wraps: the Order lane and each pattern's
+    // step cycle (times any 1:N chance). The whole thing repeats the first time they are all
+    // back at zero together.
     std::array<std::int64_t, maxPatterns> patternCycle {};
 
     for (int i = 0; i < a.numPatterns; ++i)
     {
         const auto& p = a.patterns[static_cast<size_t> (i)];
-        if (! p.isFill())
-            periodCycle = std::lcm (periodCycle, static_cast<std::int64_t> (p.periodSlots));
 
         // Each lane has its own cycle; the Chance lane's also waits for every 1:N count.
         std::int64_t cycle = 1;
@@ -412,11 +379,9 @@ LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots)
     {
         sequencer.playSlot (slot);
 
-        bool aligned = sequencer.slotIndex % periodCycle == 0
-                    && (sequencer.numFills == 0 || sequencer.fillCounter % sequencer.numFills == 0);
+        bool aligned = sequencer.slotIndex % sequencer.numTurns == 0;
         for (int i = 0; i < a.numPatterns && aligned; ++i)
-            aligned = sequencer.cursors[static_cast<size_t> (i)].played % patternCycle[static_cast<size_t> (i)] == 0
-                   && sequencer.owed[static_cast<size_t> (i)] == 0;
+            aligned = sequencer.cursors[static_cast<size_t> (i)].played % patternCycle[static_cast<size_t> (i)] == 0;
 
         if (aligned)
         {

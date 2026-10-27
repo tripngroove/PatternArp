@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "ui/OrderLane.h"
 #include "ui/PatternPanel.h"
 #include "ui/PreviewComponent.h"
 
@@ -32,10 +33,8 @@ private:
     juce::Rectangle<int> titleArea() const;
 
     void edit (int index, const Pattern& pattern);
-    void insertPattern (int index, const Pattern& pattern);
+    void addPattern (const Pattern& pattern); // always at the end
     void deletePattern (int index);
-    void reorderDrag (int index, int top); // top: where the dragged panel's top edge is now
-    void reorderEnd (int index);
 
     PatternArpProcessor& arp;
     std::unique_ptr<juce::PropertiesFile> settings; // per-user preferences, shared by every instance
@@ -47,13 +46,13 @@ private:
     std::int64_t shownPass = -1;
     std::vector<int> previewInput;
 
-    int dragIndex = -1, dropIndex = -1, dragTop = 0;
     void updatePlayhead();
 
     juce::TooltipWindow tooltips { this, 500 };
     juce::ToggleButton latchButton { "Latch" };
     juce::ButtonParameterAttachment latchAttachment;
     PreviewComponent preview;
+    OrderLane order;
 
     juce::Viewport viewport;
     juce::Component content;

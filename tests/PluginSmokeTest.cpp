@@ -102,12 +102,13 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
     // 1 beat at 120 bpm / 48 kHz = 24000 samples, so 46 blocks of 512 is just under 1 beat.
     constexpr int justUnderOneBeat = 46;
 
-    SECTION ("with the transport playing, the default pattern plays and input passes through")
+    SECTION ("with the transport playing, the default patterns take turns and input passes through")
     {
         playHead.playing = true;
         const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
 
-        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60, 64, 67, 64 });
+        // Input chord, then A (C3 D3 E3) and B (F4 G4 A4 B4) alternating.
+        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60, 77, 62, 79 });
         CHECK (out.controllers == 1);
     }
 
@@ -120,23 +121,26 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
     SECTION ("a MIDI In pattern plays the held notes and consumes them")
     {
         setParameter (*plugin, "p1_notesource", 1.0f);
+        setParameter (*plugin, "p2_play", 0.0f);
         playHead.playing = true;
         const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
 
-        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 64 });
+        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60 });
         CHECK (out.controllers == 1);
     }
 
     SECTION ("a MIDI In pattern free-runs from the first key press with the transport stopped")
     {
         setParameter (*plugin, "p1_notesource", 1.0f);
+        setParameter (*plugin, "p2_play", 0.0f);
         const auto out = render (*plugin, playHead, chord, justUnderOneBeat);
-        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 64 });
+        CHECK (out.noteOns == std::vector<int> { 60, 64, 67, 60 });
     }
 
     SECTION ("releasing the keys stops a MIDI In pattern and every note gets an off")
     {
         setParameter (*plugin, "p1_notesource", 1.0f);
+        setParameter (*plugin, "p2_play", 0.0f);
         playHead.playing = true;
         const auto before = render (*plugin, playHead, chord, 26); // a little past the 3rd note
 
@@ -149,9 +153,10 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
         CHECK (before.noteOffs + after.noteOffs == static_cast<int> (before.noteOns.size()));
     }
 
-    SECTION ("pausing the only pattern silences it; input still passes through")
+    SECTION ("pausing every pattern silences them; input still passes through")
     {
         setParameter (*plugin, "p1_play", 0.0f);
+        setParameter (*plugin, "p2_play", 0.0f);
         playHead.playing = true;
         CHECK (render (*plugin, playHead, chord, justUnderOneBeat).noteOns == std::vector<int> { 60, 64, 67 });
     }
@@ -159,12 +164,13 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
     SECTION ("automating Length shortens the pattern without losing steps")
     {
         playHead.playing = true;
+        setParameter (*plugin, "p2_play", 0.0f);
         setParameter (*plugin, "p1_length", 2.0f);
-        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 64, 60, 64 });
+        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 62, 60, 62 });
 
-        setParameter (*plugin, "p1_length", 8.0f);
+        setParameter (*plugin, "p1_length", 3.0f);
         playHead.ppq = 0.0;
-        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 64, 67, 64 });
+        CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 62, 64, 60 });
     }
 
     plugin->releaseResources();
@@ -310,7 +316,7 @@ TEST_CASE ("clicking a pattern's play button pauses and resumes it")
 {
     WindowedEditor w;
     REQUIRE (w.peer != nullptr);
-    auto* panel = w.find ("Pattern 1");
+    auto* panel = w.find ("Pattern A");
     auto* play = w.parameter<juce::AudioParameterBool> ("p1_play");
     REQUIRE (panel != nullptr);
     REQUIRE (play != nullptr);
@@ -325,27 +331,20 @@ TEST_CASE ("clicking a pattern's play button pauses and resumes it")
     CHECK (play->get());
 }
 
-TEST_CASE ("dragging a pattern by its title reorders it, keeping its colour")
+TEST_CASE ("the Order lane opens on a click and paints steps")
 {
-    WindowedEditor w (R"(<PatternArpState version="3">
-                           <Arrangement>
-                             <Pattern timing="2" length="4" colour="0" notes="60"/>
-                             <Pattern timing="4" length="4" colour="5" notes="60"/>
-                           </Arrangement>
-                         </PatternArpState>)");
+    WindowedEditor w;
     REQUIRE (w.peer != nullptr);
-    auto* panel = w.find ("Pattern 1");
-    REQUIRE (panel != nullptr);
+    auto* lane = w.find ("Order");
+    REQUIRE (lane != nullptr);
 
-    // Grab the title (right of the play button) and drag down past the second pattern.
-    const auto start = w.editor->getLocalPoint (panel, juce::Point<float> (100.0f, 51.0f));
-    w.mouse (start, true);
-    for (float dy : { 10.0f, 150.0f, 300.0f, 450.0f })
-        w.mouse (start.translated (0.0f, dy), true);
-    w.mouse (start.translated (0.0f, 450.0f), false);
+    const int closedHeight = lane->getHeight();
+    w.click (w.editor->getLocalPoint (lane, lane->getLocalBounds().getCentre().toFloat()));
+    CHECK (lane->getHeight() > closedHeight);
 
-    CHECK (w.parameter<juce::AudioParameterChoice> ("p1_timing")->getIndex() == 4);
-    CHECK (w.parameter<juce::AudioParameterChoice> ("p2_timing")->getIndex() == 2);
+    // Give the first step to pattern B: the grid starts below the header (30) and the length
+    // handle strip (16), with a 22-pixel row per pattern (see OrderLane.cpp).
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (100.0f, 30.0f + 16.0f + 22.0f * 1.5f)));
 
     juce::MemoryBlock state;
     w.plugin->getStateInformation (state);
@@ -353,7 +352,6 @@ TEST_CASE ("dragging a pattern by its title reorders it, keeping its colour")
     REQUIRE (xml != nullptr);
     const auto* arrangement = xml->getChildByName ("Arrangement");
     REQUIRE (arrangement != nullptr);
-    CHECK (arrangement->getChildElement (0)->getIntAttribute ("colour") == 5);
-    CHECK (arrangement->getChildElement (1)->getIntAttribute ("colour") == 0);
+    CHECK (arrangement->getStringAttribute ("order") == "1,1");
 }
 #endif

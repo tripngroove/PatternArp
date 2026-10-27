@@ -108,8 +108,6 @@ void sanitise (Pattern& p)
     p.direction = static_cast<Direction> (std::clamp (static_cast<int> (p.direction), 0, numDirections - 1));
     p.noteSource = p.noteSource == NoteSource::midiIn ? NoteSource::midiIn : NoteSource::select;
     p.length = std::clamp (p.length, 1, maxSteps);
-    p.periodSlots = std::clamp (p.periodSlots, 1, 16);
-    p.periodHits = std::clamp (p.periodHits, 1, p.periodSlots);
     p.defaultVelocity = std::clamp (p.defaultVelocity, 1, 127);
     p.defaultGate = std::clamp (p.defaultGate, 1, 100);
     p.colour = std::clamp (p.colour, 0, maxPatterns - 1);
@@ -130,31 +128,98 @@ void sanitise (Pattern& p)
     }
 }
 
-int nearestPeriodChoice (int hits, int slots)
+namespace
 {
-    const double ratio = static_cast<double> (std::max (1, hits)) / std::max (1, slots);
-    int best = 0;
-    double bestDistance = 1e9;
-    for (int i = 0; i < static_cast<int> (periodChoices.size()); ++i)
-    {
-        const auto& c = periodChoices[static_cast<size_t> (i)];
-        if (c.hits == hits && c.slots == slots)
-            return i;
+// A pattern that walks up `notes` (ascending MIDI note numbers), one per step.
+Pattern makeRisingPattern (std::initializer_list<int> notes, int colour)
+{
+    Pattern p = makeDefaultPattern();
+    p.enabledNotes.reset();
+    for (int note : notes)
+        p.enabledNotes.set (static_cast<size_t> (note));
 
-        const double distance = std::abs (static_cast<double> (c.hits) / c.slots - ratio);
-        if (distance < bestDistance)
-        {
-            bestDistance = distance;
-            best = i;
-        }
+    p.length = static_cast<int> (notes.size());
+    for (int i = 0; i < maxSteps; ++i)
+    {
+        const int step = i % p.length; // steps past the end repeat, in case it is lengthened
+        p.steps[static_cast<size_t> (i)].note = p.length > 1 ? static_cast<float> (step) / static_cast<float> (p.length - 1) : 0.0f;
     }
-    return best;
+    p.colour = colour;
+    return p;
 }
+} // namespace
 
 Arrangement::Arrangement()
 {
-    patterns[0] = makeDefaultPattern();
-    numPatterns = 1;
+    // Two patterns of different lengths taking turns, so the stacking is heard straight away:
+    // C3 D3 E3 against F4 G4 A4 B4 (C3 = MIDI 60, as in most DAWs).
+    patterns[0] = makeRisingPattern ({ 60, 62, 64 }, 0);
+    patterns[1] = makeRisingPattern ({ 77, 79, 81, 83 }, 1);
+    numPatterns = 2;
+    alternate();
+}
+
+bool Arrangement::addPattern (const Pattern& pattern)
+{
+    if (numPatterns >= maxPatterns)
+        return false;
+
+    auto& added = patterns[static_cast<size_t> (numPatterns)];
+    added = pattern;
+    added.colour = unusedColour();
+
+    if (orderLength < maxOrderSteps)
+        ++orderLength;
+    order[static_cast<size_t> (orderLength - 1)] = numPatterns++;
+    return true;
+}
+
+void Arrangement::removePattern (int index)
+{
+    if (index < 0 || index >= numPatterns)
+        return;
+
+    std::move (patterns.begin() + index + 1, patterns.begin() + numPatterns, patterns.begin() + index);
+    --numPatterns;
+
+    // Close up the Order lane, and renumber the steps of the patterns that moved up.
+    int kept = 0;
+    for (int i = 0; i < orderLength; ++i)
+    {
+        const int owner = order[static_cast<size_t> (i)];
+        if (owner == index)
+            continue;
+        order[static_cast<size_t> (kept++)] = owner > index ? owner - 1 : owner;
+    }
+    orderLength = kept;
+
+    if (orderLength == 0)
+        alternate();
+}
+
+void Arrangement::alternate()
+{
+    orderLength = std::max (1, numPatterns);
+    for (int i = 0; i < maxOrderSteps; ++i)
+        order[static_cast<size_t> (i)] = numPatterns > 0 ? i % numPatterns : -1;
+}
+
+void Arrangement::setOrderLength (int newLength)
+{
+    newLength = std::clamp (newLength, 1, maxOrderSteps);
+    const int oldLength = std::clamp (orderLength, 1, maxOrderSteps);
+    for (int i = oldLength; i < newLength; ++i)
+        order[static_cast<size_t> (i)] = order[static_cast<size_t> (i % oldLength)];
+    orderLength = newLength;
+}
+
+void sanitise (Arrangement& a)
+{
+    a.numPatterns = std::clamp (a.numPatterns, 0, maxPatterns);
+    a.orderLength = std::clamp (a.orderLength, 1, maxOrderSteps);
+    for (auto& owner : a.order)
+        if (owner < 0 || owner >= a.numPatterns)
+            owner = -1;
 }
 
 int Arrangement::unusedColour() const
