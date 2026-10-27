@@ -36,6 +36,8 @@ private:
     void edit (int index, const Pattern& pattern);
     void addPattern (const Pattern& pattern); // always at the end
     void deletePattern (int index);
+    void scrollToPattern (int index);
+    void animateScroll();
 
     PatternArpProcessor& arp;
     std::unique_ptr<juce::PropertiesFile> settings; // per-user preferences, shared by every instance
@@ -56,7 +58,11 @@ private:
     juce::Viewport viewport;
     juce::Component content;
     juce::OwnedArray<PatternPanel> panels;
-    juce::TextButton addButton { "+ ADD PATTERN" };
+    juce::TextButton addButton { "+ ADD PATTERN" }; // beside the Rotation lane
+
+    // A quick scroll down to a pattern that was just added, so it is clear where it went.
+    double scrollFrom = 0.0, scrollTo = 0.0, scrollStartMs = -1.0; // -1: not scrolling
+    juce::VBlankAttachment scrollAnimation { this, [this] { animateScroll(); } };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PatternArpEditor)
 };

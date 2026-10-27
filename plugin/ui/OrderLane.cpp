@@ -7,13 +7,13 @@ namespace patternarp
 
 namespace
 {
-constexpr float labelWidth = 92.0f;
+constexpr float labelWidth = 116.0f; // "ROTATION" and, when open, "Pattern A"...
 constexpr float rightMargin = 12.0f;
-constexpr float headerHeight = 30.0f;
+constexpr float headerHeight = static_cast<float> (OrderLane::collapsedHeight); // the label stays put when opened
 constexpr float handleStrip = 16.0f;
-constexpr float rowHeight = 22.0f;
+constexpr float stepHeight = 24.0f; // a step's box, the same open or closed
+constexpr float rowHeight = stepHeight + 4.0f;
 constexpr float bottomMargin = 10.0f;
-constexpr float collapsedStepHeight = 24.0f;
 constexpr float maxStepWidth = 40.0f;
 
 // A small triangle pointing right (closed) or down (open).
@@ -30,7 +30,7 @@ void drawChevron (juce::Graphics& g, juce::Point<float> centre, bool open)
 
 OrderLane::OrderLane()
 {
-    setName ("Order");
+    setName ("Rotation");
     setRepaintsOnMouseActivity (false);
 }
 
@@ -85,7 +85,7 @@ juce::Rectangle<float> OrderLane::gridArea() const
 {
     const float width = stepWidth() * static_cast<float> (maxOrderSteps);
     if (! expanded)
-        return { labelWidth, (static_cast<float> (getHeight()) - collapsedStepHeight) / 2.0f, width, collapsedStepHeight };
+        return { labelWidth, (headerHeight - stepHeight) / 2.0f, width, stepHeight };
 
     const auto rows = static_cast<float> (juce::jmax (1, arrangement.numPatterns));
     return { labelWidth, headerHeight + handleStrip, width, rows * rowHeight };
@@ -118,8 +118,8 @@ void OrderLane::paint (juce::Graphics& g)
     g.setColour (theme::ink);
     g.setFont (theme::font (14.0f, true));
     const auto label = juce::Rectangle<float> (12.0f, 0.0f, labelWidth - 12.0f, expanded ? headerHeight : static_cast<float> (getHeight()));
-    g.drawText ("ORDER", label, juce::Justification::centredLeft);
-    const float textWidth = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (theme::font (14.0f, true), "ORDER"));
+    g.drawText ("ROTATION", label, juce::Justification::centredLeft);
+    const float textWidth = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (theme::font (14.0f, true), "ROTATION"));
     g.setColour (hover ? theme::ink : theme::inkMuted);
     drawChevron (g, { label.getX() + textWidth + 12.0f, label.getCentreY() }, expanded);
 
@@ -128,23 +128,17 @@ void OrderLane::paint (juce::Graphics& g)
     else
         paintCollapsed (g);
 
-    if (hover)
-    {
-        const auto hint = expanded ? juce::String ("Click to close") : juce::String ("Click to edit the order");
-        const auto grid = gridArea();
-        const auto space = juce::Rectangle<float> (grid.getRight() + 12.0f, headerArea().getY(), box.getRight() - grid.getRight() - 24.0f,
-                                                   expanded ? headerHeight : box.getHeight());
-        g.setColour (theme::inkMuted);
-        g.setFont (theme::font (12.0f));
-        if (space.getWidth() >= static_cast<float> (juce::GlyphArrangement::getStringWidthInt (theme::font (12.0f), hint)))
-            g.drawText (hint, space, juce::Justification::centredRight);
-    }
-
     g.setColour (theme::ink);
     g.drawRect (box, 1.0f);
 }
 
-void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int owner, bool lettered) const
+juce::Rectangle<float> OrderLane::stepBox (int step, float y) const
+{
+    const float w = stepWidth();
+    return juce::Rectangle<float> (gridArea().getX() + w * static_cast<float> (step), y, w, stepHeight).reduced (1.5f, 0.0f);
+}
+
+void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int owner) const
 {
     if (owner < 0 || owner >= arrangement.numPatterns)
     {
@@ -158,22 +152,16 @@ void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int owne
     const float alpha = p.playing ? 1.0f : 0.35f; // a paused pattern's steps are skipped
     g.setColour (theme::patternColour (p.colour).withAlpha (alpha));
     g.fillRoundedRectangle (r, 3.0f);
-
-    if (lettered)
-    {
-        g.setColour (juce::Colours::white.withAlpha (alpha));
-        g.setFont (theme::font (13.0f, true));
-        g.drawText (theme::patternName (p), r, juce::Justification::centred);
-    }
+    g.setColour (juce::Colours::white.withAlpha (alpha));
+    g.setFont (theme::font (13.0f, true));
+    g.drawText (theme::patternName (p), r, juce::Justification::centred);
 }
 
 void OrderLane::paintCollapsed (juce::Graphics& g)
 {
-    const auto grid = gridArea();
-    const float w = stepWidth();
+    const auto y = gridArea().getY();
     for (int i = 0; i < arrangement.orderLength; ++i)
-        paintStep (g, grid.withX (grid.getX() + w * static_cast<float> (i)).withWidth (w).reduced (1.5f, 0.0f),
-                   arrangement.order[static_cast<size_t> (i)], true);
+        paintStep (g, stepBox (i, y), arrangement.order[static_cast<size_t> (i)]);
 }
 
 void OrderLane::paintExpanded (juce::Graphics& g)
@@ -189,23 +177,23 @@ void OrderLane::paintExpanded (juce::Graphics& g)
     g.setColour (theme::background);
     g.fillRect (grid.withLeft (end));
 
+    // A row per pattern, labelled, with its steps drawn just as they are when the lane is closed.
     for (int row = 0; row < arrangement.numPatterns; ++row)
     {
         const auto& p = arrangement.patterns[static_cast<size_t> (row)];
-        const float y = grid.getY() + rowHeight * static_cast<float> (row);
+        const float top = grid.getY() + rowHeight * static_cast<float> (row);
         const float alpha = p.playing ? 1.0f : 0.45f;
 
-        // Row label: the pattern's colour and letter.
         g.setColour (theme::patternColour (p.colour).withAlpha (alpha));
-        g.fillRoundedRectangle (juce::Rectangle<float> (12.0f, y + 6.0f, 10.0f, 10.0f), 2.0f);
+        g.fillRoundedRectangle (juce::Rectangle<float> (12.0f, top + (rowHeight - 10.0f) / 2.0f, 10.0f, 10.0f), 2.0f);
         g.setColour (theme::ink.withAlpha (alpha));
         g.setFont (theme::font (14.0f, true));
-        g.drawText (theme::patternName (p), juce::Rectangle<float> (30.0f, y, 30.0f, rowHeight),
+        g.drawText ("Pattern " + theme::patternName (p), juce::Rectangle<float> (30.0f, top, labelWidth - 34.0f, rowHeight),
                     juce::Justification::centredLeft);
 
         for (int i = 0; i < arrangement.orderLength; ++i)
             if (arrangement.order[static_cast<size_t> (i)] == row)
-                paintStep (g, juce::Rectangle<float> (grid.getX() + w * static_cast<float> (i), y, w, rowHeight).reduced (2.5f), row, false);
+                paintStep (g, stepBox (i, top + (rowHeight - stepHeight) / 2.0f), row);
     }
 
     // Grid lines.

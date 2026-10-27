@@ -356,20 +356,21 @@ TEST_CASE ("clicking a value box opens its list")
     CHECK (juce::PopupMenu::dismissAllActiveMenus());
 }
 
-TEST_CASE ("the Order lane opens on a click and paints steps")
+TEST_CASE ("the Rotation lane opens on a click and paints steps")
 {
     WindowedEditor w;
     REQUIRE (w.peer != nullptr);
-    auto* lane = w.find ("Order");
+    auto* lane = w.find ("Rotation");
     REQUIRE (lane != nullptr);
 
     const int closedHeight = lane->getHeight();
     w.click (w.editor->getLocalPoint (lane, lane->getLocalBounds().getCentre().toFloat()));
     CHECK (lane->getHeight() > closedHeight);
 
-    // Give the first step to pattern B: the grid starts below the header (30) and the length
-    // handle strip (16), with a 22-pixel row per pattern (see OrderLane.cpp).
-    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (100.0f, 30.0f + 16.0f + 22.0f * 1.5f)));
+    // Give the first step to pattern B: the grid starts right of the row labels (116), below
+    // the header (40) and the length handle strip (16), with a 28-pixel row per pattern (see
+    // OrderLane.cpp).
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (116.0f + 10.0f, 40.0f + 16.0f + 28.0f * 1.5f)));
 
     juce::MemoryBlock state;
     w.plugin->getStateInformation (state);

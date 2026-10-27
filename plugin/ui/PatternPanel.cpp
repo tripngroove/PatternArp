@@ -75,10 +75,8 @@ PatternPanel::PatternPanel()
     defaultEditor.setTooltip ("Default value: new and double-clicked steps use it");
     defaultEditor.onTextChange = [this] { setDefault (graph.getLane(), defaultEditor.getText().getIntValue()); };
 
-    newButton.setTooltip ("Add a new pattern at the end");
     cloneButton.setTooltip ("Add a copy of this pattern at the end");
     deleteButton.setTooltip ("Delete this pattern");
-    newButton.onClick = [this] { if (onNew) onNew(); };
     cloneButton.onClick = [this] { if (onClone) onClone(); };
     deleteButton.onClick = [this] {
         if (! confirmingDelete)
@@ -96,7 +94,7 @@ PatternPanel::PatternPanel()
             onDelete();
     };
 
-    for (auto* b : { &newButton, &cloneButton, &deleteButton })
+    for (auto* b : { &cloneButton, &deleteButton })
     {
         b->setColour (juce::TextButton::buttonColourId, theme::panel);
         b->setColour (juce::TextButton::textColourOffId, theme::ink);
@@ -129,7 +127,6 @@ void PatternPanel::setPattern (const Pattern& newPattern, bool canAdd)
     keyboard.setColour (theme::patternColour (pattern.colour));
     updatePausedLook();
 
-    newButton.setEnabled (canAdd);
     cloneButton.setEnabled (canAdd);
 
     if (hasDefault (graph.getLane()) && ! defaultEditor.isBeingEdited())
@@ -227,12 +224,10 @@ void PatternPanel::resized()
     playButton = header.withWidth (30).withSizeKeepingCentre (30, 30).withY (header.getY() + 22);
     header.removeFromLeft (titleWidth); // play/pause and pattern title
 
-    auto buttons = header.removeFromRight (230).removeFromTop (26);
+    auto buttons = header.removeFromRight (156).removeFromTop (26);
     deleteButton.setBounds (buttons.removeFromRight (74));
     buttons.removeFromRight (4);
     cloneButton.setBounds (buttons.removeFromRight (70));
-    buttons.removeFromRight (4);
-    newButton.setBounds (buttons.removeFromRight (70));
 
     timing.setBounds (header.removeFromLeft (110));
     header.removeFromLeft (12);
@@ -386,7 +381,6 @@ void PatternPanel::mouseDown (const juce::MouseEvent& e)
 void PatternPanel::updateHoverButtons()
 {
     const bool show = isMouseOver (true);
-    newButton.setVisible (show);
     cloneButton.setVisible (show);
     deleteButton.setVisible (show || confirmingDelete);
 }

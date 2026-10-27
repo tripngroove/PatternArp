@@ -9,10 +9,10 @@
 namespace patternarp
 {
 
-// The Order lane: whose turn each step of the arp is.
+// The Rotation lane (the Order lane in code): whose turn each step of the arp is.
 //
 // Collapsed, it shows the order as a row of lettered steps in each pattern's colour; click it
-// to open the grid, which has a row per pattern. Click or drag in the grid to give steps to a
+// to open the grid, which has a row per pattern and keeps every step where and as it was. Click or drag in the grid to give steps to a
 // pattern (clicking a step a pattern already has makes it a rest), and drag the handle above
 // the grid to change how many steps the lane loops over. Click the header to close it again.
 class OrderLane final : public juce::Component
@@ -61,7 +61,8 @@ private:
 
     void paintCollapsed (juce::Graphics& g);
     void paintExpanded (juce::Graphics& g);
-    void paintStep (juce::Graphics& g, juce::Rectangle<float> r, int owner, bool lettered) const;
+    juce::Rectangle<float> stepBox (int step, float y) const; // a step's box, its top at y
+    void paintStep (juce::Graphics& g, juce::Rectangle<float> r, int owner) const;
     void paintStrip (juce::Graphics& g); // the length handle
 
     void applyAt (juce::Point<float> position);

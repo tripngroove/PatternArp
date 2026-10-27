@@ -12,8 +12,9 @@ namespace
 constexpr int topBarHeight = 56;
 constexpr int previewHeight = PreviewComponent::rulerHeight + 112;
 constexpr int gap = 12;
-constexpr int orderGap = 6; // the Order lane sits just under the preview
-constexpr int addButtonHeight = 44;
+constexpr int orderGap = 6; // the Rotation (Order) lane sits just under the preview
+constexpr int addButtonWidth = 150;
+constexpr double scrollMs = 280.0;
 
 constexpr double maxPreviewBeats = 64.0; // 16 bars on screen
 constexpr double maxExportBeats = 256.0; // 64 bars when dragged out
@@ -66,7 +67,8 @@ PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
     addButton.setColour (juce::TextButton::buttonColourId, theme::panel);
     addButton.setColour (juce::TextButton::textColourOffId, theme::ink);
     addButton.onClick = [this] { addPattern (makeDefaultPattern()); };
-    content.addAndMakeVisible (addButton);
+    addButton.setTooltip ("Add a new pattern at the end");
+    addAndMakeVisible (addButton);
 
     viewport.setViewedComponent (&content, false);
     viewport.setScrollBarsShown (true, false);
@@ -174,7 +176,10 @@ void PatternArpEditor::resized()
     area.reduce (gap, 0);
     preview.setBounds (area.removeFromTop (previewHeight));
     area.removeFromTop (orderGap);
-    order.setBounds (area.removeFromTop (order.getPreferredHeight()));
+    auto row = area.removeFromTop (order.getPreferredHeight());
+    addButton.setBounds (row.removeFromRight (addButtonWidth).withHeight (OrderLane::collapsedHeight));
+    row.removeFromRight (gap);
+    order.setBounds (row);
     area.removeFromTop (gap);
     viewport.setBounds (area);
     layoutContent();
@@ -188,11 +193,8 @@ void PatternArpEditor::layoutContent()
     for (int i = 0; i < panels.size(); ++i)
         panels[i]->setBounds (0, i * pitch, width, PatternPanel::preferredHeight);
 
-    const int y = panels.size() * pitch;
-
-    addButton.setBounds (0, y, width, addButtonHeight);
     addButton.setEnabled (shown.numPatterns < maxPatterns);
-    content.setSize (width, y + addButtonHeight + gap);
+    content.setSize (width, juce::jmax (0, panels.size() * pitch - gap));
 }
 
 void PatternArpEditor::syncPanels()
@@ -205,7 +207,6 @@ void PatternArpEditor::syncPanels()
         auto* panel = panels.add (new PatternPanel());
         const int index = panels.size() - 1;
         panel->onChange = [this, index] (const Pattern& p) { edit (index, p); };
-        panel->onNew = [this] { addPattern (makeDefaultPattern()); };
         panel->onClone = [this, index] { addPattern (shown.patterns[static_cast<size_t> (index)]); };
         panel->onDelete = [this, index] { deletePattern (index); };
         content.addAndMakeVisible (panel);
@@ -257,6 +258,29 @@ void PatternArpEditor::addPattern (const Pattern& pattern)
 
     arp.setArrangement (shown);
     syncPanels();
+    scrollToPattern (shown.numPatterns - 1);
+}
+
+void PatternArpEditor::scrollToPattern (int index)
+{
+    constexpr int pitch = PatternPanel::preferredHeight + gap;
+    const int bottom = juce::jmax (0, content.getHeight() - viewport.getMaximumVisibleHeight());
+    scrollFrom = viewport.getViewPositionY();
+    scrollTo = juce::jlimit (0, bottom, index * pitch);
+    scrollStartMs = juce::Time::getMillisecondCounterHiRes();
+}
+
+void PatternArpEditor::animateScroll()
+{
+    if (scrollStartMs < 0.0)
+        return;
+
+    // Eases out: quick at first, settling on the pattern.
+    const double t = juce::jmin (1.0, (juce::Time::getMillisecondCounterHiRes() - scrollStartMs) / scrollMs);
+    const double eased = 1.0 - std::pow (1.0 - t, 3.0);
+    viewport.setViewPosition (0, juce::roundToInt (scrollFrom + (scrollTo - scrollFrom) * eased));
+    if (t >= 1.0)
+        scrollStartMs = -1.0;
 }
 
 void PatternArpEditor::deletePattern (int index)

@@ -23,7 +23,7 @@ public:
     void setInputNotes (const std::bitset<128>& notes) { keyboard.setInputNotes (notes); }
 
     std::function<void (const Pattern&)> onChange;
-    std::function<void()> onNew, onClone, onDelete;
+    std::function<void()> onClone, onDelete;
 
     static constexpr int preferredHeight = 406;
 
@@ -50,7 +50,7 @@ private:
     juce::Rectangle<int> playButton;
     juce::Label defaultEditor;
 
-    juce::TextButton newButton { "New" }, cloneButton { "Clone" }, deleteButton { "Delete" };
+    juce::TextButton cloneButton { "Clone" }, deleteButton { "Delete" };
     bool confirmingDelete = false;
 
     // Shows the hover buttons while the mouse is anywhere over the panel, children included.

@@ -147,15 +147,4 @@ void ValueBox::showList()
                         });
 }
 
-void ValueBox::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
-{
-    wheelAccumulator += wheel.deltaY * (wheel.isReversed ? -1.0f : 1.0f);
-    const auto steps = static_cast<int> (wheelAccumulator / 0.12f);
-    if (steps != 0)
-    {
-        wheelAccumulator -= static_cast<float> (steps) * 0.12f;
-        change (value + steps);
-    }
-}
-
 } // namespace patternarp

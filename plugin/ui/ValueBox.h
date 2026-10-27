@@ -8,7 +8,7 @@ namespace patternarp
 {
 
 // A captioned number box from the sketch: click it to pick from a list, click the arrows,
-// drag up/down, or use the scroll wheel to step through values.
+// or drag up/down to step through values. The scroll wheel is left to the editor's scrolling.
 class ValueBox final : public juce::Component
 {
 public:
@@ -29,7 +29,6 @@ public:
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
-    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
 private:
     juce::Rectangle<int> boxArea() const;
@@ -41,7 +40,6 @@ private:
     int value = 0, minValue = 0, maxValue = 1;
     int dragStartValue = 0;
     bool draggingValue = false;
-    float wheelAccumulator = 0.0f;
 };
 
 } // namespace patternarp

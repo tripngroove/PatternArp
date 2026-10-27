@@ -8,18 +8,18 @@ An arpeggiator plugin that stacks simple musical shapes (pitch, rhythm, octave, 
 
 Patterns interleave: with pattern A = C, D, E and pattern B = G, A, the arp plays C G D A E G C A ... and repeats once every pattern lines up again. The header shows how long that takes ("Repeats every 3 beats"). A new instance starts with two patterns taking turns: A = C3 D3 E3 and B = F4 G4 A4 B4.
 
-The **Order** lane, just under the preview, decides whose turn each step is. Closed, it shows the order as lettered steps (A B by default). Click it to open a grid with a row per pattern: click or drag to give steps to a pattern, click a pattern's own step to make it a rest, and drag the handle above the grid to set how many steps the order loops over (1 to 16; lengthening repeats the steps there are). A A A B, for example, plays B on every fourth note. Steps of a paused pattern are skipped.
+The **Rotation** lane, just under the preview, decides whose turn each step is. Closed, it shows the rotation as lettered steps (A B by default). Click it to open a grid with a row per pattern ("Pattern A"...), where each step keeps its place, size and letter: click or drag to give steps to a pattern, click a pattern's own step to make it a rest, and drag the handle above the grid to set how many steps the rotation loops over (1 to 16; lengthening repeats the steps there are). A A A B, for example, plays B on every fourth note. Steps of a paused pattern are skipped.
 
-Patterns keep their letter and colour. New and cloned patterns go at the end of the list, take the next step of the order, and get the letter after the highest one in use; deleting a pattern removes its steps from the order and closes the gaps. There can be up to 8 patterns.
+Patterns keep their letter and colour. "+ Add pattern", to the right of the Rotation lane, and a pattern's Clone button add a pattern at the end of the list (the view scrolls down to it); it takes the next step of the rotation, and get the letter after the highest one in use; deleting a pattern removes its steps from the rotation and closes the gaps. There can be up to 8 patterns.
 
-Each pattern has these settings. Click a value to pick from a list, or use its arrows, drag it up and down, or scroll over it.
+Each pattern has these settings. Click a value to pick from a list, or use its arrows or drag it up and down. The scroll wheel only scrolls the plugin.
 
 | Setting | What it does |
 | --- | --- |
 | Timing | How long each of its notes lasts, 1/32 to a whole note (triplets included) |
 | Length | Number of steps, 1 to 16. Changing it in the editor resamples the drawn lanes; automating it just plays fewer or more steps and keeps the rest. |
 | Direction | Forward, Backward, Ping-pong, Random, Walk (random step up or down) |
-| Play / Pause | The button by the pattern name. A paused pattern's steps in the order are skipped; the others close up the gap. Automatable as "P1 Play"... |
+| Play / Pause | The button by the pattern name. A paused pattern's steps in the rotation are skipped; the others close up the gap. Automatable as "P1 Play"... |
 | Notes (Select / MIDI In) | Select: the notes switched on in its keyboard. MIDI In: the notes you hold, with the Notes lane running from the lowest held note to the highest. A MIDI In pattern rests while nothing is held; Latch, in the settings menu (click the PatternArp title), keeps the last chord. Note names follow Bitwig, Ableton and Logic: MIDI note 60 is C3. |
 
 Drawn lanes, one bar per step: Notes, Velocity, Gate, Octave (-3 to +3), Ratchet (1 to 8 repeats in a step) and Chance (percent above the line in 5% steps, 0% to 100%; below it Elektron-style ratios from 1:2 to 8:8, where 3:4 plays the third of every four times the step comes up, counting on across passes of a hand-shortened loop). Failed steps rest, are skipped, or extend: the note before them is held until the failed step's note would have ended, so a 0% extend step is a tie. "Repeats every" ignores percent chances, so it shows the underlying loop. Double-click a step to reset it. The handle above each lane makes that lane loop over fewer steps than the pattern (say, octave every 3 steps of a 4-step pattern); shortened lanes show their length on the tab. Velocity and Gate have a default value, set in their tab.
@@ -30,7 +30,7 @@ The preview strip shows what will play, with a playhead. Drag the handle at its 
 
 ### Host automation
 
-Each of the 8 pattern slots exposes Play, Timing, Length, Direction, Note Source and Chance Mode as parameters ("P1 Timing"...), plus a global Latch. Slots count from the top of the list, so after a delete "P2" may be pattern C. The Order lane, drawn lanes and note selections are saved with the project but are not automatable.
+Each of the 8 pattern slots exposes Play, Timing, Length, Direction, Note Source and Chance Mode as parameters ("P1 Timing"...), plus a global Latch. Slots count from the top of the list, so after a delete "P2" may be pattern C. The Rotation lane, drawn lanes and note selections are saved with the project but are not automatable.
 
 ## Formats
 
