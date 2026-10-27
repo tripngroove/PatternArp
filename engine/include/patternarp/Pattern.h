@@ -16,12 +16,13 @@ constexpr int numLetters = 26;
 // Patterns are named by letter: 0 = A, 1 = B...
 constexpr char patternLetter (int letter) { return static_cast<char> ('A' + letter); }
 
-// Loop lengths are counted in 24ths of a beat, which every Timing divides into evenly.
-constexpr int ticksPerBeat = 24;
+// Loop lengths are counted in 48ths of a beat, which every Timing divides into evenly.
+constexpr int ticksPerBeat = 48;
 
 // Step length of a pattern, shortest first.
 enum class Timing
 {
+    sixtyFourth,
     thirtySecond,
     sixteenthTriplet,
     sixteenth,
@@ -33,7 +34,7 @@ enum class Timing
     whole
 };
 
-constexpr int numTimings = 9;
+constexpr int numTimings = 10;
 double beatsPerStep (Timing timing); // in quarter notes
 const char* timingName (Timing timing);
 

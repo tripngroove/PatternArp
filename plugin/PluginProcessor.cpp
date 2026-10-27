@@ -9,7 +9,9 @@ namespace patternarp
 namespace
 {
 const juce::Identifier stateType { "PatternArpState" };
-constexpr int stateVersion = 4;
+// 5: 1/64 joined the timings (every timing index moved up one) and loop lengths went
+//    from 24 to 48 ticks a beat.
+constexpr int stateVersion = 5;
 
 const juce::ParameterID latchId { "latch", 1 };
 } // namespace
@@ -378,10 +380,21 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
     const auto state = juce::ValueTree::fromXml (*xml);
     *latch = static_cast<bool> (state.getProperty ("latch", false));
 
+    const int version = state.getProperty ("version", 0);
+    const bool before64ths = version < 5;
+
     // Older saves (before patterns existed) have no arrangement; keep the default one.
     Arrangement loaded;
     if (fromValueTree (state.getChildWithName ("Arrangement"), loaded))
+    {
+        if (before64ths)
+        {
+            loaded.loopLength *= 2;
+            for (auto& p : loaded.patterns)
+                p.timing = static_cast<Timing> (static_cast<int> (p.timing) + 1);
+        }
         setArrangement (loaded);
+    }
 
     if (const auto slotValues = juce::StringArray::fromTokens (state.getProperty ("slots").toString(), ",", {});
         slotValues.size() == static_cast<int> (ParameterSnapshot {}.size()))
@@ -389,6 +402,9 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
         ParameterSnapshot values {};
         for (size_t i = 0; i < values.size(); ++i)
             values[i] = slotValues[static_cast<int> (i)].getIntValue();
+        if (before64ths)
+            for (size_t i = 0; i < values.size(); i += parametersPerPattern)
+                ++values[i]; // timing
         setParameters (values);
     }
 

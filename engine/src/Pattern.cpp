@@ -10,6 +10,7 @@ double beatsPerStep (Timing timing)
 {
     switch (timing)
     {
+        case Timing::sixtyFourth:      return 0.0625;
         case Timing::thirtySecond:     return 0.125;
         case Timing::sixteenthTriplet: return 1.0 / 6.0;
         case Timing::sixteenth:        return 0.25;
@@ -27,6 +28,7 @@ const char* timingName (Timing timing)
 {
     switch (timing)
     {
+        case Timing::sixtyFourth:      return "1/64";
         case Timing::thirtySecond:     return "1/32";
         case Timing::sixteenthTriplet: return "1/16T";
         case Timing::sixteenth:        return "1/16";

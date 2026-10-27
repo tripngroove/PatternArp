@@ -16,7 +16,7 @@ Each pattern has these settings. Click a value to pick from a list, or use its a
 
 | Setting | What it does |
 | --- | --- |
-| Timing | How long each of its notes lasts, 1/32 to a whole note (triplets included) |
+| Timing | How long each of its notes lasts, 1/64 to a whole note (triplets included) |
 | Length | Number of steps, 1 to 16. Changing it in the editor resamples the drawn lanes; automating it just plays fewer or more steps and keeps the rest. |
 | Direction | Forward, Backward, Ping-pong, Random, Walk (random step up or down) |
 | Play / Pause | The button by the pattern name. A paused pattern's steps in the rotation are skipped; the others close up the gap. Automatable as "P1 Play"... |

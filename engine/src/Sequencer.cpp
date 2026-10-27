@@ -562,6 +562,8 @@ std::string describeLength (double beats)
         return plural (std::llround (beats * 6.0), "sixteenth triplet");
     if (isWhole (beats * 8.0))
         return plural (std::llround (beats * 8.0), "thirty-second");
+    if (isWhole (beats * 16.0))
+        return plural (std::llround (beats * 16.0), "sixty-fourth");
 
     char text[32];
     std::snprintf (text, sizeof (text), "%.2f beats", beats);

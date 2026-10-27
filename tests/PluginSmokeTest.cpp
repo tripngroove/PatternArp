@@ -193,7 +193,7 @@ TEST_CASE ("plugin state round-trips")
 {
     juce::ScopedJuceInitialiser_GUI juce;
     std::unique_ptr<juce::AudioProcessor> original (createPluginFilter());
-    setParameter (*original, "p1_timing", 4.0f); // 1/8
+    setParameter (*original, "p1_timing", 5.0f); // 1/8
     setParameter (*original, "p1_notesource", 1.0f);
 
     juce::MemoryBlock state;
@@ -208,7 +208,36 @@ TEST_CASE ("plugin state round-trips")
 
     for (auto* p : restored->getParameters())
         if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (p); choice != nullptr && choice->getParameterID() == "p1_timing")
-            CHECK (choice->getIndex() == 4);
+            CHECK (choice->getIndex() == 5);
+}
+
+TEST_CASE ("saves from before 1/64 keep their timings and loop length")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+
+    // Version 4: timing 4 was 1/8 and loop lengths were in 24ths of a beat (24 = 1 beat).
+    juce::String slots;
+    for (int slot = 0; slot < 8; ++slot)
+        slots << (slot == 0 ? "" : ",") << "4,4,0,0,0,1";
+    const auto xml = juce::parseXML ("<PatternArpState version=\"4\" latch=\"0\" slots=\"" + slots + "\">"
+                                     "<Arrangement loopLength=\"24\" order=\"0\" orderLength=\"1\">"
+                                     "<Pattern timing=\"4\" length=\"4\" notes=\"60\"/></Arrangement></PatternArpState>");
+    REQUIRE (xml != nullptr);
+    juce::MemoryBlock state;
+    juce::AudioProcessor::copyXmlToBinary (*xml, state);
+    plugin->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+
+    juce::MemoryBlock saved;
+    plugin->getStateInformation (saved);
+    const auto reloaded = juce::AudioProcessor::getXmlFromBinary (saved.getData(), static_cast<int> (saved.getSize()));
+    REQUIRE (reloaded != nullptr);
+    const auto* arrangement = reloaded->getChildByName ("Arrangement");
+    REQUIRE (arrangement != nullptr);
+    CHECK (arrangement->getIntAttribute ("loopLength") == 48);
+    REQUIRE (arrangement->getChildByName ("Pattern") != nullptr);
+    CHECK (arrangement->getChildByName ("Pattern")->getIntAttribute ("timing") == 5);
+    CHECK (reloaded->getStringAttribute ("slots").startsWith ("5,4,"));
 }
 
 TEST_CASE ("plugin editor opens")
