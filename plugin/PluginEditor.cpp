@@ -349,13 +349,12 @@ void PatternArpEditor::updatePreview()
 {
     previewDirty = false;
 
-    // MIDI In patterns preview with what is held, or a C major chord when nothing is.
+    // MIDI Thru patterns preview with what is held, so with nothing held they show nothing,
+    // as they play nothing.
     std::vector<int> input;
     for (int n = 0; n < 128; ++n)
         if (shownInput.test (static_cast<size_t> (n)))
             input.push_back (n);
-    if (input.empty() && shown.usesMidiIn())
-        input = { 60, 64, 67 };
     previewInput = input;
 
     // The preview always shows the natural loop, so the loop handle can be dragged back out.
