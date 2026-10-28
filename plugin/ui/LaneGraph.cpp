@@ -239,7 +239,7 @@ void LaneGraph::paint (juce::Graphics& g)
         // Steps past this lane's own length are kept but do not play: draw them faded.
         const float alpha = i < currentLaneLength() && ! ccOff ? 1.0f : 0.3f;
         const bool belowLine = lane == Lane::chance && s.chance < 0;
-        g.setColour ((belowLine ? theme::fill.withMultipliedSaturation (0.4f) : theme::fill).withMultipliedAlpha (alpha));
+        g.setColour ((belowLine ? theme::fill.interpolatedWith (theme::panel, 0.5f) : theme::fill).withMultipliedAlpha (alpha));
         g.fillRect (bar);
         g.setColour (theme::ink.withAlpha (alpha));
         g.drawRect (bar, 1.0f);

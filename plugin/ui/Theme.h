@@ -7,13 +7,13 @@
 namespace patternarp::theme
 {
 
-// Colours follow the layout sketch: white panels, black outlines, light blue fills.
+// Colours follow the layout sketch: white panels, black outlines, light grey fills.
 inline const juce::Colour background { 0xfff3f4f6 };
 inline const juce::Colour panel { 0xffffffff };
 inline const juce::Colour ink { 0xff15171a };
 inline const juce::Colour inkMuted { 0xff8b9099 };
 inline const juce::Colour gridLine { 0xff9aa0a8 };
-inline const juce::Colour fill { 0xff8fd3f4 };
+inline const juce::Colour fill { 0xffd3d6db }; // filled steps, selected keys, the scrollbar
 inline const juce::Colour fillStrong { 0xff2f9fd8 };
 inline const juce::Colour hover { 0xffe8f5fc };
 inline const juce::Colour danger { 0xffd64545 };
@@ -106,10 +106,18 @@ inline void drawLengthHandleLabel (juce::Graphics& g, const juce::String& text, 
     g.drawText (text, r, juce::Justification::centred);
 }
 
-// Buttons and text fields drawn in the editor's colours and corner radius.
+// Buttons, text fields and scrollbars drawn in the editor's colours and corner radius.
 class LookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
+    void drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y, int width, int height, bool vertical, int thumbStart,
+                        int thumbSize, bool mouseOver, bool) override
+    {
+        const auto thumb = vertical ? juce::Rectangle<int> (x, thumbStart, width, thumbSize) : juce::Rectangle<int> (thumbStart, y, thumbSize, height);
+        g.setColour (mouseOver ? fill.darker (0.15f) : fill);
+        g.fillRoundedRectangle (thumb.reduced (1).toFloat(), cornerRadius);
+    }
+
     void fillTextEditorBackground (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
     {
         g.setColour (editor.findColour (juce::TextEditor::backgroundColourId));
