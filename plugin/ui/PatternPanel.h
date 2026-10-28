@@ -51,7 +51,8 @@ private:
     void layoutHeader();
     void layoutTabs();
     int tabAt (juce::Point<int> p) const; // -1 if none
-    juce::String tabText (Lane lane) const;
+    juce::String tabName (Lane lane) const;  // "Chance: "
+    juce::String tabValue (Lane lane) const; // "Rest", or empty for lanes with no value
     int tabWidth (Lane lane) const;
     void showChanceMenu();
     void showCcField();

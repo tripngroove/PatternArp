@@ -226,20 +226,25 @@ void PatternPanel::timerCallback()
     deleteButton.setButtonText ("Delete");
 }
 
-juce::String PatternPanel::tabText (Lane lane) const
+juce::String PatternPanel::tabName (Lane lane) const
+{
+    return hasValue (lane) ? juce::String (laneName (lane)) + ": " : juce::String (laneName (lane));
+}
+
+juce::String PatternPanel::tabValue (Lane lane) const
 {
     if (lane == Lane::chance)
-        return juce::String (laneName (lane)) + ": " + chanceModeName (static_cast<int> (pattern.chanceMode));
+        return chanceModeName (static_cast<int> (pattern.chanceMode));
     if (lane == Lane::cc)
-        return juce::String (laneName (lane)) + ": " + ccText (pattern.ccNumber);
-    return laneName (lane);
+        return ccText (pattern.ccNumber);
+    return {};
 }
 
 int PatternPanel::tabWidth (Lane lane) const
 {
     // Measured bold, as the open tab is drawn.
     const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
-    return theme::padding * 2 + theme::textWidth (tabFont (true), tabText (lane)) + caret;
+    return theme::padding * 2 + theme::textWidth (tabFont (true), tabName (lane)) + theme::textWidth (tabFont (true), tabValue (lane)) + caret;
 }
 
 void PatternPanel::layoutTabs()
@@ -369,14 +374,18 @@ void PatternPanel::paint (juce::Graphics& g)
         g.setColour (on ? theme::panel : (i == hoveredTab ? theme::hover : theme::background));
         g.fillPath (inside);
 
-        // The name (and value) centred, so the padding is even either side.
-        const auto f = tabFont (on);
-        const auto text = tabText (lane);
-        const int contentWidth = theme::textWidth (f, text) + (hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0);
-        auto content = tab.withSizeKeepingCentre (contentWidth, tab.getHeight());
+        // The name and value centred, so the padding is even either side. The value is bold
+        // in the pattern's colour, like every value that can be edited.
+        const auto nameFont = tabFont (on), valueFont = tabFont (true);
+        const auto name = tabName (lane), value = tabValue (lane);
+        const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
+        auto content = tab.withSizeKeepingCentre (theme::textWidth (nameFont, name) + theme::textWidth (valueFont, value) + caret, tab.getHeight());
         g.setColour (on ? theme::ink : theme::ink.withAlpha (0.7f));
-        g.setFont (f);
-        g.drawText (text, content, juce::Justification::centredLeft);
+        g.setFont (nameFont);
+        g.drawText (name, content.removeFromLeft (theme::textWidth (nameFont, name)), juce::Justification::centredLeft);
+        g.setColour (theme::patternColour (pattern.colour));
+        g.setFont (valueFont);
+        g.drawText (value, content, juce::Justification::centredLeft);
         if (hasCaret (lane))
             theme::drawCaret (g, { static_cast<float> (content.getRight()) - theme::caretWidth / 2.0f, static_cast<float> (content.getCentreY()) + 1.0f });
 
