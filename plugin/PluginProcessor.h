@@ -56,6 +56,9 @@ public:
     // The incoming notes MIDI In patterns are using now (held or latched), for display.
     std::bitset<128> getInputNotes() const;
 
+    // Notes played in since the last call, in the order they came in, for MIDI Learn.
+    std::vector<int> takePlayedNotes();
+
     // Where playback is, in beats from the song start, or -1 when nothing is playing.
     double getPlayPosition() const { return playPosition.load (std::memory_order_relaxed); }
 
@@ -66,21 +69,32 @@ private:
     static BusesProperties makeBuses();
     void addEvents (double blockStartPpq, double samplesPerBeat, int numSamples, juce::MidiBuffer& out);
 
-    // Each pattern slot's settings are host parameters, so they can be automated. The step
-    // lanes and note selection are not: they live only in the arrangement.
+    // Each pattern slot's settings and lane lengths are host parameters, so they can be
+    // automated, and so are the loop and Rotation lengths. The step lanes and note selection
+    // are not: they live only in the arrangement.
     struct PatternParameters
     {
         juce::AudioParameterChoice* timing = nullptr;
         juce::AudioParameterInt* length = nullptr;
-        juce::AudioParameterChoice* period = nullptr;
         juce::AudioParameterChoice* direction = nullptr;
         juce::AudioParameterChoice* noteSource = nullptr;
         juce::AudioParameterChoice* chanceMode = nullptr;
         juce::AudioParameterBool* play = nullptr;
+        std::array<juce::AudioParameterInt*, numLanes> laneLength {}; // 0 = the pattern's length
+        juce::AudioParameterInt* ccNumber = nullptr; // -1 = off
+
+        // In the order of a ParameterSnapshot.
+        std::array<juce::RangedAudioParameter*, 6 + numLanes + 1> all() const;
     };
 
-    static constexpr int parametersPerPattern = 7;
-    using ParameterSnapshot = std::array<int, maxPatterns * parametersPerPattern>;
+    static constexpr int parametersPerPattern = 6 + numLanes + 1;
+    static constexpr int globalsAt = maxPatterns * parametersPerPattern; // then loop length, Rotation length
+    using ParameterSnapshot = std::array<int, globalsAt + 2>;
+
+    // Saved parameter lists from earlier versions: per slot, the six settings, then (once
+    // they were parameters) the six lane lengths before the CC lane, then the two globals.
+    static constexpr int oldParametersPerPattern = 6;
+    static constexpr int preCcParametersPerPattern = 12;
 
     ParameterSnapshot readParameters() const;
     static void applyParameters (const ParameterSnapshot& values, Arrangement& a);
@@ -88,6 +102,8 @@ private:
     void setParameters (const ParameterSnapshot& values);
 
     juce::AudioParameterBool* latch = nullptr;
+    juce::AudioParameterInt* loopLength = nullptr; // in sixteenths, 0 = the natural loop
+    juce::AudioParameterInt* rotationLength = nullptr;
     std::array<PatternParameters, maxPatterns> patternParameters {};
 
     Arrangement arrangement; // message thread's copy
@@ -108,6 +124,11 @@ private:
     juce::MidiBuffer output;
 
     std::array<std::atomic<std::uint64_t>, 2> inputMask {}; // written by the audio thread
+
+    // Note-ons from the audio thread to the editor. Notes that arrive while it is full (the
+    // editor is closed) are dropped.
+    juce::AbstractFifo playedFifo { 256 };
+    std::array<std::uint8_t, 256> playedNotes {};
     std::atomic<double> playPosition { -1.0 };
 
     double sampleRate = 44100.0;

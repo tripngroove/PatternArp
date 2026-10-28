@@ -8,12 +8,15 @@
 namespace patternarp
 {
 
+// A note on or off, or a CC.
 struct NoteEvent
 {
     double ppq; // position in beats (quarter notes) on the song timeline
     int note;
     int velocity; // 0 for note-off
-    bool isNoteOn() const { return velocity > 0; }
+    int controller = -1; // 0..127 for a CC (with its value in `velocity`) instead of a note
+    bool isController() const { return controller >= 0; }
+    bool isNoteOn() const { return ! isController() && velocity > 0; }
 };
 
 // Plays an arrangement in real time, locked to the song position.

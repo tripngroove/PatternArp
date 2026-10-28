@@ -1,8 +1,10 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "ui/OrderLane.h"
 #include "ui/PatternPanel.h"
 #include "ui/PreviewComponent.h"
+#include "ui/Theme.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -13,6 +15,7 @@ class PatternArpEditor final : public juce::AudioProcessorEditor, private juce::
 {
 public:
     explicit PatternArpEditor (PatternArpProcessor& processor);
+    ~PatternArpEditor() override;
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -28,14 +31,16 @@ private:
     void layoutContent();
     void updatePreview();
     void showSettingsMenu();
+    void copyStateForDebugging();
     void setLoopLength (double beats); // 0 = natural length
+    void setStepDefaults (int velocity, int gate); // for every pattern
     juce::Rectangle<int> titleArea() const;
 
     void edit (int index, const Pattern& pattern);
-    void insertPattern (int index, const Pattern& pattern);
+    void addPattern (const Pattern& pattern); // always at the end
     void deletePattern (int index);
-    void reorderDrag (int index, int top); // top: where the dragged panel's top edge is now
-    void reorderEnd (int index);
+    void scrollToPattern (int index);
+    void animateScroll();
 
     PatternArpProcessor& arp;
     std::unique_ptr<juce::PropertiesFile> settings; // per-user preferences, shared by every instance
@@ -47,18 +52,21 @@ private:
     std::int64_t shownPass = -1;
     std::vector<int> previewInput;
 
-    int dragIndex = -1, dropIndex = -1, dragTop = 0;
     void updatePlayhead();
 
+    theme::LookAndFeel lookAndFeel; // before the components that use it, so it outlives them
     juce::TooltipWindow tooltips { this, 500 };
-    juce::ToggleButton latchButton { "Latch" };
-    juce::ButtonParameterAttachment latchAttachment;
     PreviewComponent preview;
+    OrderLane order;
 
     juce::Viewport viewport;
     juce::Component content;
     juce::OwnedArray<PatternPanel> panels;
-    juce::TextButton addButton { "+ ADD PATTERN" };
+    juce::TextButton addButton { "+ Add pattern" }; // beside the Rotation lane
+
+    // A quick scroll down to a pattern that was just added, so it is clear where it went.
+    double scrollFrom = 0.0, scrollTo = 0.0, scrollStartMs = -1.0; // -1: not scrolling
+    juce::VBlankAttachment scrollAnimation { this, [this] { animateScroll(); } };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PatternArpEditor)
 };

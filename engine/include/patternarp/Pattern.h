@@ -10,13 +10,19 @@ namespace patternarp
 
 constexpr int maxSteps = 16;
 constexpr int maxPatterns = 8;
+constexpr int maxOrderSteps = 16;
+constexpr int numLetters = 26;
 
-// Loop lengths are counted in 24ths of a beat, which every Timing divides into evenly.
-constexpr int ticksPerBeat = 24;
+// Patterns are named by letter: 0 = A, 1 = B...
+constexpr char patternLetter (int letter) { return static_cast<char> ('A' + letter); }
+
+// Loop lengths are counted in 48ths of a beat, which every Timing divides into evenly.
+constexpr int ticksPerBeat = 48;
 
 // Step length of a pattern, shortest first.
 enum class Timing
 {
+    sixtyFourth,
     thirtySecond,
     sixteenthTriplet,
     sixteenth,
@@ -28,7 +34,7 @@ enum class Timing
     whole
 };
 
-constexpr int numTimings = 9;
+constexpr int numTimings = 10;
 double beatsPerStep (Timing timing); // in quarter notes
 const char* timingName (Timing timing);
 
@@ -46,9 +52,33 @@ constexpr int numDirections = 5;
 // What a step that loses its chance roll does.
 enum class ChanceMode
 {
-    rest, // stays silent for the step's length
-    skip  // takes no time; the arp moves straight on
+    rest,  // stays silent for the step's length
+    skip,  // takes no time; the arp moves straight on
+    extend // holds the note before it until this step's note would have ended
 };
+
+constexpr int numChanceModes = 3;
+
+// An "A:B" chance plays on the A-th of every B times its step comes up, the way Elektron
+// trig conditions do. Step::chance stores it as -(B + 100 * (A - 1)), so 1:N is -N.
+struct ChanceRatio
+{
+    int a = 1, b = 2;
+};
+
+constexpr int ratioChance (ChanceRatio r) { return -(r.b + 100 * (r.a - 1)); }
+constexpr ChanceRatio chanceRatio (int chance) { return { -chance / 100 + 1, -chance % 100 }; }
+
+// The ratios the Chance lane offers, in order: 1:2, 2:2, 1:3, 2:3, 3:3 ... 8:8.
+constexpr int numChanceRatios = 35;
+constexpr int chanceRatioIndex (ChanceRatio r) { return (r.b - 2) * (r.b + 1) / 2 + r.a - 1; }
+constexpr ChanceRatio chanceRatioAt (int index)
+{
+    int b = 2;
+    while (index >= b)
+        index -= b++;
+    return { index + 1, b };
+}
 
 // Where a pattern's notes come from.
 enum class NoteSource
@@ -65,10 +95,11 @@ enum class Lane
     gate,
     octave,
     ratchet,
-    chance
+    chance,
+    cc
 };
 
-constexpr int numLanes = 6;
+constexpr int numLanes = 7;
 
 struct Step
 {
@@ -77,13 +108,14 @@ struct Step
     int gate = 90;      // 1..100, percent of the step length
     int octave = 0;     // -3..+3
     int ratchet = 1;    // 1..8 notes in the step
-    int chance = 100;   // 1..100 = percent chance; -2..-8 = plays every Nth pass ("1:N")
+    int chance = 100;   // 0..100 = percent chance; below 0 = an A:B ratio (see ChanceRatio)
+    int cc = 64;        // 0..127, sent as the pattern's CC number with the step's notes
 
     bool operator== (const Step& other) const
     {
         // Bitwise on the float, so "unchanged" means exactly unchanged.
         return std::bit_cast<std::uint32_t> (note) == std::bit_cast<std::uint32_t> (other.note) && velocity == other.velocity
-            && gate == other.gate && octave == other.octave && ratchet == other.ratchet && chance == other.chance;
+            && gate == other.gate && octave == other.octave && ratchet == other.ratchet && chance == other.chance && cc == other.cc;
     }
 };
 
@@ -92,21 +124,24 @@ struct Pattern
     Timing timing = Timing::sixteenth;
     int length = 8; // 1..maxSteps
 
-    // Period n:m - this pattern claims n of every m notes of the arp. n == m (e.g. 1:1)
-    // makes it a fill pattern that plays the slots no other pattern claimed.
-    int periodHits = 1;
-    int periodSlots = 1;
+    // Steps past the length that are remembered from before the pattern was shortened (see
+    // setPatternLength). Up to this many steps hold something; 0 or anything up to the
+    // length means just the length.
+    int storedSteps = 0;
 
     Direction direction = Direction::forward;
     ChanceMode chanceMode = ChanceMode::rest;
 
-    // Notes the Notes lane picks from, as MIDI note numbers (C4 = 60), when the source is
+    // Notes the Notes lane picks from, as MIDI note numbers (C3 = 60), when the source is
     // `select`. With `midiIn` the held notes are used instead.
     NoteSource noteSource = NoteSource::select;
     std::bitset<128> enabledNotes;
 
     int defaultVelocity = 100;
     int defaultGate = 90;
+
+    // The CC the CC lane sends, 0..127, or -1 for none.
+    int ccNumber = -1;
 
     std::array<Step, maxSteps> steps {};
 
@@ -116,39 +151,53 @@ struct Pattern
 
     std::uint32_t seed = 1; // for random direction and percent chance
 
-    bool playing = true; // paused patterns are taken out of the rotation entirely
+    bool playing = true; // a paused pattern's turns stay in the Order lane, quiet
 
-    int colour = 0; // index into the editor's palette; stays with the pattern when reordered
+    int colour = 0; // index into the editor's palette
+    int letter = 0; // its name (see patternLetter); stays the same when others are deleted
 
-    bool isFill() const { return periodHits >= periodSlots; }
     bool operator== (const Pattern&) const = default;
 };
+
+const char* laneName (Lane lane);
 
 // Steps a lane loops over: its own length if set and shorter, else the pattern's.
 int laneLength (const Pattern& pattern, Lane lane);
 
-// A new pattern: a C major triad (C4 E4 G4) played up and down, so it sounds right away.
-Pattern makeDefaultPattern();
+// Puts one lane of a step back to its default: the lowest note, the pattern's default velocity
+// and gate, no octave shift, no ratchet, always plays.
+void resetStep (Step& step, Lane lane, const Pattern& pattern);
 
-// Changes the number of steps, re-bucketing every lane so its shape is kept: smooth lanes
-// (notes, velocity, gate) are interpolated, stepped lanes (octave, ratchet, chance) take
-// the nearest original step.
+// Copies one lane's value from a step to another, leaving the other lanes alone.
+void copyLaneValue (const Step& from, Step& to, Lane lane);
+
+// A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away,
+// with every step at the default velocity and gate.
+Pattern makeDefaultPattern (int defaultVelocity = 100, int defaultGate = 90);
+
+// Changes the number of steps at the end, like the lane handles. Shortening hides steps and
+// remembers them; lengthening brings them back, and past every step the pattern has held so
+// far, repeats it from its first step (looping as often as needed).
 void setPatternLength (Pattern& pattern, int newLength);
 
-// The Period settings offered in the editor and to host automation, sparsest first.
-struct Period
+// How many steps hold something: the length, or more if the pattern was shortened.
+int storedSteps (const Pattern& pattern);
+
+// MIDI Learn: a take starts the pattern afresh with the first note played (no notes, one
+// step, every lane at its default and full length), then each note played is switched on and
+// written into the Notes lane in the order played, growing the pattern a step at a time (up
+// to maxSteps). The pattern's settings (timing, direction...) stay. Use a new learner for
+// each take.
+class NoteLearner
 {
-    int hits;
-    int slots;
+public:
+    void learn (Pattern& pattern, int note);
+    int numLearned() const { return count; }
+
+private:
+    std::array<int, maxSteps> played {};
+    int count = 0;
 };
-
-inline constexpr std::array<Period, 20> periodChoices { {
-    { 1, 8 }, { 1, 7 }, { 1, 6 }, { 1, 5 }, { 1, 4 }, { 2, 7 }, { 1, 3 }, { 3, 8 }, { 2, 5 }, { 3, 7 },
-    { 1, 2 }, { 3, 5 }, { 5, 8 }, { 2, 3 }, { 5, 7 }, { 3, 4 }, { 4, 5 }, { 5, 6 }, { 7, 8 }, { 1, 1 },
-} };
-
-// Index into periodChoices closest to hits:slots.
-int nearestPeriodChoice (int hits, int slots);
 
 // Keeps every value inside its legal range.
 void sanitise (Pattern& pattern);
@@ -158,6 +207,16 @@ struct Arrangement
 {
     std::array<Pattern, maxPatterns> patterns {};
     int numPatterns = 0;
+
+    // The Order lane: whose turn each step of the arp is, by pattern position, or -1 for a
+    // rest. It loops over its first orderLength steps.
+    std::array<int, maxOrderSteps> order {};
+    int orderLength = 1;
+    int storedTurns = 0; // like Pattern::storedSteps: turns remembered past the length
+
+    // Quiet turns keep their place and their pattern's step length but play nothing, so
+    // nothing else moves. Every turn of a paused pattern is quiet too.
+    std::array<bool, maxOrderSteps> quiet {};
 
     // When above 0, everything starts over every loopLength ticks (see ticksPerBeat),
     // cutting the natural loop short. 0 plays the natural loop.
@@ -169,7 +228,55 @@ struct Arrangement
 
     // The first palette colour no pattern uses yet (for a new pattern).
     int unusedColour() const;
+
+    // The letter for a new pattern: the one after the highest in use, or once that would pass
+    // Z, the first one free.
+    int nextLetter() const;
+
+    // Adds a pattern at the end, with a new colour and letter, and gives it the next step of
+    // the Order lane (the last step, if the lane is already full). Returns false when there is
+    // no room.
+    bool addPattern (const Pattern& pattern);
+
+    // The default velocity and gate: what new and reset steps get. They are set for every
+    // pattern at once; steps already set keep their values.
+    void setStepDefaults (int velocity, int gate);
+    int defaultVelocity() const; // the first pattern's (they are all the same), or 100
+    int defaultGate() const;
+
+    // Deletes a pattern; its Order steps are removed and the steps after them close up.
+    void removePattern (int index);
+
+    // Makes the Order lane take every pattern in turn: A B C...
+    void alternate();
+
+    // Changes the lane's length at the end, like a pattern's Length: shortening hides turns
+    // and remembers them, lengthening brings them back, then repeats the lane from its start
+    // (A B becomes A B A B...).
+    void setOrderLength (int newLength);
+    int numStoredTurns() const; // the length, or more if the lane was shortened
+
+    // Whether a turn plays: its pattern exists and is playing, and the turn is not quiet.
+    bool isHeard (int turn) const;
+
+    // Play / pause for a whole pattern: lights or quiets every one of its turns.
+    void setPlaying (int pattern, bool play);
+
+    // Quiets one turn or lights it again. Quieting a pattern's last lit turn pauses the
+    // pattern; lighting a turn of a paused pattern plays that turn alone.
+    void setQuiet (int turn, bool shouldBeQuiet);
+
+    // Gives a turn to a pattern, lit.
+    void setTurn (int turn, int pattern);
+    // Pauses any pattern whose turns are all quiet, so its play button and the host's Play
+    // parameter say so (setQuiet and setTurn do this themselves).
+    void pauseFullyQuietPatterns();
+
     bool operator== (const Arrangement&) const = default;
 };
+
+// Keeps the pattern count and the Order lane inside their legal ranges (steps that name a
+// pattern that does not exist become rests).
+void sanitise (Arrangement& arrangement);
 
 } // namespace patternarp

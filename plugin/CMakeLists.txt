@@ -15,6 +15,8 @@ set(PATTERNARP_SOURCES
     ui/LaneGraph.h
     ui/NoteKeyboard.cpp
     ui/NoteKeyboard.h
+    ui/OrderLane.cpp
+    ui/OrderLane.h
     ui/PatternPanel.cpp
     ui/PatternPanel.h
     ui/PreviewComponent.cpp

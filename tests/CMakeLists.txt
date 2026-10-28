@@ -17,7 +17,8 @@ catch_discover_tests(engine_tests)
 # Runs the real plugin processor like a host would.
 if(TARGET PatternArp)
     add_executable(plugin_smoke_test PluginSmokeTest.cpp)
-    target_link_libraries(plugin_smoke_test PRIVATE PatternArp Catch2::Catch2WithMain ${CMAKE_DL_LIBS})
+    target_link_libraries(plugin_smoke_test PRIVATE PatternArp patternarp_engine Catch2::Catch2WithMain ${CMAKE_DL_LIBS})
+    target_include_directories(plugin_smoke_test PRIVATE ${PROJECT_SOURCE_DIR}/plugin) # for the processor's own calls
     # Reuse the plugin's JUCE headers and settings without compiling JUCE a second time.
     target_include_directories(plugin_smoke_test PRIVATE $<TARGET_PROPERTY:PatternArp,INCLUDE_DIRECTORIES>)
     target_compile_definitions(plugin_smoke_test PRIVATE $<TARGET_PROPERTY:PatternArp,COMPILE_DEFINITIONS>)

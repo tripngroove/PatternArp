@@ -18,6 +18,11 @@ struct SequencedNote
     int note;
     int velocity;
     int pattern; // which pattern produced it
+
+    // The first note of a step whose pattern sends a CC carries it, to go out just before
+    // the note: the CC number (-1 for none) and the CC lane's value.
+    int controller = -1;
+    int controllerValue = 0;
 };
 
 // One slot of the arp: a step from one pattern, or a rest. Ratchets give several notes.
@@ -25,10 +30,14 @@ struct Slot
 {
     double start = 0.0;
     double length = 0.0;
-    int pattern = -1; // -1 when no pattern owned the slot
+    int pattern = -1; // -1 for a rest
     int step = -1;
     int numNotes = 0;
     std::array<SequencedNote, 8> notes {};
+
+    // Set when the step lost its chance in extend mode: where its note would have ended. The
+    // note before it is held until then.
+    double tieEnd = 0.0;
 };
 
 // How long until the whole arrangement repeats exactly.
@@ -42,9 +51,9 @@ struct LoopInfo
 
 // Walks the arrangement slot by slot from the very beginning.
 //
-// For every slot it decides which pattern plays (Period), advances that pattern's own step
+// For every slot it asks the Order lane whose turn it is, advances that pattern's own step
 // cursor (Direction), and turns the step's lanes into notes. Each pattern only moves on
-// when it plays, so patterns of different lengths and periods drift against each other.
+// when it plays, so patterns and an Order lane of different lengths drift against each other.
 // The result depends only on the arrangement and the number of slots played, so any song
 // position can be reproduced exactly.
 class Sequencer
@@ -69,7 +78,7 @@ public:
     void fastForwardTo (double beat);
 
 private:
-    friend LoopInfo findLoop (const Arrangement&, std::int64_t);
+    friend LoopInfo findLoop (const Arrangement&, const std::vector<int>&, std::int64_t);
 
     enum class Outcome
     {
@@ -78,9 +87,13 @@ private:
         skipped
     };
 
-    // Plays exactly one slot of the Period cycle (a skipped step still uses up its slot).
+    // Plays exactly one step of the Order lane (a skipped step still uses up its turn).
     Outcome playSlot (Slot& slot);
     bool nextInCycle (Slot& slot);
+
+    // The next slot, cut at the end of a hand-set loop. next() also runs this on a copy to
+    // see steps coming that will hold the current note.
+    void produce (Slot& slot);
 
     // Starts the arrangement over at `beat` (used for loop lengths set by hand).
     void startCycle (double beat);
@@ -90,10 +103,9 @@ private:
     {
         std::int64_t played = 0;                  // notes this pattern has contributed so far
         std::array<int, numLanes> walk {};        // position of each lane for random walk
-        std::array<std::int64_t, maxSteps> visits {}; // per Chance-lane step, for 1:N
+        std::array<std::int64_t, maxSteps> visits {}; // per Chance-lane step, for A:B ratios
     };
 
-    int ownerOfSlot (std::int64_t slot);
     // Moves the pattern on one step; returns the step each lane is on.
     std::array<int, numLanes> advanceCursor (int patternIndex);
     bool passesChance (int patternIndex, int chanceStep);
@@ -101,23 +113,29 @@ private:
     Arrangement arrangement; // only the playing patterns
     std::array<int, maxPatterns> sourceIndex {}; // each one's position in the full arrangement
     std::array<Cursor, maxPatterns> cursors {};
-    std::array<int, maxPatterns> owed {}; // slots a pattern lost to a higher one and gets back
-    std::array<int, maxPatterns> fills {};
+    std::array<int, maxOrderSteps> turns {}; // the Order lane, by playing pattern (-1 = rest)
+    std::array<double, maxOrderSteps> restBeats {}; // how long each rest lasts (0 = the shortest step)
+    int numTurns = 0;
     std::array<std::array<int, 128>, maxPatterns> enabledNotes {}; // per pattern, ascending
     std::array<int, maxPatterns> numEnabledNotes {};
-    int numFills = 0;
     std::int64_t slotIndex = 0;
-    std::int64_t fillCounter = 0;
     double nextStart = 0.0;
     double cycleStart = 0.0;
     std::uint64_t pass = 0; // which pass of a hand-set loop; random choices differ per pass
+
+    // How often each Chance-lane step comes up in one pass of a hand-set loop, so A:B ratios
+    // keep counting from pass to pass.
+    std::array<std::array<std::int64_t, maxSteps>, maxPatterns> visitsPerPass {};
+
+    bool holdsNotes = false; // some playing pattern uses ChanceMode::extend
     std::array<int, 128> inputNotes {}; // ascending
     int numInputNotes = 0;
 };
 
-// Finds the loop length by working out when every pattern, the Period cycle and the fill
-// rotation all line up again. Gives up (repeats = false) past `maxSlots`.
-LoopInfo findLoop (const Arrangement& arrangement, std::int64_t maxSlots = 1 << 16);
+// Finds how often the arp repeats: the shortest stretch after which the notes come round
+// again exactly. MIDI In patterns play `inputNotes` (ascending). Gives up (repeats = false)
+// past `maxSlots`.
+LoopInfo findLoop (const Arrangement& arrangement, const std::vector<int>& inputNotes = {}, std::int64_t maxSlots = 1 << 16);
 
 // Plays the arrangement from the start for `beats` beats and returns every note that starts
 // in that time, for the preview and for dragging out MIDI.

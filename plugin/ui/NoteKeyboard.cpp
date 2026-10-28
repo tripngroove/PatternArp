@@ -9,7 +9,9 @@ namespace patternarp
 
 namespace
 {
-constexpr int switchWidth = 78;
+constexpr int switchWidth = 104; // the switch and the Learn button, with a gap after them
+constexpr int switchGap = 8;
+constexpr int learnHeight = 26;
 constexpr int totalWhiteKeys = (NoteKeyboard::highestNote - NoteKeyboard::lowestNote) / 12 * 7 + 1;
 
 bool isBlack (int note)
@@ -40,6 +42,25 @@ void NoteKeyboard::setNotes (const std::bitset<128>& newEnabled, NoteSource newS
         source = newSource;
         repaint();
     }
+
+    // Learning adds to the Piano Roll notes, so it stops if the source changes (automation).
+    if (source != NoteSource::select)
+        setLearning (false);
+}
+
+void NoteKeyboard::setLearning (bool shouldLearn)
+{
+    if (shouldLearn == learning)
+        return;
+
+    learning = shouldLearn;
+    if (learning)
+        startTimerHz (30);
+    else
+        stopTimer();
+    repaint();
+    if (onLearnChange)
+        onLearnChange (learning);
 }
 
 void NoteKeyboard::setInputNotes (const std::bitset<128>& notes)
@@ -54,7 +75,12 @@ void NoteKeyboard::setInputNotes (const std::bitset<128>& notes)
 
 juce::Rectangle<int> NoteKeyboard::switchArea() const
 {
-    return getLocalBounds().removeFromLeft (switchWidth).withTrimmedRight (8);
+    return getLocalBounds().removeFromLeft (switchWidth - switchGap).withTrimmedBottom (learnHeight + 4);
+}
+
+juce::Rectangle<int> NoteKeyboard::learnArea() const
+{
+    return getLocalBounds().removeFromLeft (switchWidth - switchGap).removeFromBottom (learnHeight);
 }
 
 juce::Rectangle<int> NoteKeyboard::keysArea() const
@@ -88,11 +114,11 @@ int NoteKeyboard::noteAt (juce::Point<float> p) const
 
 void NoteKeyboard::paint (juce::Graphics& g)
 {
-    // Select | MIDI In switch.
+    // Piano Roll | MIDI Thru switch.
     auto sw = switchArea().toFloat();
     const auto half = sw.getHeight() / 2.0f;
     const juce::Rectangle<float> buttons[] = { sw.withHeight (half), sw.withTrimmedTop (half) };
-    const char* labels[] = { "Select", "MIDI In" };
+    const char* labels[] = { "Piano Roll", "MIDI Thru" };
     for (int i = 0; i < 2; ++i)
     {
         const bool on = static_cast<int> (source) == i;
@@ -105,6 +131,31 @@ void NoteKeyboard::paint (juce::Graphics& g)
     g.setColour (theme::ink);
     g.drawRect (sw, 1.0f);
     g.drawHorizontalLine (juce::roundToInt (sw.getCentreY()), sw.getX(), sw.getRight());
+
+    // MIDI Learn: pulses red while armed, like a record-armed track, and offers "Done" on hover.
+    {
+        const auto r = learnArea().toFloat();
+        const bool hover = isMouseOver() && learnArea().contains (getMouseXYRelative());
+        juce::String text = "MIDI Learn";
+        if (learning)
+        {
+            const double phase = juce::Time::getMillisecondCounterHiRes() / 1000.0 * juce::MathConstants<double>::twoPi;
+            const auto pulse = static_cast<float> (0.5 + 0.5 * std::cos (phase));
+            g.setColour (theme::danger.withAlpha (0.45f + 0.55f * pulse));
+            g.fillRoundedRectangle (r, theme::cornerRadius);
+            g.setColour (juce::Colours::white);
+            text = hover ? "Done" : "Play Notes";
+        }
+        else
+        {
+            g.setColour (hover ? theme::hover : theme::panel);
+            g.fillRoundedRectangle (r, theme::cornerRadius);
+            g.setColour (theme::ink);
+            g.drawRoundedRectangle (r.reduced (0.5f), theme::cornerRadius, 1.0f);
+        }
+        g.setFont (theme::font (14.0f, learning));
+        g.drawText (text, r, juce::Justification::centred);
+    }
 
     // Keys.
     const auto area = keysArea();
@@ -147,18 +198,43 @@ void NoteKeyboard::paint (juce::Graphics& g)
 
     if (midiIn)
     {
-        g.setColour (theme::inkMuted);
-        g.setFont (theme::font (12.0f));
-        g.drawText ("Plays the notes you hold", area.reduced (6, 2).removeFromTop (14), juce::Justification::topRight);
+        // On a pill, so the keys underneath do not get in the way.
+        const auto f = theme::font (12.0f);
+        const juce::String text = "Plays the notes you hold";
+        const auto w = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (f, text)) + 10.0f;
+        const auto pill = juce::Rectangle<float> (static_cast<float> (area.getRight()) - w - 4.0f, static_cast<float> (area.getY()) + 4.0f, w, 16.0f);
+        g.setColour (theme::panel.withAlpha (0.9f));
+        g.fillRoundedRectangle (pill, theme::cornerRadius);
+        g.setColour (theme::ink);
+        g.setFont (f);
+        g.drawText (text, pill, juce::Justification::centred);
     }
 
     g.setColour (theme::ink);
     g.drawRect (area, 1);
 }
 
+void NoteKeyboard::mouseMove (const juce::MouseEvent&)
+{
+    repaint (learnArea()); // the Learn button's hover look
+}
+
 void NoteKeyboard::mouseDown (const juce::MouseEvent& e)
 {
     paintingKeys = false;
+
+    if (learnArea().contains (e.getPosition()))
+    {
+        // Learning adds to the Piano Roll notes, so arming it switches to Piano Roll.
+        if (! learning && source != NoteSource::select)
+        {
+            source = NoteSource::select;
+            if (onSourceChange)
+                onSourceChange (source);
+        }
+        setLearning (! learning);
+        return;
+    }
 
     if (switchArea().contains (e.getPosition()))
     {
@@ -170,6 +246,8 @@ void NoteKeyboard::mouseDown (const juce::MouseEvent& e)
             if (onSourceChange)
                 onSourceChange (source);
         }
+        if (source != NoteSource::select)
+            setLearning (false);
         return;
     }
 

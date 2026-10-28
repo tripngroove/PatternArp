@@ -44,7 +44,6 @@ public:
     // Called while the handle is dragged: the new loop length in beats, or 0 for the natural one.
     std::function<void (double)> onLoopChange;
 
-    static constexpr int rulerHeight = 24;
 
     void paint (juce::Graphics& g) override;
     void mouseMove (const juce::MouseEvent& e) override;

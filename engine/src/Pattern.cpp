@@ -10,6 +10,7 @@ double beatsPerStep (Timing timing)
 {
     switch (timing)
     {
+        case Timing::sixtyFourth:      return 0.0625;
         case Timing::thirtySecond:     return 0.125;
         case Timing::sixteenthTriplet: return 1.0 / 6.0;
         case Timing::sixteenth:        return 0.25;
@@ -27,6 +28,7 @@ const char* timingName (Timing timing)
 {
     switch (timing)
     {
+        case Timing::sixtyFourth:      return "1/64";
         case Timing::thirtySecond:     return "1/32";
         case Timing::sixteenthTriplet: return "1/16T";
         case Timing::sixteenth:        return "1/16";
@@ -46,9 +48,88 @@ int laneLength (const Pattern& p, Lane lane)
     return own > 0 ? std::min (own, p.length) : p.length;
 }
 
-Pattern makeDefaultPattern()
+const char* laneName (Lane lane)
+{
+    switch (lane)
+    {
+        case Lane::notes:    return "Notes";
+        case Lane::velocity: return "Velocity";
+        case Lane::gate:     return "Gate";
+        case Lane::octave:   return "Octave";
+        case Lane::ratchet:  return "Ratchet";
+        case Lane::chance:   return "Chance";
+        case Lane::cc:       return "CC";
+    }
+    return "";
+}
+
+void resetStep (Step& s, Lane lane, const Pattern& p)
+{
+    switch (lane)
+    {
+        case Lane::notes:    s.note = 0.0f; break;
+        case Lane::velocity: s.velocity = p.defaultVelocity; break;
+        case Lane::gate:     s.gate = p.defaultGate; break;
+        case Lane::octave:   s.octave = 0; break;
+        case Lane::ratchet:  s.ratchet = 1; break;
+        case Lane::chance:   s.chance = 100; break;
+        case Lane::cc:       s.cc = 64; break;
+    }
+}
+
+void NoteLearner::learn (Pattern& p, int note)
+{
+    if (note < 0 || note > 127)
+        return;
+
+    if (count == 0)
+    {
+        p.enabledNotes.reset();
+        p.laneLength.fill (0);
+        p.length = 0; // the step for this note is added, at its defaults, below
+    }
+
+    p.enabledNotes.set (static_cast<size_t> (note));
+    if (count < maxSteps)
+        played[static_cast<size_t> (count++)] = note;
+
+    for (; p.length < count; ++p.length)
+        for (int lane = 0; lane < numLanes; ++lane)
+            resetStep (p.steps[static_cast<size_t> (p.length)], static_cast<Lane> (lane), p);
+    p.storedSteps = p.length; // a take forgets steps hidden from before it
+
+    // Steps pick from the enabled notes, lowest to highest, so a new note shifts the others:
+    // point every learned step at its note again.
+    std::array<int, 128> rank {};
+    int numEnabled = 0;
+    for (int n = 0; n < 128; ++n)
+        if (p.enabledNotes.test (static_cast<size_t> (n)))
+            rank[static_cast<size_t> (n)] = numEnabled++;
+
+    for (int i = 0; i < count; ++i)
+        p.steps[static_cast<size_t> (i)].note =
+            numEnabled > 1 ? static_cast<float> (rank[static_cast<size_t> (played[static_cast<size_t> (i)])]) / static_cast<float> (numEnabled - 1) : 0.0f;
+}
+
+void copyLaneValue (const Step& from, Step& to, Lane lane)
+{
+    switch (lane)
+    {
+        case Lane::notes:    to.note = from.note; break;
+        case Lane::velocity: to.velocity = from.velocity; break;
+        case Lane::gate:     to.gate = from.gate; break;
+        case Lane::octave:   to.octave = from.octave; break;
+        case Lane::ratchet:  to.ratchet = from.ratchet; break;
+        case Lane::chance:   to.chance = from.chance; break;
+        case Lane::cc:       to.cc = from.cc; break;
+    }
+}
+
+Pattern makeDefaultPattern (int defaultVelocity, int defaultGate)
 {
     Pattern p;
+    p.defaultVelocity = std::clamp (defaultVelocity, 1, 127);
+    p.defaultGate = std::clamp (defaultGate, 1, 100);
     for (int note : { 60, 64, 67 })
         p.enabledNotes.set (static_cast<size_t> (note));
 
@@ -67,52 +148,34 @@ Pattern makeDefaultPattern()
 void setPatternLength (Pattern& pattern, int newLength)
 {
     newLength = std::clamp (newLength, 1, maxSteps);
-    const int oldLength = std::clamp (pattern.length, 1, maxSteps);
-    if (newLength == oldLength)
-        return;
+    const int stored = storedSteps (pattern);
 
-    const auto old = pattern.steps;
-
-    // Sample each lane at the centre of each new step, measured in old steps.
-    for (int i = 0; i < newLength; ++i)
-    {
-        const double pos = (static_cast<double> (i) + 0.5) * oldLength / newLength - 0.5;
-        const int lo = std::clamp (static_cast<int> (std::floor (pos)), 0, oldLength - 1);
-        const int hi = std::min (lo + 1, oldLength - 1);
-        const double t = std::clamp (pos - lo, 0.0, 1.0);
-        const int nearest = std::clamp (static_cast<int> (std::lround (pos)), 0, oldLength - 1);
-
-        const auto& a = old[static_cast<size_t> (lo)];
-        const auto& b = old[static_cast<size_t> (hi)];
-        const auto& n = old[static_cast<size_t> (nearest)];
-        auto& s = pattern.steps[static_cast<size_t> (i)];
-
-        s.note = static_cast<float> (a.note + (b.note - a.note) * t);
-        s.velocity = static_cast<int> (std::lround (a.velocity + (b.velocity - a.velocity) * t));
-        s.gate = static_cast<int> (std::lround (a.gate + (b.gate - a.gate) * t));
-        s.octave = n.octave;
-        s.ratchet = n.ratchet;
-        s.chance = n.chance;
-    }
-
-    // Steps past the new end keep sensible values in case the pattern grows again later.
-    for (int i = newLength; i < maxSteps; ++i)
-        pattern.steps[static_cast<size_t> (i)] = pattern.steps[static_cast<size_t> (newLength - 1)];
+    // Steps no one has used yet repeat the pattern from its start.
+    for (int i = stored; i < newLength; ++i)
+        pattern.steps[static_cast<size_t> (i)] = pattern.steps[static_cast<size_t> (i % stored)];
 
     pattern.length = newLength;
+    pattern.storedSteps = std::max (stored, newLength);
+}
+
+int storedSteps (const Pattern& p)
+{
+    return std::clamp (std::max (p.length, p.storedSteps), 1, maxSteps);
 }
 
 void sanitise (Pattern& p)
 {
     p.timing = static_cast<Timing> (std::clamp (static_cast<int> (p.timing), 0, numTimings - 1));
     p.direction = static_cast<Direction> (std::clamp (static_cast<int> (p.direction), 0, numDirections - 1));
+    p.chanceMode = static_cast<ChanceMode> (std::clamp (static_cast<int> (p.chanceMode), 0, numChanceModes - 1));
     p.noteSource = p.noteSource == NoteSource::midiIn ? NoteSource::midiIn : NoteSource::select;
     p.length = std::clamp (p.length, 1, maxSteps);
-    p.periodSlots = std::clamp (p.periodSlots, 1, 16);
-    p.periodHits = std::clamp (p.periodHits, 1, p.periodSlots);
+    p.storedSteps = std::clamp (p.storedSteps, 0, maxSteps);
     p.defaultVelocity = std::clamp (p.defaultVelocity, 1, 127);
     p.defaultGate = std::clamp (p.defaultGate, 1, 100);
+    p.ccNumber = std::clamp (p.ccNumber, -1, 127);
     p.colour = std::clamp (p.colour, 0, maxPatterns - 1);
+    p.letter = std::clamp (p.letter, 0, numLetters - 1);
     for (auto& l : p.laneLength)
         l = std::clamp (l, 0, maxSteps);
 
@@ -124,37 +187,238 @@ void sanitise (Pattern& p)
         s.octave = std::clamp (s.octave, -3, 3);
         s.ratchet = std::clamp (s.ratchet, 1, 8);
         if (s.chance < 0)
-            s.chance = std::clamp (s.chance, -8, -2);
-        else
-            s.chance = std::clamp (s.chance, 1, 100);
-    }
-}
-
-int nearestPeriodChoice (int hits, int slots)
-{
-    const double ratio = static_cast<double> (std::max (1, hits)) / std::max (1, slots);
-    int best = 0;
-    double bestDistance = 1e9;
-    for (int i = 0; i < static_cast<int> (periodChoices.size()); ++i)
-    {
-        const auto& c = periodChoices[static_cast<size_t> (i)];
-        if (c.hits == hits && c.slots == slots)
-            return i;
-
-        const double distance = std::abs (static_cast<double> (c.hits) / c.slots - ratio);
-        if (distance < bestDistance)
         {
-            bestDistance = distance;
-            best = i;
+            auto r = chanceRatio (s.chance);
+            r.b = std::clamp (r.b, 2, 8);
+            r.a = std::clamp (r.a, 1, r.b);
+            s.chance = ratioChance (r);
         }
+        else
+        {
+            s.chance = std::clamp (s.chance, 0, 100);
+        }
+        s.cc = std::clamp (s.cc, 0, 127);
     }
-    return best;
 }
+
+namespace
+{
+// A pattern that walks up `notes` (ascending MIDI note numbers), one per step.
+Pattern makeRisingPattern (std::initializer_list<int> notes, int colourAndLetter)
+{
+    Pattern p = makeDefaultPattern();
+    p.enabledNotes.reset();
+    for (int note : notes)
+        p.enabledNotes.set (static_cast<size_t> (note));
+
+    p.length = static_cast<int> (notes.size());
+    for (int i = 0; i < maxSteps; ++i)
+    {
+        const int step = i % p.length; // steps past the end repeat, in case it is lengthened
+        p.steps[static_cast<size_t> (i)].note = p.length > 1 ? static_cast<float> (step) / static_cast<float> (p.length - 1) : 0.0f;
+    }
+    p.colour = colourAndLetter;
+    p.letter = colourAndLetter;
+    return p;
+}
+} // namespace
 
 Arrangement::Arrangement()
 {
-    patterns[0] = makeDefaultPattern();
-    numPatterns = 1;
+    // Two patterns of different lengths taking turns, so the stacking is heard straight away:
+    // C3 D3 E3 against F4 G4 A4 B4 (C3 = MIDI 60, as in most DAWs).
+    patterns[0] = makeRisingPattern ({ 60, 62, 64 }, 0);
+    patterns[1] = makeRisingPattern ({ 77, 79, 81, 83 }, 1);
+    numPatterns = 2;
+    alternate();
+}
+
+int Arrangement::nextLetter() const
+{
+    const auto used = patterns.begin() + numPatterns;
+    int highest = -1;
+    for (auto p = patterns.begin(); p != used; ++p)
+        highest = std::max (highest, p->letter);
+    if (highest + 1 < numLetters)
+        return highest + 1;
+
+    for (int letter = 0; letter < numLetters; ++letter)
+        if (std::none_of (patterns.begin(), used, [letter] (const Pattern& p) { return p.letter == letter; }))
+            return letter;
+    return 0;
+}
+
+bool Arrangement::addPattern (const Pattern& pattern)
+{
+    if (numPatterns >= maxPatterns)
+        return false;
+
+    const int letter = nextLetter();
+    auto& added = patterns[static_cast<size_t> (numPatterns)];
+    added = pattern;
+    added.colour = unusedColour();
+    added.letter = letter;
+
+    if (orderLength < maxOrderSteps)
+        ++orderLength;
+    order[static_cast<size_t> (orderLength - 1)] = numPatterns++;
+    quiet[static_cast<size_t> (orderLength - 1)] = false;
+    storedTurns = std::max (storedTurns, orderLength);
+    pauseFullyQuietPatterns(); // in case the last step was another pattern's only lit turn
+    return true;
+}
+
+void Arrangement::setStepDefaults (int velocity, int gate)
+{
+    for (auto& p : patterns)
+    {
+        p.defaultVelocity = std::clamp (velocity, 1, 127);
+        p.defaultGate = std::clamp (gate, 1, 100);
+    }
+}
+
+int Arrangement::defaultVelocity() const
+{
+    return numPatterns > 0 ? patterns[0].defaultVelocity : Pattern {}.defaultVelocity;
+}
+
+int Arrangement::defaultGate() const
+{
+    return numPatterns > 0 ? patterns[0].defaultGate : Pattern {}.defaultGate;
+}
+
+void Arrangement::removePattern (int index)
+{
+    if (index < 0 || index >= numPatterns)
+        return;
+
+    std::move (patterns.begin() + index + 1, patterns.begin() + numPatterns, patterns.begin() + index);
+    --numPatterns;
+
+    // Close up the Order lane (hidden turns too), and renumber the steps of the patterns that
+    // moved up.
+    const int stored = numStoredTurns();
+    int kept = 0, keptShown = 0;
+    for (int i = 0; i < stored; ++i)
+    {
+        const int owner = order[static_cast<size_t> (i)];
+        if (owner == index)
+            continue;
+        quiet[static_cast<size_t> (kept)] = quiet[static_cast<size_t> (i)];
+        order[static_cast<size_t> (kept++)] = owner > index ? owner - 1 : owner;
+        if (i < orderLength)
+            ++keptShown;
+    }
+    orderLength = keptShown;
+    storedTurns = kept;
+
+    if (orderLength == 0)
+        alternate();
+}
+
+void Arrangement::alternate()
+{
+    orderLength = std::max (1, numPatterns);
+    for (int i = 0; i < maxOrderSteps; ++i)
+        order[static_cast<size_t> (i)] = numPatterns > 0 ? i % numPatterns : -1;
+    quiet.fill (false);
+    storedTurns = 0;
+}
+
+void Arrangement::setOrderLength (int newLength)
+{
+    newLength = std::clamp (newLength, 1, maxOrderSteps);
+    const int stored = numStoredTurns();
+    for (int i = stored; i < newLength; ++i)
+    {
+        order[static_cast<size_t> (i)] = order[static_cast<size_t> (i % stored)];
+        quiet[static_cast<size_t> (i)] = quiet[static_cast<size_t> (i % stored)];
+    }
+    orderLength = newLength;
+    storedTurns = std::max (stored, newLength);
+}
+
+int Arrangement::numStoredTurns() const
+{
+    return std::clamp (std::max (orderLength, storedTurns), 1, maxOrderSteps);
+}
+
+bool Arrangement::isHeard (int turn) const
+{
+    if (turn < 0 || turn >= orderLength)
+        return false;
+    const int owner = order[static_cast<size_t> (turn)];
+    return owner >= 0 && owner < numPatterns && patterns[static_cast<size_t> (owner)].playing && ! quiet[static_cast<size_t> (turn)];
+}
+
+void Arrangement::setPlaying (int pattern, bool play)
+{
+    if (pattern < 0 || pattern >= numPatterns)
+        return;
+    patterns[static_cast<size_t> (pattern)].playing = play;
+    for (int i = 0; i < maxOrderSteps; ++i)
+        if (order[static_cast<size_t> (i)] == pattern)
+            quiet[static_cast<size_t> (i)] = false;
+}
+
+void Arrangement::setQuiet (int turn, bool shouldBeQuiet)
+{
+    if (turn < 0 || turn >= orderLength)
+        return;
+    const int owner = order[static_cast<size_t> (turn)];
+    if (owner < 0 || owner >= numPatterns)
+        return;
+
+    auto& p = patterns[static_cast<size_t> (owner)];
+    if (! shouldBeQuiet && ! p.playing)
+    {
+        // Every turn of a paused pattern is quiet: play it again with only this one lit.
+        p.playing = true;
+        for (int i = 0; i < orderLength; ++i)
+            if (order[static_cast<size_t> (i)] == owner)
+                quiet[static_cast<size_t> (i)] = true;
+    }
+    quiet[static_cast<size_t> (turn)] = shouldBeQuiet;
+    pauseFullyQuietPatterns();
+}
+
+void Arrangement::setTurn (int turn, int pattern)
+{
+    if (turn < 0 || turn >= orderLength || pattern < 0 || pattern >= numPatterns)
+        return;
+    order[static_cast<size_t> (turn)] = pattern;
+    quiet[static_cast<size_t> (turn)] = true;
+    setQuiet (turn, false);
+}
+
+void Arrangement::pauseFullyQuietPatterns()
+{
+    for (int p = 0; p < numPatterns; ++p)
+    {
+        bool hasTurns = false, anyLit = false;
+        for (int i = 0; i < orderLength; ++i)
+        {
+            if (order[static_cast<size_t> (i)] != p)
+                continue;
+            hasTurns = true;
+            anyLit = anyLit || ! quiet[static_cast<size_t> (i)];
+        }
+        if (hasTurns && ! anyLit && patterns[static_cast<size_t> (p)].playing)
+            setPlaying (p, false);
+    }
+}
+
+void sanitise (Arrangement& a)
+{
+    a.numPatterns = std::clamp (a.numPatterns, 0, maxPatterns);
+    a.orderLength = std::clamp (a.orderLength, 1, maxOrderSteps);
+    a.storedTurns = std::clamp (a.storedTurns, 0, maxOrderSteps);
+    for (size_t i = 0; i < a.order.size(); ++i)
+        if (a.order[i] < 0 || a.order[i] >= a.numPatterns)
+        {
+            a.order[i] = -1;
+            a.quiet[i] = false;
+        }
 }
 
 int Arrangement::unusedColour() const
