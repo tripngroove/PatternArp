@@ -74,6 +74,7 @@ float LaneGraph::valueToY (const Step& s) const
             return bottom - (static_cast<float> (index) + 0.5f) / static_cast<float> (numEnabled) * h;
         }
         case Lane::velocity: return bottom - static_cast<float> (s.velocity) / 127.0f * h;
+        case Lane::cc:       return bottom - static_cast<float> (s.cc) / 127.0f * h;
         case Lane::gate:     return bottom - static_cast<float> (s.gate) / 100.0f * h;
         case Lane::ratchet:  return bottom - static_cast<float> (s.ratchet) / 8.0f * h;
         case Lane::octave:   return centre - static_cast<float> (s.octave) / 3.5f * (h / 2.0f);
@@ -111,6 +112,7 @@ void LaneGraph::setFromY (Step& s, float y) const
             break;
 
         case Lane::velocity: s.velocity = juce::jlimit (1, 127, juce::roundToInt (fromBottom * 127.0f)); break;
+        case Lane::cc:       s.cc = juce::jlimit (0, 127, juce::roundToInt (fromBottom * 127.0f)); break;
         case Lane::gate:     s.gate = juce::jlimit (1, 100, juce::roundToInt (fromBottom * 100.0f)); break;
         case Lane::ratchet:  s.ratchet = juce::jlimit (1, 8, static_cast<int> (fromBottom * 8.0f) + 1); break;
 
@@ -145,6 +147,7 @@ juce::String LaneGraph::valueText (const Step& s) const
             return juce::MidiMessage::getMidiNoteName (enabled[static_cast<size_t> (juce::roundToInt (s.note * static_cast<float> (numEnabled - 1)))],
                                                        true, true, theme::middleCOctave);
         case Lane::velocity: return juce::String (s.velocity);
+        case Lane::cc:       return juce::String (s.cc);
         case Lane::gate:     return juce::String (s.gate) + "%";
         case Lane::octave:   return s.octave > 0 ? "+" + juce::String (s.octave) : juce::String (s.octave);
         case Lane::ratchet:  return "x" + juce::String (s.ratchet);
@@ -221,6 +224,7 @@ void LaneGraph::paint (juce::Graphics& g)
 
     const float stepWidth = area.getWidth() / static_cast<float> (pattern.length);
     const float base = isBipolar() ? area.getCentreY() : area.getBottom();
+    const bool ccOff = lane == Lane::cc && pattern.ccNumber < 0; // drawn faded: nothing is sent
 
     for (int i = 0; i < pattern.length; ++i)
     {
@@ -233,7 +237,7 @@ void LaneGraph::paint (juce::Graphics& g)
             continue;
 
         // Steps past this lane's own length are kept but do not play: draw them faded.
-        const float alpha = i < currentLaneLength() ? 1.0f : 0.3f;
+        const float alpha = i < currentLaneLength() && ! ccOff ? 1.0f : 0.3f;
         const bool belowLine = lane == Lane::chance && s.chance < 0;
         g.setColour ((belowLine ? theme::fill.withMultipliedSaturation (0.4f) : theme::fill).withMultipliedAlpha (alpha));
         g.fillRect (bar);
@@ -281,6 +285,22 @@ void LaneGraph::paint (juce::Graphics& g)
             g.drawText ("1:2", gutter.withY (area.getCentreY() + 1.0f).withHeight (16.0f), juce::Justification::centredLeft);
             g.drawText ("8:8", gutter.withY (area.getBottom() - 16.0f).withHeight (16.0f), juce::Justification::centredLeft);
         }
+    }
+
+    if (ccOff)
+    {
+        // On a pill in the top quarter, clear of the bars and the step lines.
+        const auto f = theme::font (14.0f);
+        const juce::String text = "Set a CC number in the tab above to send this lane";
+        const auto w = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (f, text)) + 20.0f;
+        const auto pill = juce::Rectangle<float> (w, 24.0f).withCentre ({ area.getCentreX(), area.getY() + area.getHeight() * 0.25f });
+        g.setColour (theme::panel);
+        g.fillRoundedRectangle (pill, 3.0f);
+        g.setColour (theme::ink.withAlpha (0.3f));
+        g.drawRoundedRectangle (pill, 3.0f, 1.0f);
+        g.setColour (theme::ink);
+        g.setFont (f);
+        g.drawText (text, pill, juce::Justification::centred);
     }
 
     g.setColour (theme::ink);

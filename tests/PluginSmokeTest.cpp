@@ -39,6 +39,7 @@ struct Rendered
     std::vector<int> noteOns;
     int noteOffs = 0;
     int controllers = 0;
+    std::vector<juce::MidiMessage> messages; // everything, in order
 };
 
 void setParameter (juce::AudioProcessor& plugin, const juce::String& id, float plainValue)
@@ -50,6 +51,15 @@ void setParameter (juce::AudioProcessor& plugin, const juce::String& id, float p
             return;
         }
     FAIL ("no parameter " << id);
+}
+
+int plainValue (juce::AudioProcessor& plugin, const juce::String& id)
+{
+    for (auto* p : plugin.getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (p); ranged != nullptr && ranged->getParameterID() == id)
+            return juce::roundToInt (ranged->convertFrom0to1 (ranged->getValue()));
+    FAIL ("no parameter " << id);
+    return 0;
 }
 
 Rendered render (juce::AudioProcessor& plugin, FakePlayHead& playHead, juce::MidiBuffer input, int blocks)
@@ -72,6 +82,7 @@ Rendered render (juce::AudioProcessor& plugin, FakePlayHead& playHead, juce::Mid
         for (const auto metadata : midi)
         {
             const auto m = metadata.getMessage();
+            result.messages.push_back (m);
             if (m.isNoteOn())
                 result.noteOns.push_back (m.getNoteNumber());
             else if (m.isNoteOff())
@@ -166,6 +177,26 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
         CHECK (render (*plugin, playHead, chord, justUnderOneBeat).noteOns == std::vector<int> { 60, 64, 67 });
     }
 
+    SECTION ("a pattern's CC lane goes out just before each of its steps' notes")
+    {
+        playHead.playing = true;
+        setParameter (*plugin, "p1_ccnumber", 74.0f);
+        const auto out = render (*plugin, playHead, {}, justUnderOneBeat);
+        CHECK (out.controllers == 2); // A plays twice in this beat; B's CC is Off
+
+        for (size_t i = 0; i < out.messages.size(); ++i)
+            if (const auto& m = out.messages[i]; m.isController())
+            {
+                CHECK (m.getControllerNumber() == 74);
+                CHECK (m.getControllerValue() == 64);
+                REQUIRE (i + 1 < out.messages.size());
+                const auto& note = out.messages[i + 1];
+                CHECK (note.isNoteOn());
+                CHECK (note.getChannel() == m.getChannel());
+                CHECK (note.getTimeStamp() == Catch::Approx (m.getTimeStamp()));
+            }
+    }
+
     SECTION ("automating Length shortens the pattern without losing steps")
     {
         playHead.playing = true;
@@ -208,12 +239,12 @@ TEST_CASE ("parameters are grouped by pattern slot")
 {
     juce::ScopedJuceInitialiser_GUI juce;
     std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
-    CHECK (plugin->getParameters().size() == 99); // under Ableton's 128, so it lists them all
+    CHECK (plugin->getParameters().size() == 115); // under Ableton's 128, so it lists them all
 
     const auto groups = plugin->getParameterTree().getSubgroups (false);
     REQUIRE (groups.size() == 8);
     CHECK (groups[0]->getName() == "Pattern Slot 1");
-    CHECK (groups[0]->getParameters (false).size() == 12);
+    CHECK (groups[0]->getParameters (false).size() == 14);
 }
 
 TEST_CASE ("every parameter starts at its default value")
@@ -260,6 +291,8 @@ TEST_CASE ("plugin state round-trips")
         auto a = arp.getArrangement();
         a.setOrderLength (4);
         a.setQuiet (2, true);
+        a.patterns[0].ccNumber = 74;
+        a.patterns[0].steps[1].cc = 20;
         arp.setArrangement (a);
     }
 
@@ -281,6 +314,39 @@ TEST_CASE ("plugin state round-trips")
     CHECK (a.orderLength == 4);
     CHECK (a.quiet[2]);
     CHECK_FALSE (a.quiet[0]);
+    CHECK (a.patterns[0].ccNumber == 74);
+    CHECK (a.patterns[0].steps[1].cc == 20);
+    CHECK (a.patterns[1].ccNumber == -1);
+    CHECK (plainValue (*restored, "p1_ccnumber") == 74);
+}
+
+TEST_CASE ("saves from before the CC lane keep their slot settings")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> original (createPluginFilter());
+    setParameter (*original, "p2_timing", 5.0f);
+    setParameter (*original, "p2_ratchetlength", 3.0f);
+    setParameter (*original, "rotationlength", 1.0f);
+    juce::MemoryBlock state;
+    original->getStateInformation (state);
+
+    // Those saves had no CC Length or CC Number at the end of each slot.
+    auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), static_cast<int> (state.getSize()));
+    REQUIRE (xml != nullptr);
+    auto values = juce::StringArray::fromTokens (xml->getStringAttribute ("slots"), ",", {});
+    REQUIRE (values.size() == 8 * 14 + 2);
+    for (int slot = 7; slot >= 0; --slot)
+        values.removeRange (slot * 14 + 12, 2);
+    xml->setAttribute ("slots", values.joinIntoString (","));
+    state.reset();
+    juce::AudioProcessor::copyXmlToBinary (*xml, state);
+
+    std::unique_ptr<juce::AudioProcessor> restored (createPluginFilter());
+    restored->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+    CHECK (plainValue (*restored, "p2_timing") == 5);
+    CHECK (plainValue (*restored, "p2_ratchetlength") == 3);
+    CHECK (plainValue (*restored, "rotationlength") == 1);
+    CHECK (plainValue (*restored, "p1_ccnumber") == -1);
 }
 
 TEST_CASE ("saves from before 1/64 keep their timings and loop length")
@@ -610,6 +676,41 @@ TEST_CASE ("the Velocity default drags up and down and sets every step")
     w.mouse (start.translated (0.0f, -20.0f), false);
     for (const int velocity : velocities())
         CHECK (velocity == 110);
+}
+
+TEST_CASE ("the CC tab's box picks the CC number, starting at Off")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panel = w.find ("Pattern A");
+    REQUIRE (panel != nullptr);
+
+    // Open the CC tab, the last one on top of the graph (see PatternPanel::layoutTabs).
+    w.click (w.editor->getLocalPoint (panel, juce::Point<float> (560.0f, 104.0f)));
+    auto* value = dynamic_cast<juce::Label*> (panel->findChildWithID ("defaultValue"));
+    REQUIRE (value != nullptr);
+    REQUIRE (value->isVisible());
+    CHECK (value->getText() == "Off");
+
+    const auto ccNumber = [&w] { return w.state()->getChildByName ("Arrangement")->getChildByName ("Pattern")->getIntAttribute ("ccNumber"); };
+    CHECK (ccNumber() == -1);
+
+    // Up 20 pixels is 10 more, from Off (-1).
+    const auto start = w.editor->getLocalPoint (value, value->getLocalBounds().getCentre().toFloat());
+    w.mouse (start, true);
+    for (int i = 1; i <= 4; ++i)
+        w.mouse (start.translated (0.0f, -5.0f * static_cast<float> (i)), true);
+    w.mouse (start.translated (0.0f, -20.0f), false);
+    CHECK (ccNumber() == 9);
+    CHECK (value->getText() == "9");
+
+    // Typing anything but a number turns it off again.
+    value->setText ("off", juce::sendNotificationSync);
+    CHECK (ccNumber() == -1);
+    CHECK (value->getText() == "Off");
+    value->setText ("74", juce::sendNotificationSync);
+    CHECK (ccNumber() == 74);
+    CHECK (w.parameter<juce::AudioParameterInt> ("p1_ccnumber")->get() == 74);
 }
 
 TEST_CASE ("right-clicking a step opens its menu")

@@ -21,6 +21,7 @@ const juce::Identifier chanceMode { "chanceMode" };
 const juce::Identifier noteSource { "noteSource" };
 const juce::Identifier defaultVelocity { "defaultVelocity" };
 const juce::Identifier defaultGate { "defaultGate" };
+const juce::Identifier ccNumber { "ccNumber" };
 const juce::Identifier seed { "seed" };
 const juce::Identifier playing { "playing" };
 const juce::Identifier colour { "colour" };
@@ -51,13 +52,14 @@ std::bitset<128> enabledNotesFromString (const juce::String& text)
     return notes;
 }
 
-// Steps as "note velocity gate octave ratchet chance" groups separated by ';'.
+// Steps as "note velocity gate octave ratchet chance cc" groups separated by ';' (saves
+// from before the CC lane have no cc).
 juce::String stepsToString (const Pattern& p)
 {
     juce::StringArray list;
     for (const auto& s : p.steps)
         list.add (juce::String (s.note, 4) + " " + juce::String (s.velocity) + " " + juce::String (s.gate) + " "
-                  + juce::String (s.octave) + " " + juce::String (s.ratchet) + " " + juce::String (s.chance));
+                  + juce::String (s.octave) + " " + juce::String (s.ratchet) + " " + juce::String (s.chance) + " " + juce::String (s.cc));
     return list.joinIntoString (";");
 }
 
@@ -77,6 +79,8 @@ void stepsFromString (const juce::String& text, Pattern& p)
         s.octave = values[3].getIntValue();
         s.ratchet = values[4].getIntValue();
         s.chance = values[5].getIntValue();
+        if (values.size() > 6)
+            s.cc = values[6].getIntValue();
     }
 }
 } // namespace
@@ -116,6 +120,7 @@ juce::ValueTree toValueTree (const Arrangement& a)
         child.setProperty (ids::noteSource, static_cast<int> (p.noteSource), nullptr);
         child.setProperty (ids::defaultVelocity, p.defaultVelocity, nullptr);
         child.setProperty (ids::defaultGate, p.defaultGate, nullptr);
+        child.setProperty (ids::ccNumber, p.ccNumber, nullptr);
         child.setProperty (ids::seed, static_cast<juce::int64> (p.seed), nullptr);
         child.setProperty (ids::playing, p.playing, nullptr);
         child.setProperty (ids::colour, p.colour, nullptr);
@@ -155,6 +160,7 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
         p.noteSource = static_cast<NoteSource> (static_cast<int> (child.getProperty (ids::noteSource, 0)));
         p.defaultVelocity = child.getProperty (ids::defaultVelocity, p.defaultVelocity);
         p.defaultGate = child.getProperty (ids::defaultGate, p.defaultGate);
+        p.ccNumber = child.getProperty (ids::ccNumber, -1);
         p.seed = static_cast<std::uint32_t> (static_cast<juce::int64> (child.getProperty (ids::seed, 1)));
         p.playing = child.getProperty (ids::playing, true);
         p.colour = child.getProperty (ids::colour, loaded.numPatterns); // older saves: by position

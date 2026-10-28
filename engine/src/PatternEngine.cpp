@@ -114,6 +114,8 @@ void PatternEngine::startNote (const SequencedNote& n, double ppqStart, std::vec
         sounding.erase (same);
     }
 
+    if (n.controller >= 0)
+        out.push_back ({ at, 0, std::clamp (n.controllerValue, 0, 127), n.controller });
     out.push_back ({ at, n.note, std::clamp (n.velocity, 1, 127) });
     if (sounding.size() < sounding.capacity())
         sounding.push_back ({ n.note, n.start + n.length });

@@ -866,6 +866,45 @@ TEST_CASE ("MIDI Learn starts afresh and plays the notes back in the order playe
     }
 }
 
+TEST_CASE ("the CC lane sends once per step that plays, just before its first note")
+{
+    auto p = patternOf ({ A, C, E, F });
+    p.steps[0].ratchet = 3; // one CC, not three
+    p.steps[2].chance = 0;  // never plays: a rest sends nothing
+    for (int i = 0; i < 4; ++i)
+        p.steps[static_cast<size_t> (i)].cc = 10 + i;
+
+    const auto sent = [] (const Pattern& pattern) {
+        PatternEngine engine;
+        engine.setArrangement (arrangementOf ({ pattern }));
+        std::vector<NoteEvent> out;
+        engine.process (0.0, 1.0, out); // one pass of four sixteenths
+
+        std::vector<int> values;
+        for (size_t i = 0; i < out.size(); ++i)
+            if (out[i].isController())
+            {
+                CHECK (out[i].controller == 74);
+                values.push_back (out[i].velocity);
+                REQUIRE (i + 1 < out.size());
+                CHECK (out[i + 1].isNoteOn());
+                CHECK (out[i + 1].ppq == Catch::Approx (out[i].ppq));
+            }
+        return values;
+    };
+
+    CHECK (sent (p).empty()); // the CC number starts Off
+
+    p.ccNumber = 74;
+    CHECK (sent (p) == std::vector<int> { 10, 11, 13 });
+
+    SECTION ("a shorter CC lane loops on its own")
+    {
+        p.laneLength[static_cast<size_t> (Lane::cc)] = 1;
+        CHECK (sent (p) == std::vector<int> { 10, 10, 10 });
+    }
+}
+
 TEST_CASE ("copying a lane value leaves the other lanes alone")
 {
     Step from, to;

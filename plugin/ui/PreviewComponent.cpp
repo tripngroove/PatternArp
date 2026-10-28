@@ -254,6 +254,8 @@ juce::File PreviewComponent::writeMidiFile() const
     {
         const double on = n.start * ticksPerQuarter;
         const double off = (n.start + n.length) * ticksPerQuarter;
+        if (n.controller >= 0) // a step's CC, just before its note
+            track.addEvent (juce::MidiMessage::controllerEvent (1, n.controller, n.controllerValue), on);
         track.addEvent (juce::MidiMessage::noteOn (1, n.note, static_cast<juce::uint8> (n.velocity)), on);
         track.addEvent (juce::MidiMessage::noteOff (1, n.note), off);
     }

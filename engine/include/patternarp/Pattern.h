@@ -95,10 +95,11 @@ enum class Lane
     gate,
     octave,
     ratchet,
-    chance
+    chance,
+    cc
 };
 
-constexpr int numLanes = 6;
+constexpr int numLanes = 7;
 
 struct Step
 {
@@ -108,12 +109,13 @@ struct Step
     int octave = 0;     // -3..+3
     int ratchet = 1;    // 1..8 notes in the step
     int chance = 100;   // 0..100 = percent chance; below 0 = an A:B ratio (see ChanceRatio)
+    int cc = 64;        // 0..127, sent as the pattern's CC number with the step's notes
 
     bool operator== (const Step& other) const
     {
         // Bitwise on the float, so "unchanged" means exactly unchanged.
         return std::bit_cast<std::uint32_t> (note) == std::bit_cast<std::uint32_t> (other.note) && velocity == other.velocity
-            && gate == other.gate && octave == other.octave && ratchet == other.ratchet && chance == other.chance;
+            && gate == other.gate && octave == other.octave && ratchet == other.ratchet && chance == other.chance && cc == other.cc;
     }
 };
 
@@ -137,6 +139,9 @@ struct Pattern
 
     int defaultVelocity = 100;
     int defaultGate = 90;
+
+    // The CC the CC lane sends, 0..127, or -1 for none.
+    int ccNumber = -1;
 
     std::array<Step, maxSteps> steps {};
 

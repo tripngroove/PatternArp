@@ -289,6 +289,10 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
                     nextStart + sub * r, std::max (sub * gate / 100.0, 0.001), note, velocity, slot.pattern
                 };
             }
+
+            // The CC lane goes out once per step, with its first note.
+            slot.notes[0].controller = p.ccNumber;
+            slot.notes[0].controllerValue = stepOf (Lane::cc).cc;
         }
     }
 
@@ -416,7 +420,7 @@ LoopInfo shortestRepeat (const Arrangement& certain, LoopInfo info, const std::v
             const auto& a = notes[i];
             const auto& b = notes[j];
             if (std::abs (a.start + period - b.start) > 1.0e-6 || std::abs (a.length - b.length) > 1.0e-6 || a.note != b.note
-                || a.velocity != b.velocity)
+                || a.velocity != b.velocity || a.controller != b.controller || a.controllerValue != b.controllerValue)
                 return false;
         }
         return true;
@@ -476,6 +480,9 @@ LoopInfo findLoop (const Arrangement& arrangement, const std::vector<int>& input
         std::int64_t cycle = 1;
         for (int lane = 0; lane < numLanes; ++lane)
         {
+            if (static_cast<Lane> (lane) == Lane::cc && p.ccNumber < 0)
+                continue; // sends nothing, so it cannot change what repeats
+
             const int length = laneLength (p, static_cast<Lane> (lane));
             auto laneCycle = directionCycle (p.direction, length);
             if (laneCycle == 0)

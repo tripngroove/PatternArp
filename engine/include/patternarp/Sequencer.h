@@ -18,6 +18,11 @@ struct SequencedNote
     int note;
     int velocity;
     int pattern; // which pattern produced it
+
+    // The first note of a step whose pattern sends a CC carries it, to go out just before
+    // the note: the CC number (-1 for none) and the CC lane's value.
+    int controller = -1;
+    int controllerValue = 0;
 };
 
 // One slot of the arp: a step from one pattern, or a rest. Ratchets give several notes.

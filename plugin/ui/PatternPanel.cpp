@@ -18,7 +18,8 @@ constexpr int graphHeight = 168;
 constexpr int keyboardHeight = 80;
 constexpr int defaultBoxWidth = 44;
 constexpr int titleWidth = 142;
-constexpr int chanceModeWidth = 60;
+constexpr int chanceModeWidth = 54;
+constexpr int tabPadding = 10; // either side of a tab's name
 
 static_assert (PatternPanel::preferredHeight == margin + headerHeight + sectionGap + tabHeight + graphHeight + sectionGap + keyboardHeight + margin);
 
@@ -28,9 +29,21 @@ const char* directionName (int d)
     return names[juce::jlimit (0, numDirections - 1, d)];
 }
 
+// Tabs with a value box: Velocity and Gate set every step, CC picks the controller number.
 bool hasDefault (Lane lane)
 {
-    return lane == Lane::velocity || lane == Lane::gate;
+    return lane == Lane::velocity || lane == Lane::gate || lane == Lane::cc;
+}
+
+int defaultValue (const Pattern& p, Lane lane)
+{
+    return lane == Lane::velocity ? p.defaultVelocity : (lane == Lane::gate ? p.defaultGate : p.ccNumber);
+}
+
+juce::String defaultText (const Pattern& p, Lane lane)
+{
+    const int value = defaultValue (p, lane);
+    return value < 0 ? juce::String ("Off") : juce::String (value);
 }
 } // namespace
 
@@ -87,13 +100,20 @@ PatternPanel::PatternPanel()
     defaultEditor.setColour (juce::Label::textColourId, theme::ink);
     defaultEditor.setColour (juce::Label::backgroundColourId, theme::panel);
     defaultEditor.setColour (juce::Label::outlineColourId, theme::ink);
-    defaultEditor.setTooltip ("Sets every step, and new and reset ones: drag up or down, or click to type");
     defaultEditor.setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
     defaultEditor.setComponentID ("defaultValue");
-    defaultEditor.onTextChange = [this] { setDefault (graph.getLane(), defaultEditor.getText().getIntValue()); };
-    defaultEditor.onDragStart = [this] {
-        defaultDragStart = graph.getLane() == Lane::velocity ? pattern.defaultVelocity : pattern.defaultGate;
+    defaultEditor.onTextChange = [this] {
+        // Anything but a number turns the CC lane off, and is ignored elsewhere.
+        const auto lane = graph.getLane();
+        const auto text = defaultEditor.getText().trim();
+        if (text.isNotEmpty() && text.containsOnly ("0123456789"))
+            setDefault (lane, text.getIntValue());
+        else if (lane == Lane::cc)
+            setDefault (lane, -1);
+        else
+            defaultEditor.setText (defaultText (pattern, lane), juce::dontSendNotification);
     };
+    defaultEditor.onDragStart = [this] { defaultDragStart = defaultValue (pattern, graph.getLane()); };
     defaultEditor.onDrag = [this] (int delta) { setDefault (graph.getLane(), defaultDragStart + delta); };
 
     cloneButton.setTooltip ("Add a copy of this pattern at the end");
@@ -151,8 +171,7 @@ void PatternPanel::setPattern (const Pattern& newPattern, bool canAdd)
     cloneButton.setEnabled (canAdd);
 
     if (hasDefault (graph.getLane()) && ! defaultEditor.isBeingEdited())
-        defaultEditor.setText (juce::String (graph.getLane() == Lane::velocity ? pattern.defaultVelocity : pattern.defaultGate),
-                               juce::dontSendNotification);
+        defaultEditor.setText (defaultText (pattern, graph.getLane()), juce::dontSendNotification);
     repaint();
 }
 
@@ -201,7 +220,11 @@ void PatternPanel::setDefault (Lane lane, int value)
             s.gate = value;
         pattern.defaultGate = value;
     }
-    defaultEditor.setText (juce::String (value), juce::dontSendNotification);
+    else if (lane == Lane::cc)
+    {
+        pattern.ccNumber = juce::jlimit (-1, 127, value);
+    }
+    defaultEditor.setText (defaultText (pattern, lane), juce::dontSendNotification);
     changed();
 }
 
@@ -230,20 +253,21 @@ void PatternPanel::layoutTabs()
 {
     // Tabs sit on the graph, lined up with its box.
     const auto g = graph.getBounds();
-    auto row = juce::Rectangle<int> (g.getX() + 1, g.getY() - tabHeight, g.getWidth() - LaneGraph::labelGutter - 2, tabHeight);
+    auto row = juce::Rectangle<int> (g.getX() + 1, g.getY() - tabHeight, g.getWidth() - 2, tabHeight);
     const auto f = theme::font (15.0f);
 
     for (int i = 0; i < numLanes; ++i)
     {
         const auto lane = static_cast<Lane> (i);
-        int w = juce::GlyphArrangement::getStringWidthInt (f, laneName (lane)) + 28;
+        int w = juce::GlyphArrangement::getStringWidthInt (f, laneName (lane)) + tabPadding * 2 + 4;
         if (hasDefault (lane))
             w += defaultBoxWidth;
         tabs[static_cast<size_t> (i)] = row.removeFromLeft (w);
         row.removeFromLeft (4);
     }
 
-    // Rest / Skip / Extend choice for the Chance tab sits at the end of the row.
+    // Rest / Skip / Extend choice for the Chance tab sits at the end of the row, over the
+    // graph's label gutter too, so it clears the tabs in a narrow window.
     auto choice = row.removeFromRight (chanceModeWidth * numChanceModes).reduced (0, 4).translated (0, -2);
     for (auto& button : chanceModeButtons)
         button = choice.removeFromLeft (chanceModeWidth);
@@ -253,7 +277,10 @@ void PatternPanel::layoutTabs()
     {
         const auto tab = tabs[static_cast<size_t> (lane)];
         defaultEditor.setBounds (tab.withTrimmedLeft (tab.getWidth() - defaultBoxWidth - 6).withWidth (defaultBoxWidth).reduced (0, 5).translated (0, 1));
-        defaultEditor.setText (juce::String (lane == Lane::velocity ? pattern.defaultVelocity : pattern.defaultGate), juce::dontSendNotification);
+        defaultEditor.setText (defaultText (pattern, lane), juce::dontSendNotification);
+        defaultEditor.setTooltip (lane == Lane::cc ? "The CC number this lane sends, on the notes' channel: drag up or down, or click to type. "
+                                                     "Off sends nothing."
+                                                   : "Sets every step, and new and reset ones: drag up or down, or click to type");
         defaultEditor.setVisible (true);
     }
     else
@@ -335,7 +362,7 @@ void PatternPanel::paint (juce::Graphics& g)
     }
 
     // Lane tabs. The open one is white and runs into the graph below (see paintOverChildren);
-    // the others sit a little lower in grey. Velocity and Gate show their default value.
+    // the others sit a little lower in grey. Velocity, Gate and CC show their box's value.
     const auto active = graph.getLane();
     for (int i = 0; i < numLanes; ++i)
     {
@@ -355,15 +382,14 @@ void PatternPanel::paint (juce::Graphics& g)
         g.fillPath (inside);
         g.setFont (theme::font (15.0f, on));
 
-        auto text = tab.reduced (12, 0);
+        auto text = tab.reduced (tabPadding, 0);
         if (hasDefault (lane))
         {
             auto value = text.removeFromRight (defaultBoxWidth - 6);
             if (! on)
             {
                 g.setColour (theme::inkMuted);
-                g.drawText ("(" + juce::String (lane == Lane::velocity ? pattern.defaultVelocity : pattern.defaultGate) + ")",
-                            value, juce::Justification::centredRight);
+                g.drawText ("(" + defaultText (pattern, lane) + ")", value, juce::Justification::centredRight);
             }
         }
         g.setColour (on ? theme::ink : theme::ink.withAlpha (0.7f));

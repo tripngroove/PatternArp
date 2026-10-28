@@ -81,15 +81,20 @@ private:
         juce::AudioParameterChoice* chanceMode = nullptr;
         juce::AudioParameterBool* play = nullptr;
         std::array<juce::AudioParameterInt*, numLanes> laneLength {}; // 0 = the pattern's length
+        juce::AudioParameterInt* ccNumber = nullptr; // -1 = off
 
         // In the order of a ParameterSnapshot.
-        std::array<juce::RangedAudioParameter*, 6 + numLanes> all() const;
+        std::array<juce::RangedAudioParameter*, 6 + numLanes + 1> all() const;
     };
 
-    static constexpr int parametersPerPattern = 6 + numLanes;
-    static constexpr int oldParametersPerPattern = 6; // saves from before lane lengths were parameters
+    static constexpr int parametersPerPattern = 6 + numLanes + 1;
     static constexpr int globalsAt = maxPatterns * parametersPerPattern; // then loop length, Rotation length
     using ParameterSnapshot = std::array<int, globalsAt + 2>;
+
+    // Saved parameter lists from earlier versions: per slot, the six settings, then (once
+    // they were parameters) the six lane lengths before the CC lane, then the two globals.
+    static constexpr int oldParametersPerPattern = 6;
+    static constexpr int preCcParametersPerPattern = 12;
 
     ParameterSnapshot readParameters() const;
     static void applyParameters (const ParameterSnapshot& values, Arrangement& a);

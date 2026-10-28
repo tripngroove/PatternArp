@@ -58,6 +58,7 @@ const char* laneName (Lane lane)
         case Lane::octave:   return "Octave";
         case Lane::ratchet:  return "Ratchet";
         case Lane::chance:   return "Chance";
+        case Lane::cc:       return "CC";
     }
     return "";
 }
@@ -72,6 +73,7 @@ void resetStep (Step& s, Lane lane, const Pattern& p)
         case Lane::octave:   s.octave = 0; break;
         case Lane::ratchet:  s.ratchet = 1; break;
         case Lane::chance:   s.chance = 100; break;
+        case Lane::cc:       s.cc = 64; break;
     }
 }
 
@@ -119,6 +121,7 @@ void copyLaneValue (const Step& from, Step& to, Lane lane)
         case Lane::octave:   to.octave = from.octave; break;
         case Lane::ratchet:  to.ratchet = from.ratchet; break;
         case Lane::chance:   to.chance = from.chance; break;
+        case Lane::cc:       to.cc = from.cc; break;
     }
 }
 
@@ -168,6 +171,7 @@ void sanitise (Pattern& p)
     p.storedSteps = std::clamp (p.storedSteps, 0, maxSteps);
     p.defaultVelocity = std::clamp (p.defaultVelocity, 1, 127);
     p.defaultGate = std::clamp (p.defaultGate, 1, 100);
+    p.ccNumber = std::clamp (p.ccNumber, -1, 127);
     p.colour = std::clamp (p.colour, 0, maxPatterns - 1);
     p.letter = std::clamp (p.letter, 0, numLetters - 1);
     for (auto& l : p.laneLength)
@@ -191,6 +195,7 @@ void sanitise (Pattern& p)
         {
             s.chance = std::clamp (s.chance, 0, 100);
         }
+        s.cc = std::clamp (s.cc, 0, 127);
     }
 }
 
