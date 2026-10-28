@@ -14,7 +14,6 @@ constexpr int stripeWidth = 10; // the pattern's colour down the left edge
 constexpr int headerHeight = 32;
 constexpr int sectionGap = 16;
 constexpr int tabHeight = 32;
-constexpr int closedTabDrop = 4; // closed tabs sit this much lower than the open one
 constexpr int graphHeight = 168;
 constexpr int keyboardHeight = 80;
 constexpr int buttonHeight = 28;
@@ -258,7 +257,7 @@ void PatternPanel::layoutTabs()
         const auto lane = static_cast<Lane> (i);
         const auto tab = row.removeFromLeft (tabWidth (lane));
         tabs[static_cast<size_t> (i)] = tab;
-        row.removeFromLeft (theme::spacing / 2);
+        row.setLeft (tab.getRight() - 1); // neighbours share a dividing line
 
         // Clicking the value part ("Rest", "Off") opens its list.
         tabValues[static_cast<size_t> (i)] = hasValue (lane)
@@ -352,46 +351,50 @@ void PatternPanel::paint (juce::Graphics& g)
     g.setFont (titleFont());
     g.drawText ("Pattern " + theme::patternName (pattern), titleArea, juce::Justification::centredLeft);
 
-    // Lane tabs. The open one is white and runs into the graph below (see paintOverChildren);
-    // the others sit a little lower in grey. Chance and CC end in a dropdown.
+    // Lane tabs: one flat strip, neighbours sharing a dividing line. The open one is white,
+    // outlined in ink and runs into the graph below (see paintOverChildren); the others are
+    // grey. Closed lines are opaque so shared ones do not darken. Chance and CC end in a value.
     const auto active = graph.getLane();
+    const auto closedLine = theme::panel.overlaidWith (theme::ink.withAlpha (0.3f));
+    for (const bool open : { false, true })
+    {
+        for (int i = 0; i < numLanes; ++i)
+        {
+            const auto lane = static_cast<Lane> (i);
+            if ((lane == active) != open)
+                continue;
+
+            // Down to the graph's top line, so the sides join it.
+            const auto tab = tabs[static_cast<size_t> (i)];
+            const auto shape = tab.toFloat().withBottom (static_cast<float> (graph.getY()) + 1.0f);
+            g.setColour (open ? theme::ink : closedLine);
+            g.fillRect (shape);
+            g.setColour (open ? theme::panel : (i == hoveredTab ? theme::hover : theme::background));
+            g.fillRect (shape.reduced (1.0f, 0.0f).withTrimmedTop (1.0f));
+
+            // The name and value centred, so the padding is even either side. The value is
+            // bold in the pattern's colour, like every value that can be edited.
+            const auto nameFont = tabFont (open), valueFont = tabFont (true);
+            const auto name = tabName (lane), value = tabValue (lane);
+            const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
+            auto content = tab.withSizeKeepingCentre (theme::textWidth (nameFont, name) + theme::textWidth (valueFont, value) + caret, tab.getHeight());
+            g.setColour (open ? theme::ink : theme::ink.withAlpha (0.7f));
+            g.setFont (nameFont);
+            g.drawText (name, content.removeFromLeft (theme::textWidth (nameFont, name)), juce::Justification::centredLeft);
+            g.setColour (theme::patternColour (pattern.colour));
+            g.setFont (valueFont);
+            g.drawText (value, content, juce::Justification::centredLeft);
+            if (hasCaret (lane))
+                theme::drawCaret (g, { static_cast<float> (content.getRight()) - theme::caretWidth / 2.0f, static_cast<float> (content.getCentreY()) + 1.0f });
+        }
+    }
+
+    // A badge on lanes that loop over fewer steps than the pattern, over the tabs' lines.
     for (int i = 0; i < numLanes; ++i)
     {
-        const auto lane = static_cast<Lane> (i);
-        const bool on = lane == active;
-        const auto tab = on ? tabs[static_cast<size_t> (i)] : tabs[static_cast<size_t> (i)].withTrimmedTop (closedTabDrop);
-
-        // Down to the graph's top line, so the sides join it.
-        const auto shape = tab.toFloat().withBottom (static_cast<float> (graph.getY()) + 1.0f);
-        juce::Path outside, inside;
-        outside.addRoundedRectangle (shape.getX(), shape.getY(), shape.getWidth(), shape.getHeight(), theme::cornerRadius, theme::cornerRadius,
-                                     true, true, false, false);
-        inside.addRoundedRectangle (shape.getX() + 1.0f, shape.getY() + 1.0f, shape.getWidth() - 2.0f, shape.getHeight() - 1.0f,
-                                    theme::cornerRadius - 1.0f, theme::cornerRadius - 1.0f,
-                                    true, true, false, false);
-        g.setColour (on ? theme::ink : theme::ink.withAlpha (0.3f));
-        g.fillPath (outside);
-        g.setColour (on ? theme::panel : (i == hoveredTab ? theme::hover : theme::background));
-        g.fillPath (inside);
-
-        // The name and value centred, so the padding is even either side. The value is bold
-        // in the pattern's colour, like every value that can be edited.
-        const auto nameFont = tabFont (on), valueFont = tabFont (true);
-        const auto name = tabName (lane), value = tabValue (lane);
-        const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
-        auto content = tab.withSizeKeepingCentre (theme::textWidth (nameFont, name) + theme::textWidth (valueFont, value) + caret, tab.getHeight());
-        g.setColour (on ? theme::ink : theme::ink.withAlpha (0.7f));
-        g.setFont (nameFont);
-        g.drawText (name, content.removeFromLeft (theme::textWidth (nameFont, name)), juce::Justification::centredLeft);
-        g.setColour (theme::patternColour (pattern.colour));
-        g.setFont (valueFont);
-        g.drawText (value, content, juce::Justification::centredLeft);
-        if (hasCaret (lane))
-            theme::drawCaret (g, { static_cast<float> (content.getRight()) - theme::caretWidth / 2.0f, static_cast<float> (content.getCentreY()) + 1.0f });
-
-        // A badge on lanes that loop over fewer steps than the pattern.
-        if (const int steps = laneLength (pattern, lane); steps < pattern.length)
+        if (const int steps = laneLength (pattern, static_cast<Lane> (i)); steps < pattern.length)
         {
+            const auto tab = tabs[static_cast<size_t> (i)];
             const auto badge = juce::Rectangle<float> (static_cast<float> (tab.getRight()) - 9.0f, static_cast<float> (tab.getY()) - 7.0f, 16.0f, 14.0f);
             g.setColour (theme::fillStrong);
             g.fillRoundedRectangle (badge, theme::cornerRadius);
