@@ -9,8 +9,6 @@
 namespace patternarp
 {
 
-const char* laneName (Lane lane);
-
 // The per-step bar graph. Click or drag across it to draw a shape; double-click a step to
 // reset it to the lane's default; right-click a step to set every step to its value. The
 // handle on the graph sets how many steps this lane loops over (dragged fully right, it

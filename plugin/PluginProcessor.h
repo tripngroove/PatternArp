@@ -69,8 +69,9 @@ private:
     static BusesProperties makeBuses();
     void addEvents (double blockStartPpq, double samplesPerBeat, int numSamples, juce::MidiBuffer& out);
 
-    // Each pattern slot's settings are host parameters, so they can be automated. The step
-    // lanes and note selection are not: they live only in the arrangement.
+    // Each pattern slot's settings and lane lengths are host parameters, so they can be
+    // automated, and so are the loop and Rotation lengths. The step lanes and note selection
+    // are not: they live only in the arrangement.
     struct PatternParameters
     {
         juce::AudioParameterChoice* timing = nullptr;
@@ -79,10 +80,16 @@ private:
         juce::AudioParameterChoice* noteSource = nullptr;
         juce::AudioParameterChoice* chanceMode = nullptr;
         juce::AudioParameterBool* play = nullptr;
+        std::array<juce::AudioParameterInt*, numLanes> laneLength {}; // 0 = the pattern's length
+
+        // In the order of a ParameterSnapshot.
+        std::array<juce::RangedAudioParameter*, 6 + numLanes> all() const;
     };
 
-    static constexpr int parametersPerPattern = 6;
-    using ParameterSnapshot = std::array<int, maxPatterns * parametersPerPattern>;
+    static constexpr int parametersPerPattern = 6 + numLanes;
+    static constexpr int oldParametersPerPattern = 6; // saves from before lane lengths were parameters
+    static constexpr int globalsAt = maxPatterns * parametersPerPattern; // then loop length, Rotation length
+    using ParameterSnapshot = std::array<int, globalsAt + 2>;
 
     ParameterSnapshot readParameters() const;
     static void applyParameters (const ParameterSnapshot& values, Arrangement& a);
@@ -90,6 +97,8 @@ private:
     void setParameters (const ParameterSnapshot& values);
 
     juce::AudioParameterBool* latch = nullptr;
+    juce::AudioParameterInt* loopLength = nullptr; // in sixteenths, 0 = the natural loop
+    juce::AudioParameterInt* rotationLength = nullptr;
     std::array<PatternParameters, maxPatterns> patternParameters {};
 
     Arrangement arrangement; // message thread's copy

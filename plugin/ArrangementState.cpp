@@ -11,6 +11,7 @@ const juce::Identifier arrangement { "Arrangement" };
 const juce::Identifier pattern { "Pattern" };
 const juce::Identifier loopLength { "loopLength" };
 const juce::Identifier order { "order" };
+const juce::Identifier orderLength { "orderLength" }; // when turns past it are remembered
 const juce::Identifier quiet { "quiet" };
 const juce::Identifier timing { "timing" };
 const juce::Identifier length { "length" };
@@ -85,14 +86,18 @@ juce::ValueTree toValueTree (const Arrangement& a)
     juce::ValueTree tree (ids::arrangement);
     tree.setProperty (ids::loopLength, a.loopLength, nullptr);
 
+    // Every turn, including ones hidden by shortening the lane.
+    const int stored = a.numStoredTurns();
     juce::StringArray order;
-    for (int i = 0; i < a.orderLength; ++i)
+    for (int i = 0; i < stored; ++i)
         order.add (juce::String (a.order[static_cast<size_t> (i)]));
     tree.setProperty (ids::order, order.joinIntoString (","), nullptr);
+    if (a.orderLength < stored)
+        tree.setProperty (ids::orderLength, a.orderLength, nullptr);
 
     // Which turns are quiet, as the step numbers.
     juce::StringArray quiet;
-    for (int i = 0; i < a.orderLength; ++i)
+    for (int i = 0; i < stored; ++i)
         if (a.quiet[static_cast<size_t> (i)])
             quiet.add (juce::String (i));
     if (! quiet.isEmpty())
@@ -173,11 +178,12 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
     }
     else
     {
-        loaded.orderLength = juce::jmin (order.size(), maxOrderSteps);
-        for (int i = 0; i < loaded.orderLength; ++i)
+        loaded.storedTurns = juce::jmin (order.size(), maxOrderSteps);
+        loaded.orderLength = juce::jlimit (1, loaded.storedTurns, static_cast<int> (tree.getProperty (ids::orderLength, loaded.storedTurns)));
+        for (int i = 0; i < loaded.storedTurns; ++i)
             loaded.order[static_cast<size_t> (i)] = order[i].getIntValue();
         for (const auto& step : juce::StringArray::fromTokens (tree.getProperty (ids::quiet).toString(), ",", {}))
-            if (const int i = step.getIntValue(); i >= 0 && i < loaded.orderLength)
+            if (const int i = step.getIntValue(); i >= 0 && i < loaded.storedTurns)
                 loaded.quiet[static_cast<size_t> (i)] = true;
     }
     sanitise (loaded);

@@ -178,7 +178,42 @@ TEST_CASE ("plugin plays its patterns and handles incoming notes")
         CHECK (render (*plugin, playHead, {}, justUnderTwoBeats).noteOns == std::vector<int> { 60, 62, 64, 60 });
     }
 
+    SECTION ("the drag handles can be automated")
+    {
+        playHead.playing = true;
+
+        SECTION ("a lane length")
+        {
+            setParameter (*plugin, "p1_noteslength", 1.0f); // A's Notes lane repeats its first step
+            CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 77, 60, 79 });
+        }
+
+        SECTION ("the Rotation length")
+        {
+            setParameter (*plugin, "rotationlength", 1.0f); // A alone
+            CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 62, 64, 60 });
+        }
+
+        SECTION ("the loop length")
+        {
+            setParameter (*plugin, "looplength", 2.0f); // starts over every two sixteenths
+            CHECK (render (*plugin, playHead, {}, justUnderOneBeat).noteOns == std::vector<int> { 60, 77, 60, 77 });
+        }
+    }
+
     plugin->releaseResources();
+}
+
+TEST_CASE ("parameters are grouped by pattern slot")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+    CHECK (plugin->getParameters().size() == 99); // under Ableton's 128, so it lists them all
+
+    const auto groups = plugin->getParameterTree().getSubgroups (false);
+    REQUIRE (groups.size() == 8);
+    CHECK (groups[0]->getName() == "Pattern Slot 1");
+    CHECK (groups[0]->getParameters (false).size() == 12);
 }
 
 TEST_CASE ("every parameter starts at its default value")

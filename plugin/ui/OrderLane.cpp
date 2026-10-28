@@ -338,6 +338,7 @@ void OrderLane::setLengthFromX (float x)
     const int steps = juce::jlimit (1, maxOrderSteps, juce::roundToInt ((x - gridArea().getX()) / stepWidth()));
     auto from = dragStart;
     from.setOrderLength (steps);
+    from.pauseFullyQuietPatterns(); // shortening can leave a pattern only quiet turns
     if (from == arrangement)
         return;
 

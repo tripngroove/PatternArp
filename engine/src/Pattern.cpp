@@ -48,6 +48,20 @@ int laneLength (const Pattern& p, Lane lane)
     return own > 0 ? std::min (own, p.length) : p.length;
 }
 
+const char* laneName (Lane lane)
+{
+    switch (lane)
+    {
+        case Lane::notes:    return "Notes";
+        case Lane::velocity: return "Velocity";
+        case Lane::gate:     return "Gate";
+        case Lane::octave:   return "Octave";
+        case Lane::ratchet:  return "Ratchet";
+        case Lane::chance:   return "Chance";
+    }
+    return "";
+}
+
 void resetStep (Step& s, Lane lane, const Pattern& p)
 {
     switch (lane)
@@ -242,6 +256,7 @@ bool Arrangement::addPattern (const Pattern& pattern)
         ++orderLength;
     order[static_cast<size_t> (orderLength - 1)] = numPatterns++;
     quiet[static_cast<size_t> (orderLength - 1)] = false;
+    storedTurns = std::max (storedTurns, orderLength);
     pauseFullyQuietPatterns(); // in case the last step was another pattern's only lit turn
     return true;
 }
@@ -254,17 +269,22 @@ void Arrangement::removePattern (int index)
     std::move (patterns.begin() + index + 1, patterns.begin() + numPatterns, patterns.begin() + index);
     --numPatterns;
 
-    // Close up the Order lane, and renumber the steps of the patterns that moved up.
-    int kept = 0;
-    for (int i = 0; i < orderLength; ++i)
+    // Close up the Order lane (hidden turns too), and renumber the steps of the patterns that
+    // moved up.
+    const int stored = numStoredTurns();
+    int kept = 0, keptShown = 0;
+    for (int i = 0; i < stored; ++i)
     {
         const int owner = order[static_cast<size_t> (i)];
         if (owner == index)
             continue;
         quiet[static_cast<size_t> (kept)] = quiet[static_cast<size_t> (i)];
         order[static_cast<size_t> (kept++)] = owner > index ? owner - 1 : owner;
+        if (i < orderLength)
+            ++keptShown;
     }
-    orderLength = kept;
+    orderLength = keptShown;
+    storedTurns = kept;
 
     if (orderLength == 0)
         alternate();
@@ -276,19 +296,25 @@ void Arrangement::alternate()
     for (int i = 0; i < maxOrderSteps; ++i)
         order[static_cast<size_t> (i)] = numPatterns > 0 ? i % numPatterns : -1;
     quiet.fill (false);
+    storedTurns = 0;
 }
 
 void Arrangement::setOrderLength (int newLength)
 {
     newLength = std::clamp (newLength, 1, maxOrderSteps);
-    const int oldLength = std::clamp (orderLength, 1, maxOrderSteps);
-    for (int i = oldLength; i < newLength; ++i)
+    const int stored = numStoredTurns();
+    for (int i = stored; i < newLength; ++i)
     {
-        order[static_cast<size_t> (i)] = order[static_cast<size_t> (i % oldLength)];
-        quiet[static_cast<size_t> (i)] = quiet[static_cast<size_t> (i % oldLength)];
+        order[static_cast<size_t> (i)] = order[static_cast<size_t> (i % stored)];
+        quiet[static_cast<size_t> (i)] = quiet[static_cast<size_t> (i % stored)];
     }
     orderLength = newLength;
-    pauseFullyQuietPatterns(); // shortening can leave a pattern only its quiet turns
+    storedTurns = std::max (stored, newLength);
+}
+
+int Arrangement::numStoredTurns() const
+{
+    return std::clamp (std::max (orderLength, storedTurns), 1, maxOrderSteps);
 }
 
 bool Arrangement::isHeard (int turn) const
@@ -339,8 +365,6 @@ void Arrangement::setTurn (int turn, int pattern)
     setQuiet (turn, false);
 }
 
-// A pattern whose turns are all quiet is paused instead, so its play button and the host's
-// Play parameter say so.
 void Arrangement::pauseFullyQuietPatterns()
 {
     for (int p = 0; p < numPatterns; ++p)
@@ -362,6 +386,7 @@ void sanitise (Arrangement& a)
 {
     a.numPatterns = std::clamp (a.numPatterns, 0, maxPatterns);
     a.orderLength = std::clamp (a.orderLength, 1, maxOrderSteps);
+    a.storedTurns = std::clamp (a.storedTurns, 0, maxOrderSteps);
     for (size_t i = 0; i < a.order.size(); ++i)
         if (a.order[i] < 0 || a.order[i] >= a.numPatterns)
         {

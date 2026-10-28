@@ -14,6 +14,40 @@ const juce::Identifier stateType { "PatternArpState" };
 constexpr int stateVersion = 5;
 
 const juce::ParameterID latchId { "latch", 1 };
+
+// The Loop Length parameter counts sixteenths, up to the 16 bars the preview shows.
+constexpr int ticksPerSixteenth = ticksPerBeat / 4;
+constexpr int maxLoopSixteenths = 256;
+
+int loopSixteenths (int ticks)
+{
+    return std::clamp (static_cast<int> (std::lround (static_cast<double> (ticks) / ticksPerSixteenth)), 0, maxLoopSixteenths);
+}
+
+juce::String describeSixteenths (int sixteenths)
+{
+    if (sixteenths == 0)
+        return "Natural";
+    if (sixteenths % 16 == 0)
+        return juce::String (sixteenths / 16) + (sixteenths == 16 ? " bar" : " bars");
+    if (sixteenths % 4 == 0)
+        return juce::String (sixteenths / 4) + (sixteenths == 4 ? " beat" : " beats");
+    return juce::String (sixteenths) + "/16";
+}
+
+// Reads back what describeSixteenths writes (or a plain number of sixteenths).
+int parseSixteenths (const juce::String& text)
+{
+    const auto t = text.trim().toLowerCase();
+    if (t.startsWith ("natural"))
+        return 0;
+    const int n = t.getIntValue();
+    if (t.contains ("bar"))
+        return n * 16;
+    if (t.contains ("beat"))
+        return n * 4;
+    return n;
+}
 } // namespace
 
 juce::AudioProcessor::BusesProperties PatternArpProcessor::makeBuses()
@@ -28,9 +62,25 @@ juce::AudioProcessor::BusesProperties PatternArpProcessor::makeBuses()
 
 PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
 {
+    const Arrangement initial;
+
+    // The whole arp: Latch, and the preview's and Rotation lane's drag handles.
     auto latchParameter = std::make_unique<juce::AudioParameterBool> (latchId, "Latch", false);
     latch = latchParameter.get();
     addParameter (latchParameter.release());
+
+    auto loopParameter = std::make_unique<juce::AudioParameterInt> (
+        juce::ParameterID { "looplength", 1 }, "Loop Length", 0, maxLoopSixteenths, 0,
+        juce::AudioParameterIntAttributes()
+            .withStringFromValueFunction ([] (int v, int) { return describeSixteenths (v); })
+            .withValueFromStringFunction ([] (const juce::String& text) { return parseSixteenths (text); }));
+    loopLength = loopParameter.get();
+    addParameter (loopParameter.release());
+
+    auto rotationParameter = std::make_unique<juce::AudioParameterInt> (juce::ParameterID { "rotationlength", 1 }, "Rotation Length", 1,
+                                                                        maxOrderSteps, initial.orderLength);
+    rotationLength = rotationParameter.get();
+    addParameter (rotationParameter.release());
 
     juce::StringArray timings, directions;
     for (int i = 0; i < numTimings; ++i)
@@ -39,19 +89,21 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
 
     // Each slot's defaults match the pattern a new instance starts with there, so the host
     // sees the same values before and after the arrangement is pushed to the parameters.
-    const Arrangement initial;
+    // Every slot gets its own group, which Bitwig shows as a folder.
     const auto newPattern = makeDefaultPattern();
     for (int i = 0; i < maxPatterns; ++i)
     {
-        const auto id = [i] (const char* name) { return juce::ParameterID ("p" + juce::String (i + 1) + "_" + name, 1); };
+        const auto slot = juce::String (i + 1);
+        const auto id = [&slot] (const juce::String& name) { return juce::ParameterID ("p" + slot + "_" + name, 1); };
         // Named by slot, not letter: a slot's letter changes when an earlier pattern is deleted.
-        const auto label = [i] (const char* name) { return "P" + juce::String (i + 1) + " " + name; };
+        const auto label = [&slot] (const juce::String& name) { return "P" + slot + " " + name; };
         auto& pp = patternParameters[static_cast<size_t> (i)];
         const auto& defaults = i < initial.numPatterns ? initial.patterns[static_cast<size_t> (i)] : newPattern;
 
-        auto add = [this] (auto parameter) {
+        auto group = std::make_unique<juce::AudioProcessorParameterGroup> ("p" + slot, "Pattern Slot " + slot, " | ");
+        auto add = [&group] (auto parameter) {
             auto* raw = parameter.get();
-            addParameter (parameter.release());
+            group->addChild (std::move (parameter));
             return raw;
         };
 
@@ -64,6 +116,20 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
         pp.chanceMode = add (std::make_unique<juce::AudioParameterChoice> (id ("chancemode"), label ("Chance Mode"),
                                                                            juce::StringArray { "Rest", "Skip", "Extend" }, 0));
         pp.play = add (std::make_unique<juce::AudioParameterBool> (id ("play"), label ("Play"), true));
+
+        for (int lane = 0; lane < numLanes; ++lane)
+        {
+            const juce::String name = laneName (static_cast<Lane> (lane));
+            pp.laneLength[static_cast<size_t> (lane)] = add (std::make_unique<juce::AudioParameterInt> (
+                id (name.toLowerCase() + "length"), label (name + " Length"), 0, maxSteps, 0,
+                juce::AudioParameterIntAttributes()
+                    .withStringFromValueFunction ([] (int v, int) { return v == 0 ? juce::String ("Full") : juce::String (v); })
+                    .withValueFromStringFunction ([] (const juce::String& text) {
+                        return text.trim().equalsIgnoreCase ("full") ? 0 : text.getIntValue();
+                    })));
+        }
+
+        addParameterGroup (std::move (group));
     }
 
     pushToParameters (arrangement);
@@ -71,19 +137,21 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
     events.reserve (1024);
 }
 
+std::array<juce::RangedAudioParameter*, 6 + numLanes> PatternArpProcessor::PatternParameters::all() const
+{
+    return { timing, length, direction, noteSource, chanceMode, play,
+             laneLength[0], laneLength[1], laneLength[2], laneLength[3], laneLength[4], laneLength[5] };
+}
+
 PatternArpProcessor::ParameterSnapshot PatternArpProcessor::readParameters() const
 {
     ParameterSnapshot values {};
     auto* v = values.data();
     for (const auto& pp : patternParameters)
-    {
-        *v++ = pp.timing->getIndex();
-        *v++ = pp.length->get();
-        *v++ = pp.direction->getIndex();
-        *v++ = pp.noteSource->getIndex();
-        *v++ = pp.chanceMode->getIndex();
-        *v++ = pp.play->get() ? 1 : 0;
-    }
+        for (auto* parameter : pp.all())
+            *v++ = juce::roundToInt (parameter->convertFrom0to1 (parameter->getValue()));
+    values[globalsAt] = loopLength->get();
+    values[globalsAt + 1] = rotationLength->get();
     return values;
 }
 
@@ -99,8 +167,16 @@ void PatternArpProcessor::applyParameters (const ParameterSnapshot& values, Arra
         p.noteSource = static_cast<NoteSource> (v[3]);
         p.chanceMode = static_cast<ChanceMode> (v[4]);
         p.playing = v[5] != 0;
+        for (int lane = 0; lane < numLanes; ++lane)
+            p.laneLength[static_cast<size_t> (lane)] = v[6 + lane];
         sanitise (p);
     }
+
+    // The loop is set in ticks, finer than the parameter: it only takes over once moved
+    // off the value it was given.
+    if (const int loop = values[globalsAt]; loop != loopSixteenths (a.loopLength))
+        a.loopLength = loop * ticksPerSixteenth;
+    a.setOrderLength (values[globalsAt + 1]);
 }
 
 namespace
@@ -128,16 +204,21 @@ void PatternArpProcessor::pushToParameters (const Arrangement& a)
         setPlainValue (*pp.noteSource, static_cast<int> (p.noteSource));
         setPlainValue (*pp.chanceMode, static_cast<int> (p.chanceMode));
         setPlainValue (*pp.play, p.playing ? 1 : 0);
+        for (int lane = 0; lane < numLanes; ++lane)
+            setPlainValue (*pp.laneLength[static_cast<size_t> (lane)], p.laneLength[static_cast<size_t> (lane)]);
     }
+    setPlainValue (*loopLength, loopSixteenths (a.loopLength));
+    setPlainValue (*rotationLength, a.orderLength);
 }
 
 void PatternArpProcessor::setParameters (const ParameterSnapshot& values)
 {
     const auto* v = values.data();
     for (auto& pp : patternParameters)
-        for (auto* parameter : std::initializer_list<juce::RangedAudioParameter*> { pp.timing, pp.length, pp.direction,
-                                                                                    pp.noteSource, pp.chanceMode, pp.play })
+        for (auto* parameter : pp.all())
             setPlainValue (*parameter, *v++);
+    setPlainValue (*loopLength, values[globalsAt]);
+    setPlainValue (*rotationLength, values[globalsAt + 1]);
 }
 
 std::vector<int> PatternArpProcessor::takePlayedNotes()
@@ -406,14 +487,24 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
         setArrangement (loaded);
     }
 
-    if (const auto slotValues = juce::StringArray::fromTokens (state.getProperty ("slots").toString(), ",", {});
-        slotValues.size() == static_cast<int> (ParameterSnapshot {}.size()))
+    // The saved parameter values, which can differ from the arrangement for slots with no
+    // pattern. Saves from before the lane lengths and handles were parameters have only the
+    // first six of each slot; the rest come from the arrangement just loaded.
+    const auto slotValues = juce::StringArray::fromTokens (state.getProperty ("slots").toString(), ",", {});
+    const bool current = slotValues.size() == static_cast<int> (ParameterSnapshot {}.size());
+    const bool old = slotValues.size() == maxPatterns * oldParametersPerPattern;
+    if (current || old)
     {
-        ParameterSnapshot values {};
-        for (size_t i = 0; i < values.size(); ++i)
-            values[i] = slotValues[static_cast<int> (i)].getIntValue();
+        auto values = readParameters();
+        const int stride = current ? parametersPerPattern : oldParametersPerPattern;
+        for (int slot = 0; slot < maxPatterns; ++slot)
+            for (int i = 0; i < stride; ++i)
+                values[static_cast<size_t> (slot * parametersPerPattern + i)] = slotValues[slot * stride + i].getIntValue();
+        if (current)
+            for (size_t i = globalsAt; i < values.size(); ++i)
+                values[i] = slotValues[static_cast<int> (i)].getIntValue();
         if (before64ths)
-            for (size_t i = 0; i < values.size(); i += parametersPerPattern)
+            for (size_t i = 0; i < globalsAt; i += parametersPerPattern)
                 ++values[i]; // timing
         setParameters (values);
     }

@@ -154,6 +154,8 @@ struct Pattern
     bool operator== (const Pattern&) const = default;
 };
 
+const char* laneName (Lane lane);
+
 // Steps a lane loops over: its own length if set and shorter, else the pattern's.
 int laneLength (const Pattern& pattern, Lane lane);
 
@@ -204,6 +206,7 @@ struct Arrangement
     // rest. It loops over its first orderLength steps.
     std::array<int, maxOrderSteps> order {};
     int orderLength = 1;
+    int storedTurns = 0; // like Pattern::storedSteps: turns remembered past the length
 
     // Quiet turns keep their place and their pattern's step length but play nothing, so
     // nothing else moves. Every turn of a paused pattern is quiet too.
@@ -235,8 +238,11 @@ struct Arrangement
     // Makes the Order lane take every pattern in turn: A B C...
     void alternate();
 
-    // Lengthening repeats the steps there already are (A B becomes A B A B...).
+    // Changes the lane's length at the end, like a pattern's Length: shortening hides turns
+    // and remembers them, lengthening brings them back, then repeats the lane from its start
+    // (A B becomes A B A B...).
     void setOrderLength (int newLength);
+    int numStoredTurns() const; // the length, or more if the lane was shortened
 
     // Whether a turn plays: its pattern exists and is playing, and the turn is not quiet.
     bool isHeard (int turn) const;
@@ -250,10 +256,11 @@ struct Arrangement
 
     // Gives a turn to a pattern, lit.
     void setTurn (int turn, int pattern);
-    bool operator== (const Arrangement&) const = default;
-
-private:
+    // Pauses any pattern whose turns are all quiet, so its play button and the host's Play
+    // parameter say so (setQuiet and setTurn do this themselves).
     void pauseFullyQuietPatterns();
+
+    bool operator== (const Arrangement&) const = default;
 };
 
 // Keeps the pattern count and the Order lane inside their legal ranges (steps that name a

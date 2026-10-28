@@ -937,6 +937,26 @@ TEST_CASE ("quiet turns keep their time, and a pattern with every turn quiet is 
         a.setQuiet (0, true);
         a.setQuiet (1, true);
         a.setOrderLength (3);
+        a.pauseFullyQuietPatterns();
         CHECK_FALSE (a.patterns[0].playing);
     }
+}
+
+TEST_CASE ("the Order lane remembers turns hidden by shortening it")
+{
+    auto a = withOrder (arrangementOf ({ patternOf ({ C }), patternOf ({ E }) }), { 0, 1, 1, 0, 1 });
+    a.setQuiet (4, true);
+    a.setOrderLength (2);
+    CHECK (owners (a, 4) == std::vector<int> { 0, 1, 0, 1 });
+
+    a.setOrderLength (7); // the hidden turns come back, then the lane repeats from its start
+    CHECK (std::vector<int> (a.order.begin(), a.order.begin() + 7) == std::vector<int> { 0, 1, 1, 0, 1, 0, 1 });
+    CHECK (a.quiet[4]);
+    CHECK_FALSE (a.quiet[6]);
+
+    a.removePattern (0); // closes up hidden turns too
+    a.setOrderLength (1);
+    a.setOrderLength (16);
+    CHECK (a.order[0] == 0);
+    CHECK (a.order[2] == 0);
 }

@@ -7,20 +7,6 @@
 namespace patternarp
 {
 
-const char* laneName (Lane lane)
-{
-    switch (lane)
-    {
-        case Lane::notes:    return "Notes";
-        case Lane::velocity: return "Velocity";
-        case Lane::gate:     return "Gate";
-        case Lane::octave:   return "Octave";
-        case Lane::ratchet:  return "Ratchet";
-        case Lane::chance:   return "Chance";
-    }
-    return "";
-}
-
 LaneGraph::LaneGraph()
 {
     setRepaintsOnMouseActivity (true);

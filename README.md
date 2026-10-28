@@ -30,7 +30,7 @@ The preview strip shows what will play, with a playhead. Drag the handle at its 
 
 ### Host automation
 
-Each of the 8 pattern slots exposes Play, Timing, Length, Direction, Note Source and Chance Mode as parameters ("P1 Timing"...), plus a global Latch. Slots count from the top of the list, so after a delete "P2" may be pattern C. The Rotation lane, drawn lanes and note selections are saved with the project but are not automatable.
+99 parameters, under the 128 Ableton lists without Configure mode. Globally: Latch, Loop Length (the preview's handle, in sixteenths; "Natural" plays the full loop, and a loop set by hand off the sixteenth grid stays exact until the parameter moves) and Rotation Length (1 to 16). Each of the 8 pattern slots, grouped as "Pattern Slot 1"... (a folder in Bitwig), exposes Play, Timing, Length, Direction, Note Source, Chance Mode and the six lane lengths ("P1 Velocity Length"...; "Full" follows the pattern's length). Slots count from the top of the list, so after a delete "P2" may be pattern C. Lengths work like their handles: steps and turns hidden by shortening come back when lengthened. Which Rotation steps go to which pattern, the drawn lanes and note selections are saved with the project but are not automatable.
 
 ## Formats
 
