@@ -125,9 +125,11 @@ void copyLaneValue (const Step& from, Step& to, Lane lane)
     }
 }
 
-Pattern makeDefaultPattern()
+Pattern makeDefaultPattern (int defaultVelocity, int defaultGate)
 {
     Pattern p;
+    p.defaultVelocity = std::clamp (defaultVelocity, 1, 127);
+    p.defaultGate = std::clamp (defaultGate, 1, 100);
     for (int note : { 60, 64, 67 })
         p.enabledNotes.set (static_cast<size_t> (note));
 
@@ -264,6 +266,25 @@ bool Arrangement::addPattern (const Pattern& pattern)
     storedTurns = std::max (storedTurns, orderLength);
     pauseFullyQuietPatterns(); // in case the last step was another pattern's only lit turn
     return true;
+}
+
+void Arrangement::setStepDefaults (int velocity, int gate)
+{
+    for (auto& p : patterns)
+    {
+        p.defaultVelocity = std::clamp (velocity, 1, 127);
+        p.defaultGate = std::clamp (gate, 1, 100);
+    }
+}
+
+int Arrangement::defaultVelocity() const
+{
+    return numPatterns > 0 ? patterns[0].defaultVelocity : Pattern {}.defaultVelocity;
+}
+
+int Arrangement::defaultGate() const
+{
+    return numPatterns > 0 ? patterns[0].defaultGate : Pattern {}.defaultGate;
 }
 
 void Arrangement::removePattern (int index)

@@ -171,8 +171,9 @@ void resetStep (Step& step, Lane lane, const Pattern& pattern);
 // Copies one lane's value from a step to another, leaving the other lanes alone.
 void copyLaneValue (const Step& from, Step& to, Lane lane);
 
-// A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away.
-Pattern makeDefaultPattern();
+// A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away,
+// with every step at the default velocity and gate.
+Pattern makeDefaultPattern (int defaultVelocity = 100, int defaultGate = 90);
 
 // Changes the number of steps at the end, like the lane handles. Shortening hides steps and
 // remembers them; lengthening brings them back, and past every step the pattern has held so
@@ -236,6 +237,12 @@ struct Arrangement
     // the Order lane (the last step, if the lane is already full). Returns false when there is
     // no room.
     bool addPattern (const Pattern& pattern);
+
+    // The default velocity and gate: what new and reset steps get. They are set for every
+    // pattern at once; steps already set keep their values.
+    void setStepDefaults (int velocity, int gate);
+    int defaultVelocity() const; // the first pattern's (they are all the same), or 100
+    int defaultGate() const;
 
     // Deletes a pattern; its Order steps are removed and the steps after them close up.
     void removePattern (int index);

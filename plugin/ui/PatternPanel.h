@@ -28,7 +28,12 @@ public:
     std::function<void (const Pattern&)> onChange;
     std::function<void()> onClone, onDelete;
 
-    static constexpr int preferredHeight = 400;
+    static constexpr int preferredHeight = 376;
+
+    // Where things are, for tests.
+    juce::Rectangle<int> getPlayButtonBounds() const { return playButton; }
+    juce::Rectangle<int> getTabBounds (Lane lane) const { return tabs[static_cast<size_t> (lane)]; }
+    juce::Rectangle<int> getTabValueBounds (Lane lane) const { return tabValues[static_cast<size_t> (lane)]; }
 
     void paint (juce::Graphics& g) override;
     void paintOverChildren (juce::Graphics& g) override;
@@ -43,32 +48,35 @@ private:
     void changed();
     void updateHoverButtons();
     void updatePausedLook();
+    void layoutHeader();
     void layoutTabs();
     int tabAt (juce::Point<int> p) const; // -1 if none
-    void setDefault (Lane lane, int value);
+    juce::String tabName (Lane lane) const;  // "Chance: "
+    juce::String tabValue (Lane lane) const; // "Rest", or empty for lanes with no value
+    int tabWidth (Lane lane) const;
+    void showChanceMenu();
+    void showCcField();
+    void closeCcField (bool apply);
 
     Pattern pattern;
 
-    ValueBox timing { "Timing" }, length { "Length" }, direction { "Direction" };
+    ValueBox timing { "Step" }, length { "Length" }, direction { "Dir" };
     LaneGraph graph;
     NoteKeyboard keyboard;
     NoteLearner learner; // the current MIDI Learn take
 
     std::array<juce::Rectangle<int>, numLanes> tabs {}; // full height; closed tabs are drawn lower
+    std::array<juce::Rectangle<int>, numLanes> tabValues {}; // the dropdown part of the Chance and CC tabs
     int hoveredTab = -1;
-    std::array<juce::Rectangle<int>, numChanceModes> chanceModeButtons {}; // Rest, Skip, Extend
-    juce::Rectangle<int> playButton;
-
-    // The default value in the Velocity and Gate tabs: drag it up or down, or click to type.
-    struct DefaultValue final : juce::Label
+    // Opened from the CC tab's value. Its hint shows while it is empty, even with the cursor
+    // in it (a plain TextEditor hides it once focused).
+    struct CcField final : juce::TextEditor
     {
-        std::function<void()> onDragStart;
-        std::function<void (int)> onDrag; // units moved since the drag started, up is more
-        void mouseDown (const juce::MouseEvent& e) override;
-        void mouseDrag (const juce::MouseEvent& e) override;
+        void paintOverChildren (juce::Graphics& g) override;
     };
-    DefaultValue defaultEditor;
-    int defaultDragStart = 0; // the default value when a drag began
+    CcField ccField;
+    juce::Rectangle<int> headerRow, playButton, titleArea;
+    std::array<int, 3> dividers {}; // x of the lines between the title, Step, Length and Dir
 
     juce::TextButton cloneButton { "Clone" }, deleteButton { "Delete" };
     bool confirmingDelete = false;
@@ -83,6 +91,16 @@ private:
         PatternPanel& panel;
     };
     HoverWatcher hoverWatcher { *this };
+
+    // While the CC field is open, a click anywhere else closes it (other components do not
+    // take the keyboard focus, so it would not lose it on its own).
+    struct ClickAwayWatcher final : juce::MouseListener
+    {
+        explicit ClickAwayWatcher (PatternPanel& p) : panel (p) {}
+        void mouseDown (const juce::MouseEvent& e) override;
+        PatternPanel& panel;
+    };
+    ClickAwayWatcher clickAway { *this };
 };
 
 } // namespace patternarp
