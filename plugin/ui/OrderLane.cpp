@@ -7,7 +7,7 @@ namespace patternarp
 
 namespace
 {
-constexpr float labelWidth = static_cast<float> (OrderLane::labelWidth);
+constexpr float gridX = static_cast<float> (OrderLane::labelWidth); // where the steps start, after the labels
 constexpr float labelX = static_cast<float> (theme::padding);
 constexpr float rightMargin = 12.0f;
 constexpr float headerHeight = static_cast<float> (OrderLane::collapsedHeight); // the label stays put when opened
@@ -82,17 +82,17 @@ bool OrderLane::isOnHandle (juce::Point<float> p) const
 
 float OrderLane::stepWidth() const
 {
-    return juce::jmin (maxStepWidth, (static_cast<float> (getWidth()) - labelWidth - rightMargin) / static_cast<float> (maxOrderSteps));
+    return juce::jmin (maxStepWidth, (static_cast<float> (getWidth()) - gridX - rightMargin) / static_cast<float> (maxOrderSteps));
 }
 
 juce::Rectangle<float> OrderLane::gridArea() const
 {
     const float width = stepWidth() * static_cast<float> (maxOrderSteps);
     if (! expanded)
-        return { labelWidth, (headerHeight - stepHeight) / 2.0f, width, stepHeight };
+        return { gridX, (headerHeight - stepHeight) / 2.0f, width, stepHeight };
 
     const auto rows = static_cast<float> (juce::jmax (1, arrangement.numPatterns));
-    return { labelWidth, headerHeight + gridMargin, width, rows * rowHeight };
+    return { gridX, headerHeight + gridMargin, width, rows * rowHeight };
 }
 
 int OrderLane::stepAt (float x) const
@@ -121,7 +121,7 @@ void OrderLane::paint (juce::Graphics& g)
 
     g.setColour (theme::ink);
     g.setFont (theme::font (14.0f, true));
-    const auto label = juce::Rectangle<float> (labelX, 0.0f, labelWidth - labelX, expanded ? headerHeight : static_cast<float> (getHeight()));
+    const auto label = juce::Rectangle<float> (labelX, 0.0f, gridX - labelX, expanded ? headerHeight : static_cast<float> (getHeight()));
     g.drawText ("ROTATION", label, juce::Justification::centredLeft);
     const float textWidth = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (theme::font (14.0f, true), "ROTATION"));
     g.setColour (hover ? theme::ink : theme::inkMuted);
@@ -204,7 +204,7 @@ void OrderLane::paintExpanded (juce::Graphics& g)
         g.fillRoundedRectangle (juce::Rectangle<float> (labelX, top + (rowHeight - 10.0f) / 2.0f, 10.0f, 10.0f), 2.0f);
         g.setColour (theme::ink.withAlpha (alpha));
         g.setFont (theme::font (14.0f, true));
-        g.drawText ("Pattern " + theme::patternName (p), juce::Rectangle<float> (labelX + 16.0f, top, labelWidth - labelX - 16.0f, rowHeight),
+        g.drawText ("Pattern " + theme::patternName (p), juce::Rectangle<float> (labelX + 16.0f, top, gridX - labelX - 16.0f, rowHeight),
                     juce::Justification::centredLeft);
 
         for (int i = 0; i < arrangement.orderLength; ++i)
