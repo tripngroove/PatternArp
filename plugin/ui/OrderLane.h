@@ -1,0 +1,84 @@
+#pragma once
+
+#include "patternarp/Pattern.h"
+
+#include <juce_gui_basics/juce_gui_basics.h>
+
+#include <functional>
+
+namespace patternarp
+{
+
+// The Rotation lane (the Order lane in code): whose turn each step of the arp is.
+//
+// Collapsed, it shows the order as a row of lettered steps in each pattern's colour; click it
+// to open the grid, which has a row per pattern and keeps every step where and as it was.
+// Click or drag in the grid to give steps to a pattern. Clicking a step a pattern already has
+// quiets it (dimmed, silent, keeping its time) or lights it again; a pattern with every step
+// quiet is paused, and pausing a pattern dims all its steps. Drag the handle on the grid to
+// change how many steps the lane loops over. Click the header to close it again.
+class OrderLane final : public juce::Component
+{
+public:
+    OrderLane();
+
+    void setArrangement (const Arrangement& arrangement);
+
+    // Called while the order or its length is edited, with the edited arrangement.
+    std::function<void (const Arrangement&)> onEdit;
+
+    // Called when opening or closing changes the height the lane wants.
+    std::function<void()> onHeightChange;
+
+    int getPreferredHeight() const;
+    bool isExpanded() const { return expanded; }
+    void setExpanded (bool shouldExpand);
+
+    static constexpr int collapsedHeight = 40;
+    static constexpr int labelWidth = 104; // "Rotation" and, when open, "Pattern A"...; the steps start after it
+
+    void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDrag (const juce::MouseEvent& e) override;
+    void mouseUp (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
+    void mouseEnter (const juce::MouseEvent& e) override;
+    void mouseExit (const juce::MouseEvent& e) override;
+
+private:
+    enum class Drag
+    {
+        none,
+        paint, // gives each step passed over to the pattern under the mouse
+        quiet, // quiets the passed-over steps of the pattern under the mouse
+        light, // lights them again
+        length
+    };
+
+    juce::Rectangle<float> boxArea() const { return getLocalBounds().toFloat(); }
+    juce::Rectangle<float> headerArea() const;
+    juce::Rectangle<float> gridArea() const; // collapsed: the row of steps
+    float handleX() const;
+    bool isOnHandle (juce::Point<float> p) const; // expanded only
+    float stepWidth() const;
+    int stepAt (float x) const;
+    int rowAt (float y) const;
+
+    void paintCollapsed (juce::Graphics& g);
+    void paintExpanded (juce::Graphics& g);
+    juce::Rectangle<float> stepBox (int step, float y) const; // a step's box, its top at y
+    void paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn) const;
+    void paintHandle (juce::Graphics& g); // the length handle
+
+    void applyAt (juce::Point<float> position);
+    void setLengthFromX (float x);
+    void edited();
+
+    Arrangement arrangement;
+    Arrangement dragStart; // the length handle works from the lane as it was when grabbed
+    bool expanded = false;
+    Drag drag = Drag::none;
+    int lastStep = -1; // so fast drags fill every step they pass
+};
+
+} // namespace patternarp

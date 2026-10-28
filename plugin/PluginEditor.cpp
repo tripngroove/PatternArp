@@ -1,0 +1,524 @@
+#include "PluginEditor.h"
+
+#include "ui/Theme.h"
+
+#include <algorithm>
+#include <functional>
+#include <vector>
+
+namespace patternarp
+{
+
+namespace
+{
+// Vertical spacing sticks to an 8-pixel grid.
+constexpr int topBarHeight = 48;
+constexpr int previewHeight = 120;
+constexpr int gap = 8; // between the boxes
+constexpr double scrollMs = 280.0;
+
+constexpr double maxPreviewBeats = 64.0; // 16 bars on screen
+constexpr double maxExportBeats = 256.0; // 64 bars when dragged out
+constexpr double nonRepeatingBeats = 16.0;
+
+// Settings keys.
+const char* const exportEveryNoteKey = "exportEveryNote";
+const char* const exportWholeBarsKey = "exportWholeBars";
+const char* const loopSnapKey = "loopSnap"; // "timing" or "bars"
+
+// How many times to repeat a loop so it ends on a bar line (4/4), or 1 if that would make
+// the clip longer than `maxBeats`.
+int repeatsToFillBars (double loopBeats, double maxBeats)
+{
+    for (int repeats = 1; repeats * loopBeats <= maxBeats + 1.0e-6; ++repeats)
+    {
+        const double bars = repeats * loopBeats / 4.0;
+        if (std::abs (bars - std::round (bars)) < 1.0e-6)
+            return repeats;
+    }
+    return 1;
+}
+
+juce::PropertiesFile::Options settingsOptions()
+{
+    juce::PropertiesFile::Options options;
+    options.applicationName = "PatternArp";
+    options.filenameSuffix = ".settings";
+    options.folderName = "PatternArp";
+    options.osxLibrarySubFolder = "Application Support";
+    return options;
+}
+} // namespace
+
+PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
+    : AudioProcessorEditor (p), arp (p), settings (std::make_unique<juce::PropertiesFile> (settingsOptions()))
+{
+    setLookAndFeel (&lookAndFeel);
+    preview.onLoopChange = [this] (double beats) { setLoopLength (beats); };
+    addAndMakeVisible (preview);
+
+    order.onEdit = [this] (const Arrangement& edited) {
+        // The Rotation lane can pause or play patterns too, by quieting or lighting their turns.
+        shown.order = edited.order;
+        shown.orderLength = edited.orderLength;
+        shown.quiet = edited.quiet;
+        for (int i = 0; i < shown.numPatterns; ++i)
+            shown.patterns[static_cast<size_t> (i)].playing = edited.patterns[static_cast<size_t> (i)].playing;
+        arp.setArrangement (shown);
+        for (int i = 0; i < panels.size(); ++i)
+            panels[i]->setPattern (shown.patterns[static_cast<size_t> (i)], shown.numPatterns < maxPatterns);
+        previewDirty = true;
+    };
+    order.onHeightChange = [this] { resized(); };
+    addAndMakeVisible (order);
+
+    addButton.setColour (juce::TextButton::buttonColourId, theme::panel);
+    addButton.setColour (juce::TextButton::textColourOffId, theme::ink);
+    addButton.onClick = [this] { addPattern (makeDefaultPattern (shown.defaultVelocity(), shown.defaultGate())); };
+    addButton.setTooltip ("Add a new pattern at the end");
+    addAndMakeVisible (addButton);
+
+    viewport.setViewedComponent (&content, false);
+    viewport.setScrollBarsShown (true, false);
+    addAndMakeVisible (viewport);
+
+    shown = arp.getArrangement();
+    syncPanels();
+
+    setResizable (true, true);
+    setResizeLimits (860, 560, 1800, 2400);
+    setSize (1000, 880);
+
+    updatePreview();
+    startTimerHz (30);
+}
+
+PatternArpEditor::~PatternArpEditor()
+{
+    setLookAndFeel (nullptr);
+}
+
+void PatternArpEditor::paint (juce::Graphics& g)
+{
+    g.fillAll (theme::background);
+
+    g.setColour (theme::ink);
+    g.setFont (theme::font (22.0f, true));
+    g.drawText ("PatternArp", titleArea(), juce::Justification::centredLeft);
+
+    // A small caret says the title opens the settings menu.
+    const auto title = titleArea().toFloat();
+    g.setColour (theme::inkMuted);
+    theme::drawCaret (g, { title.getRight() - theme::caretWidth / 2.0f, title.getCentreY() });
+}
+
+juce::Rectangle<int> PatternArpEditor::titleArea() const
+{
+    const int width = theme::textWidth (theme::font (22.0f, true), "PatternArp") + theme::spacing + static_cast<int> (theme::caretWidth);
+    return { theme::spacing, 0, width, topBarHeight };
+}
+
+void PatternArpEditor::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (titleArea().contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+void PatternArpEditor::mouseDown (const juce::MouseEvent& e)
+{
+    if (titleArea().contains (e.getPosition()))
+        showSettingsMenu();
+}
+
+void PatternArpEditor::showSettingsMenu()
+{
+    const bool everyNote = settings->getBoolValue (exportEveryNoteKey, true);
+
+    juce::PopupMenu dragOut;
+    dragOut.addItem ("Every possible note", true, everyNote, [this] {
+        settings->setValue (exportEveryNoteKey, true);
+        previewDirty = true;
+    });
+    dragOut.addItem ("Roll the dice (what the preview shows)", true, ! everyNote, [this] {
+        settings->setValue (exportEveryNoteKey, false);
+        previewDirty = true;
+    });
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Settings");
+
+    // Latch is a host parameter (automatable and saved with the project), not a user setting.
+    auto& latch = arp.getLatchParameter();
+    menu.addItem ("Latch (MIDI Thru patterns keep playing the last chord after you let go)", true, latch.get(), [&latch] {
+        latch.beginChangeGesture();
+        latch = ! latch.get();
+        latch.endChangeGesture();
+    });
+
+    // What new and reset steps get, in every pattern; saved with the project. Steps already
+    // set keep their values.
+    juce::PopupMenu velocities, gates;
+    const int velocity = shown.defaultVelocity(), gate = shown.defaultGate();
+    const auto choices = [] (std::vector<int> values, int current) {
+        values.push_back (current); // listed even if set some other way
+        std::sort (values.begin(), values.end(), std::greater<>());
+        values.erase (std::unique (values.begin(), values.end()), values.end());
+        return values;
+    };
+    for (const int v : choices ({ 127, 120, 110, 100, 90, 80, 70, 64, 60, 50, 40, 30, 20, 10 }, velocity))
+        velocities.addItem (juce::String (v), true, v == velocity, [this, v] { setStepDefaults (v, shown.defaultGate()); });
+    for (const int v : choices ({ 100, 95, 90, 80, 75, 70, 60, 50, 40, 30, 25, 20, 10, 5 }, gate))
+        gates.addItem (juce::String (v) + "%", true, v == gate, [this, v] { setStepDefaults (shown.defaultVelocity(), v); });
+    const bool anyPatterns = shown.numPatterns > 0;
+    menu.addSubMenu ("Default velocity: " + juce::String (velocity) + " (new and reset steps)", velocities, anyPatterns);
+    menu.addSubMenu ("Default gate: " + juce::String (gate) + "% (new and reset steps)", gates, anyPatterns);
+
+    menu.addSubMenu ("Chance steps in dragged-out clips", dragOut);
+
+    // DAWs such as Bitwig round a dropped MIDI clip up to a whole bar, which leaves a gap in
+    // the loop unless the clip already ends on a bar line.
+    const bool wholeBars = settings->getBoolValue (exportWholeBarsKey, true);
+    menu.addItem ("Drag out whole bars (repeat the loop until it ends on a bar line)", true, wholeBars, [this, wholeBars] {
+        settings->setValue (exportWholeBarsKey, ! wholeBars);
+        previewDirty = true;
+    });
+    const bool snapToBars = settings->getValue (loopSnapKey, "timing") == "bars";
+    juce::PopupMenu snap;
+    snap.addItem ("Smallest pattern timing", true, ! snapToBars, [this] {
+        settings->setValue (loopSnapKey, "timing");
+        previewDirty = true;
+    });
+    snap.addItem ("Bars", true, snapToBars, [this] {
+        settings->setValue (loopSnapKey, "bars");
+        previewDirty = true;
+    });
+    menu.addSubMenu ("Loop handle snaps to", snap);
+
+    menu.addSeparator();
+    menu.addItem ("Copy state for debugging", [this] { copyStateForDebugging(); });
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (
+        localAreaToGlobal (titleArea().withTrimmedTop (topBarHeight - 8))));
+}
+
+void PatternArpEditor::resized()
+{
+    auto area = getLocalBounds();
+    area.removeFromTop (topBarHeight);
+    area.removeFromBottom (gap);
+    area.reduce (theme::spacing, 0);
+    preview.setBounds (area.removeFromTop (previewHeight));
+    area.removeFromTop (gap);
+    auto row = area.removeFromTop (order.getPreferredHeight());
+    const int addWidth = theme::textWidth (theme::font (16.0f), addButton.getButtonText()) + theme::padding * 2;
+    addButton.setBounds (row.removeFromRight (addWidth).withHeight (OrderLane::collapsedHeight));
+    row.removeFromRight (theme::spacing);
+    order.setBounds (row);
+    area.removeFromTop (gap);
+    viewport.setBounds (area);
+    layoutContent();
+}
+
+void PatternArpEditor::layoutContent()
+{
+    const int width = viewport.getMaximumVisibleWidth();
+    constexpr int pitch = PatternPanel::preferredHeight + gap;
+
+    for (int i = 0; i < panels.size(); ++i)
+        panels[i]->setBounds (0, i * pitch, width, PatternPanel::preferredHeight);
+
+    addButton.setEnabled (shown.numPatterns < maxPatterns);
+    content.setSize (width, juce::jmax (0, panels.size() * pitch - gap));
+}
+
+void PatternArpEditor::syncPanels()
+{
+    while (panels.size() > shown.numPatterns)
+        panels.removeLast();
+
+    while (panels.size() < shown.numPatterns)
+    {
+        auto* panel = panels.add (new PatternPanel());
+        const int index = panels.size() - 1;
+        panel->onChange = [this, index] (const Pattern& p) { edit (index, p); };
+        panel->onClone = [this, index] { addPattern (shown.patterns[static_cast<size_t> (index)]); };
+        panel->onDelete = [this, index] { deletePattern (index); };
+        content.addAndMakeVisible (panel);
+    }
+
+    for (int i = 0; i < panels.size(); ++i)
+    {
+        panels[i]->setPattern (shown.patterns[static_cast<size_t> (i)], shown.numPatterns < maxPatterns);
+        panels[i]->setInputNotes (shownInput);
+    }
+
+    order.setArrangement (shown);
+    layoutContent();
+    previewDirty = true;
+}
+
+void PatternArpEditor::refreshFromProcessor()
+{
+    if (const auto current = arp.getArrangement(); ! (current == shown))
+    {
+        shown = current;
+        syncPanels();
+    }
+
+    for (const int note : arp.takePlayedNotes())
+        for (auto* panel : panels)
+            panel->learnNote (note);
+
+    if (const auto input = arp.getInputNotes(); input != shownInput)
+    {
+        shownInput = input;
+        for (auto* panel : panels)
+            panel->setInputNotes (input);
+        if (shown.usesMidiIn())
+            previewDirty = true;
+    }
+}
+
+void PatternArpEditor::edit (int index, const Pattern& pattern)
+{
+    if (index >= shown.numPatterns)
+        return;
+
+    const bool wasPlaying = shown.patterns[static_cast<size_t> (index)].playing;
+    shown.patterns[static_cast<size_t> (index)] = pattern;
+    if (pattern.playing != wasPlaying)
+    {
+        shown.setPlaying (index, pattern.playing); // lights or quiets all of its turns
+        order.setArrangement (shown);
+    }
+    arp.setArrangement (shown);
+    previewDirty = true;
+}
+
+void PatternArpEditor::addPattern (const Pattern& pattern)
+{
+    if (! shown.addPattern (pattern))
+        return;
+
+    arp.setArrangement (shown);
+    syncPanels();
+    scrollToPattern (shown.numPatterns - 1);
+}
+
+void PatternArpEditor::scrollToPattern (int index)
+{
+    constexpr int pitch = PatternPanel::preferredHeight + gap;
+    const int bottom = juce::jmax (0, content.getHeight() - viewport.getMaximumVisibleHeight());
+    scrollFrom = viewport.getViewPositionY();
+    scrollTo = juce::jlimit (0, bottom, index * pitch);
+    scrollStartMs = juce::Time::getMillisecondCounterHiRes();
+}
+
+void PatternArpEditor::animateScroll()
+{
+    if (scrollStartMs < 0.0)
+        return;
+
+    // Eases out: quick at first, settling on the pattern.
+    const double t = juce::jmin (1.0, (juce::Time::getMillisecondCounterHiRes() - scrollStartMs) / scrollMs);
+    const double eased = 1.0 - std::pow (1.0 - t, 3.0);
+    viewport.setViewPosition (0, juce::roundToInt (scrollFrom + (scrollTo - scrollFrom) * eased));
+    if (t >= 1.0)
+        scrollStartMs = -1.0;
+}
+
+void PatternArpEditor::deletePattern (int index)
+{
+    if (index < 0 || index >= shown.numPatterns)
+        return;
+
+    shown.removePattern (index);
+    arp.setArrangement (shown);
+
+    // Called from the deleted panel's button, so let the click finish before removing it.
+    juce::Component::SafePointer<PatternArpEditor> self (this);
+    juce::MessageManager::callAsync ([self] {
+        if (self != nullptr)
+            self->syncPanels();
+    });
+}
+
+// Puts the saved state on the clipboard, with what the editor worked out from it, so it
+// can be pasted into a bug report.
+void PatternArpEditor::copyStateForDebugging()
+{
+    juce::MemoryBlock state;
+    arp.getStateInformation (state);
+    const auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), static_cast<int> (state.getSize()));
+    if (xml == nullptr)
+        return;
+
+    Arrangement natural = shown;
+    natural.loopLength = 0;
+    const auto naturalLoop = findLoop (natural, previewInput);
+    const auto loop = findLoop (shown, previewInput);
+
+    auto* debug = xml->createNewChildElement ("Debug");
+    debug->setAttribute ("naturalRepeats", naturalLoop.repeats);
+    debug->setAttribute ("naturalBeats", naturalLoop.lengthBeats);
+    debug->setAttribute ("naturalSlots", static_cast<int> (naturalLoop.lengthSlots));
+    debug->setAttribute ("loopBeats", loop.lengthBeats);
+    debug->setAttribute ("previewPassBeats", previewPassBeats);
+    debug->setAttribute ("playPosition", arp.getPlayPosition());
+    debug->setAttribute ("loopSnap", settings->getValue (loopSnapKey, "timing"));
+    debug->setAttribute ("exportEveryNote", settings->getBoolValue (exportEveryNoteKey, true));
+    debug->setAttribute ("exportWholeBars", settings->getBoolValue (exportWholeBarsKey, true));
+    juce::SystemClipboard::copyTextToClipboard (xml->toString());
+}
+
+void PatternArpEditor::updatePreview()
+{
+    previewDirty = false;
+
+    // MIDI Thru patterns preview with what is held, so with nothing held they show nothing,
+    // as they play nothing.
+    std::vector<int> input;
+    for (int n = 0; n < 128; ++n)
+        if (shownInput.test (static_cast<size_t> (n)))
+            input.push_back (n);
+    previewInput = input;
+
+    // The preview always shows the natural loop, so the loop handle can be dragged back out.
+    Arrangement natural = shown;
+    natural.loopLength = 0;
+    const auto naturalLoop = findLoop (natural, input);
+    const double viewBeats = juce::jmin (naturalLoop.repeats ? naturalLoop.lengthBeats : nonRepeatingBeats, maxPreviewBeats);
+
+    const auto loop = findLoop (shown, input); // the loop length set by hand, if there is one
+    if (shown.loopLength > 0)
+        previewPassBeats = juce::jmin (loop.lengthBeats, viewBeats);
+    else
+        previewPassBeats = viewBeats; // the natural loop, or as much as is shown
+    shownPass = -1;
+
+    double exportBeats = loop.repeats ? juce::jmin (loop.lengthBeats, maxExportBeats) : nonRepeatingBeats;
+    if (loop.repeats && settings->getBoolValue (exportWholeBarsKey, true))
+        exportBeats = loop.lengthBeats * repeatsToFillBars (loop.lengthBeats, maxExportBeats);
+
+    const bool anyPlaying = std::any_of (shown.patterns.begin(), shown.patterns.begin() + shown.numPatterns,
+                                         [] (const Pattern& pt) { return pt.playing; });
+    const bool anyTurns = std::any_of (shown.order.begin(), shown.order.begin() + shown.orderLength, [this] (int owner) {
+        return owner < 0 || owner >= shown.numPatterns || shown.patterns[static_cast<size_t> (owner)].playing;
+    });
+
+    juce::String label, description;
+    if (shown.numPatterns == 0)
+    {
+        description = "No patterns";
+    }
+    else if (! anyPlaying)
+    {
+        label = description = "All patterns paused";
+    }
+    else if (! anyTurns)
+    {
+        label = description = "Every pattern in the order is paused";
+    }
+    else if (loop.repeats)
+    {
+        label = "Repeats every " + juce::String (describeLength (loop.lengthBeats));
+        description = "Loop length: " + juce::String (describeLength (loop.lengthBeats));
+        if (viewBeats < (naturalLoop.repeats ? naturalLoop.lengthBeats : viewBeats))
+            description << " (showing the first " << describeLength (viewBeats) << ")";
+    }
+    else
+    {
+        label = "Never repeats exactly";
+        description = "Random directions never repeat exactly; showing " + juce::String (describeLength (viewBeats));
+    }
+
+    if (shown.numPatterns > 0)
+        description << "\nDragged-out clip: " << describeLength (exportBeats);
+
+    // By default dragged-out clips hold every note a percent-chance step could play, so chance
+    // can be set again in the DAW (MIDI files have no way to carry it). The other setting
+    // exports the roll the preview shows.
+    Arrangement exported = shown;
+    if (settings->getBoolValue (exportEveryNoteKey, true))
+        for (auto& pattern : exported.patterns)
+            for (auto& step : pattern.steps)
+                if (step.chance > 0)
+                    step.chance = 100;
+
+    std::array<int, maxPatterns> colours {};
+    for (int i = 0; i < maxPatterns; ++i)
+        colours[static_cast<size_t> (i)] = shown.patterns[static_cast<size_t> (i)].colour;
+    preview.setColours (colours);
+
+    preview.setNotes (render (natural, viewBeats, input), viewBeats, render (exported, exportBeats, input), exportBeats, description);
+
+    // The handle snaps to bars or to the shortest step of any playing pattern.
+    double snap = 4.0;
+    if (settings->getValue (loopSnapKey, "timing") != "bars")
+    {
+        snap = 1.0;
+        for (int i = 0; i < shown.numPatterns; ++i)
+            if (const auto& pt = shown.patterns[static_cast<size_t> (i)]; pt.playing)
+                snap = juce::jmin (snap, beatsPerStep (pt.timing));
+    }
+
+    const double handle = shown.loopLength > 0 ? previewPassBeats : viewBeats;
+    preview.setLoop (handle, snap, label);
+}
+
+void PatternArpEditor::setStepDefaults (int velocity, int gate)
+{
+    shown.setStepDefaults (velocity, gate);
+    arp.setArrangement (shown);
+    syncPanels();
+}
+
+void PatternArpEditor::setLoopLength (double beats)
+{
+    shown.loopLength = beats > 0.0 ? static_cast<int> (std::lround (beats * ticksPerBeat)) : 0;
+    arp.setArrangement (shown);
+    previewDirty = true;
+}
+
+void PatternArpEditor::timerCallback()
+{
+    refreshFromProcessor();
+    if (previewDirty)
+        updatePreview();
+
+    updatePlayhead();
+}
+
+void PatternArpEditor::updatePlayhead()
+{
+    const double position = arp.getPlayPosition();
+    if (position < 0.0 || previewPassBeats <= 0.0 || shown.numPatterns == 0)
+    {
+        if (shownPass != -1)
+        {
+            shownPass = -1;
+            preview.setPass ({}, {}, 0.0);
+        }
+        preview.setPlayhead (-1.0);
+        return;
+    }
+
+    // Each time the playhead wraps, show the pass now playing and, behind the playhead, the
+    // one after it, so random choices visibly change from pass to pass.
+    const auto pass = static_cast<std::int64_t> (std::floor (position / previewPassBeats));
+    const double passStart = static_cast<double> (pass) * previewPassBeats;
+    preview.setPlayhead (position - passStart);
+
+    if (pass != shownPass)
+    {
+        shownPass = pass;
+        auto passNotes = [this] (double from) {
+            auto notes = render (shown, from, from + previewPassBeats, previewInput);
+            for (auto& n : notes)
+                n.start -= from;
+            return notes;
+        };
+        preview.setPass (passNotes (passStart), passNotes (passStart + previewPassBeats), previewPassBeats);
+    }
+}
+
+} // namespace patternarp
