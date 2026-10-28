@@ -80,6 +80,7 @@ void NoteLearner::learn (Pattern& p, int note)
     for (; p.length < count; ++p.length)
         for (int lane = 0; lane < numLanes; ++lane)
             resetStep (p.steps[static_cast<size_t> (p.length)], static_cast<Lane> (lane), p);
+    p.storedSteps = p.length; // a take forgets steps hidden from before it
 
     // Steps pick from the enabled notes, lowest to highest, so a new note shifts the others:
     // point every learned step at its note again.
@@ -128,39 +129,19 @@ Pattern makeDefaultPattern()
 void setPatternLength (Pattern& pattern, int newLength)
 {
     newLength = std::clamp (newLength, 1, maxSteps);
-    const int oldLength = std::clamp (pattern.length, 1, maxSteps);
-    if (newLength == oldLength)
-        return;
+    const int stored = storedSteps (pattern);
 
-    const auto old = pattern.steps;
-
-    // Sample each lane at the centre of each new step, measured in old steps.
-    for (int i = 0; i < newLength; ++i)
-    {
-        const double pos = (static_cast<double> (i) + 0.5) * oldLength / newLength - 0.5;
-        const int lo = std::clamp (static_cast<int> (std::floor (pos)), 0, oldLength - 1);
-        const int hi = std::min (lo + 1, oldLength - 1);
-        const double t = std::clamp (pos - lo, 0.0, 1.0);
-        const int nearest = std::clamp (static_cast<int> (std::lround (pos)), 0, oldLength - 1);
-
-        const auto& a = old[static_cast<size_t> (lo)];
-        const auto& b = old[static_cast<size_t> (hi)];
-        const auto& n = old[static_cast<size_t> (nearest)];
-        auto& s = pattern.steps[static_cast<size_t> (i)];
-
-        s.note = static_cast<float> (a.note + (b.note - a.note) * t);
-        s.velocity = static_cast<int> (std::lround (a.velocity + (b.velocity - a.velocity) * t));
-        s.gate = static_cast<int> (std::lround (a.gate + (b.gate - a.gate) * t));
-        s.octave = n.octave;
-        s.ratchet = n.ratchet;
-        s.chance = n.chance;
-    }
-
-    // Steps past the new end keep sensible values in case the pattern grows again later.
-    for (int i = newLength; i < maxSteps; ++i)
-        pattern.steps[static_cast<size_t> (i)] = pattern.steps[static_cast<size_t> (newLength - 1)];
+    // Steps no one has used yet repeat the pattern from its start.
+    for (int i = stored; i < newLength; ++i)
+        pattern.steps[static_cast<size_t> (i)] = pattern.steps[static_cast<size_t> (i % stored)];
 
     pattern.length = newLength;
+    pattern.storedSteps = std::max (stored, newLength);
+}
+
+int storedSteps (const Pattern& p)
+{
+    return std::clamp (std::max (p.length, p.storedSteps), 1, maxSteps);
 }
 
 void sanitise (Pattern& p)
@@ -170,6 +151,7 @@ void sanitise (Pattern& p)
     p.chanceMode = static_cast<ChanceMode> (std::clamp (static_cast<int> (p.chanceMode), 0, numChanceModes - 1));
     p.noteSource = p.noteSource == NoteSource::midiIn ? NoteSource::midiIn : NoteSource::select;
     p.length = std::clamp (p.length, 1, maxSteps);
+    p.storedSteps = std::clamp (p.storedSteps, 0, maxSteps);
     p.defaultVelocity = std::clamp (p.defaultVelocity, 1, 127);
     p.defaultGate = std::clamp (p.defaultGate, 1, 100);
     p.colour = std::clamp (p.colour, 0, maxPatterns - 1);

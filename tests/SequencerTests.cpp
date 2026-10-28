@@ -611,28 +611,47 @@ TEST_CASE ("per-step lanes")
     }
 }
 
-TEST_CASE ("changing length keeps the shape of every lane")
+TEST_CASE ("changing length works at the end and remembers hidden steps")
 {
     Pattern p = makeDefaultPattern();
-    p.length = 4;
-    p.steps[0].note = 0.0f;
-    p.steps[1].note = 1.0f / 3.0f;
-    p.steps[2].note = 2.0f / 3.0f;
-    p.steps[3].note = 1.0f;
-    p.steps[3].octave = 2;
+    p.length = 3;
+    for (int i = 0; i < maxSteps; ++i)
+        p.steps[static_cast<size_t> (i)].velocity = 10 + i; // stale values past the end
+    const auto velocities = [&p] {
+        std::vector<int> v;
+        for (int i = 0; i < p.length; ++i)
+            v.push_back (p.steps[static_cast<size_t> (i)].velocity);
+        return v;
+    };
 
-    setPatternLength (p, 8);
-    CHECK (p.length == 8);
-    CHECK (p.steps[0].note == Catch::Approx (0.0f));
-    CHECK (p.steps[7].note == Catch::Approx (1.0f));
-    for (int i = 1; i < 8; ++i)
-        CHECK (p.steps[static_cast<size_t> (i)].note >= p.steps[static_cast<size_t> (i - 1)].note);
-    CHECK (p.steps[7].octave == 2);
-    CHECK (p.steps[0].octave == 0);
+    SECTION ("new steps repeat the pattern from its start")
+    {
+        setPatternLength (p, 8);
+        CHECK (velocities() == std::vector<int> { 10, 11, 12, 10, 11, 12, 10, 11 });
+    }
 
-    setPatternLength (p, 2);
-    CHECK (p.steps[0].note < 0.5f);
-    CHECK (p.steps[1].note > 0.5f);
+    SECTION ("shortening hides steps, and lengthening brings them back first")
+    {
+        setPatternLength (p, 5); // 10 11 12 10 11
+        p.steps[3].velocity = 99;
+        p.steps[4].velocity = 98;
+        setPatternLength (p, 2);
+        CHECK (velocities() == std::vector<int> { 10, 11 });
+        setPatternLength (p, 7);
+        CHECK (velocities() == std::vector<int> { 10, 11, 12, 99, 98, 10, 11 });
+    }
+
+    SECTION ("a MIDI Learn take forgets what was hidden")
+    {
+        setPatternLength (p, 6);
+        setPatternLength (p, 3);
+        NoteLearner take;
+        take.learn (p, 60);
+        take.learn (p, 64);
+        setPatternLength (p, 4);
+        CHECK (p.steps[2].note == p.steps[0].note);
+        CHECK (p.steps[3].note == p.steps[1].note);
+    }
 }
 
 TEST_CASE ("describeLength uses the largest whole unit")

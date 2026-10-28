@@ -17,7 +17,7 @@ Each pattern has these settings. Click a value to pick from a list, or use its a
 | Setting | What it does |
 | --- | --- |
 | Timing | How long each of its notes lasts, 1/64 to a whole note (triplets included) |
-| Length | Number of steps, 1 to 16. Changing it in the editor resamples the drawn lanes; automating it just plays fewer or more steps and keeps the rest. |
+| Length | Number of steps, 1 to 16. Steps come off or on at the end, from the editor or automation alike. Steps hidden by shortening are remembered and come back when it grows again; steps never used before repeat the pattern from its first step. |
 | Direction | Forward, Backward, Ping-pong, Random, Walk (random step up or down) |
 | Play / Pause | The button by the pattern name. It shows playing while any of the pattern's Rotation steps are lit; pausing quiets them all (they keep their time, so nothing else moves) and playing lights them all again. Automatable as "P1 Play"... |
 | Notes (Piano Roll / MIDI Thru) | Piano Roll: the notes switched on in its keyboard. MIDI Learn (under the switch) pulses red while armed. The first note you play starts the pattern afresh (just that note, one step, every lane back to its default); each note after it is switched on and added as the next step of the Notes lane, up to 16 steps. Timing, direction and the other settings stay. Click it again ("Done") to stop. MIDI Thru: the notes you hold, with the Notes lane running from the lowest held note to the highest. A MIDI Thru pattern rests while nothing is held; Latch, in the settings menu (click the PatternArp title), keeps the last chord. Note names follow Bitwig, Ableton and Logic: MIDI note 60 is C3. |

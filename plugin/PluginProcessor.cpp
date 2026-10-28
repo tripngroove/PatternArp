@@ -94,7 +94,7 @@ void PatternArpProcessor::applyParameters (const ParameterSnapshot& values, Arra
         const auto* v = values.data() + i * parametersPerPattern;
         auto& p = a.patterns[static_cast<size_t> (i)];
         p.timing = static_cast<Timing> (v[0]);
-        p.length = v[1]; // automation only shortens or lengthens; the steps stay as drawn
+        setPatternLength (p, v[1]); // the same as the editor: from the end, hidden steps remembered
         p.direction = static_cast<Direction> (v[2]);
         p.noteSource = static_cast<NoteSource> (v[3]);
         p.chanceMode = static_cast<ChanceMode> (v[4]);

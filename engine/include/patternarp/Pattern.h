@@ -122,6 +122,11 @@ struct Pattern
     Timing timing = Timing::sixteenth;
     int length = 8; // 1..maxSteps
 
+    // Steps past the length that are remembered from before the pattern was shortened (see
+    // setPatternLength). Up to this many steps hold something; 0 or anything up to the
+    // length means just the length.
+    int storedSteps = 0;
+
     Direction direction = Direction::forward;
     ChanceMode chanceMode = ChanceMode::rest;
 
@@ -162,10 +167,13 @@ void copyLaneValue (const Step& from, Step& to, Lane lane);
 // A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away.
 Pattern makeDefaultPattern();
 
-// Changes the number of steps, re-bucketing every lane so its shape is kept: smooth lanes
-// (notes, velocity, gate) are interpolated, stepped lanes (octave, ratchet, chance) take
-// the nearest original step.
+// Changes the number of steps at the end, like the lane handles. Shortening hides steps and
+// remembers them; lengthening brings them back, and past every step the pattern has held so
+// far, repeats it from its first step (looping as often as needed).
 void setPatternLength (Pattern& pattern, int newLength);
+
+// How many steps hold something: the length, or more if the pattern was shortened.
+int storedSteps (const Pattern& pattern);
 
 // MIDI Learn: a take starts the pattern afresh with the first note played (no notes, one
 // step, every lane at its default and full length), then each note played is switched on and

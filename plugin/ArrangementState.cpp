@@ -14,6 +14,7 @@ const juce::Identifier order { "order" };
 const juce::Identifier quiet { "quiet" };
 const juce::Identifier timing { "timing" };
 const juce::Identifier length { "length" };
+const juce::Identifier storedSteps { "storedSteps" };
 const juce::Identifier direction { "direction" };
 const juce::Identifier chanceMode { "chanceMode" };
 const juce::Identifier noteSource { "noteSource" };
@@ -103,6 +104,8 @@ juce::ValueTree toValueTree (const Arrangement& a)
         juce::ValueTree child (ids::pattern);
         child.setProperty (ids::timing, static_cast<int> (p.timing), nullptr);
         child.setProperty (ids::length, p.length, nullptr);
+        if (p.storedSteps > p.length)
+            child.setProperty (ids::storedSteps, p.storedSteps, nullptr);
         child.setProperty (ids::direction, static_cast<int> (p.direction), nullptr);
         child.setProperty (ids::chanceMode, static_cast<int> (p.chanceMode), nullptr);
         child.setProperty (ids::noteSource, static_cast<int> (p.noteSource), nullptr);
@@ -141,6 +144,7 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
         Pattern p = makeDefaultPattern();
         p.timing = static_cast<Timing> (static_cast<int> (child.getProperty (ids::timing, static_cast<int> (p.timing))));
         p.length = child.getProperty (ids::length, p.length);
+        p.storedSteps = child.getProperty (ids::storedSteps, 0);
         p.direction = static_cast<Direction> (static_cast<int> (child.getProperty (ids::direction, 0)));
         p.chanceMode = static_cast<ChanceMode> (static_cast<int> (child.getProperty (ids::chanceMode, 0)));
         p.noteSource = static_cast<NoteSource> (static_cast<int> (child.getProperty (ids::noteSource, 0)));
