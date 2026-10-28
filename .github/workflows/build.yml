@@ -58,8 +58,13 @@ jobs:
       - name: Build
         run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel 4
 
-      - name: Engine tests
-        run: ctest --test-dir build --build-config ${{ env.BUILD_TYPE }} --output-on-failure
+      - name: Tests
+        shell: bash
+        run: |
+          # The plugin test opens the editor, which needs a display on Linux.
+          wrap=()
+          if [ "$RUNNER_OS" = "Linux" ]; then wrap=(xvfb-run -a); fi
+          "${wrap[@]}" ctest --test-dir build --build-config ${{ env.BUILD_TYPE }} --output-on-failure
 
       # --- Validation -------------------------------------------------------------------
 
