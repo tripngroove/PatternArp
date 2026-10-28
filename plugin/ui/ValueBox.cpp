@@ -7,15 +7,14 @@ namespace patternarp
 
 namespace
 {
-constexpr int captionGap = 4; // between the caption and its box
-constexpr int arrowWidth = 18;
+constexpr int captionGap = 4; // between the caption and the value's hover backing
 constexpr int pixelsPerStep = 8;
 
 juce::Font captionFont() { return theme::font (15.0f); }
-juce::Font valueFont() { return theme::font (16.0f); }
+juce::Font valueFont() { return theme::font (15.0f, true); }
 } // namespace
 
-ValueBox::ValueBox (juce::String captionText) : caption (std::move (captionText))
+ValueBox::ValueBox (juce::String captionText) : caption (std::move (captionText)), accent (theme::ink)
 {
     setName (caption);
     setRepaintsOnMouseActivity (true);
@@ -39,6 +38,15 @@ void ValueBox::setValue (int newValue)
     }
 }
 
+void ValueBox::setAccent (juce::Colour colour)
+{
+    if (colour != accent)
+    {
+        accent = colour;
+        repaint();
+    }
+}
+
 void ValueBox::change (int newValue)
 {
     newValue = juce::jlimit (minValue, maxValue, newValue);
@@ -51,22 +59,20 @@ void ValueBox::change (int newValue)
         onChange (value);
 }
 
+int ValueBox::captionWidth() const
+{
+    return theme::textWidth (captionFont(), caption + ":");
+}
+
 int ValueBox::getPreferredWidth() const
 {
-    int widest = 0;
-    for (int v = minValue; v <= maxValue; ++v)
-        widest = juce::jmax (widest, theme::textWidth (valueFont(), toText (v)));
-    return theme::textWidth (captionFont(), caption + ":") + captionGap + theme::padding + widest + arrowWidth + 2;
+    return captionWidth() + captionGap + valueInset * 2 + theme::textWidth (valueFont(), toText (value));
 }
 
-juce::Rectangle<int> ValueBox::boxArea() const
+juce::Rectangle<int> ValueBox::valueArea() const
 {
-    return getLocalBounds().withTrimmedLeft (theme::textWidth (captionFont(), caption + ":") + captionGap).reduced (1);
-}
-
-juce::Rectangle<int> ValueBox::arrowArea() const
-{
-    return boxArea().removeFromRight (arrowWidth);
+    const int width = theme::textWidth (valueFont(), toText (value)) + valueInset * 2;
+    return getLocalBounds().withTrimmedLeft (captionWidth() + captionGap).withWidth (width).withSizeKeepingCentre (width, 24);
 }
 
 void ValueBox::paint (juce::Graphics& g)
@@ -75,45 +81,32 @@ void ValueBox::paint (juce::Graphics& g)
     g.setFont (captionFont());
     g.drawText (caption + ":", getLocalBounds(), juce::Justification::centredLeft);
 
-    const auto box = boxArea();
-    g.setColour (isMouseOver (true) ? theme::hover : theme::panel);
-    g.fillRect (box);
-    g.setColour (theme::ink);
-    g.drawRect (box, 1);
+    const auto area = valueArea();
+    if (isMouseOver() && area.contains (getMouseXYRelative()))
+    {
+        g.setColour (theme::hover);
+        g.fillRoundedRectangle (area.toFloat(), theme::cornerRadius);
+    }
 
-    // Two small chevrons, stacked: up above the middle, down below it.
-    const auto arrows = arrowArea().toFloat();
-    auto drawChevron = [&] (float centreY, bool up) {
-        const float x = arrows.getCentreX(), dy = up ? -2.0f : 2.0f;
-        juce::Path p;
-        p.startNewSubPath (x - 4.0f, centreY - dy);
-        p.lineTo (x, centreY + dy);
-        p.lineTo (x + 4.0f, centreY - dy);
-        g.strokePath (p, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    };
-    g.setColour (value < maxValue ? theme::ink : theme::inkMuted.withAlpha (0.5f));
-    drawChevron (arrows.getCentreY() - 4.5f, true);
-    g.setColour (value > minValue ? theme::ink : theme::inkMuted.withAlpha (0.5f));
-    drawChevron (arrows.getCentreY() + 4.5f, false);
-
-    g.setColour (theme::ink);
+    g.setColour (accent);
     g.setFont (valueFont());
-    g.drawText (toText (value), box.withTrimmedLeft (theme::padding).withTrimmedRight (arrowWidth), juce::Justification::centredLeft);
+    g.drawText (toText (value), area.reduced (valueInset, 0), juce::Justification::centredLeft);
 }
 
-void ValueBox::mouseDown (const juce::MouseEvent& e)
+void ValueBox::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (valueArea().contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+void ValueBox::mouseDown (const juce::MouseEvent&)
 {
     draggingValue = false;
     dragStartValue = value;
-
-    const auto arrows = arrowArea();
-    if (arrows.contains (e.getPosition()))
-        change (value + (e.y < arrows.getCentreY() ? 1 : -1));
 }
 
 void ValueBox::mouseDrag (const juce::MouseEvent& e)
 {
-    if (! boxArea().contains (e.getMouseDownPosition()) || arrowArea().contains (e.getMouseDownPosition()))
+    if (! valueArea().contains (e.getMouseDownPosition()))
         return;
 
     if (! draggingValue && std::abs (e.getDistanceFromDragStartY()) < 3)
@@ -125,7 +118,7 @@ void ValueBox::mouseDrag (const juce::MouseEvent& e)
 
 void ValueBox::mouseUp (const juce::MouseEvent& e)
 {
-    if (! draggingValue && boxArea().contains (e.getMouseDownPosition()) && ! arrowArea().contains (e.getMouseDownPosition()))
+    if (! draggingValue && valueArea().contains (e.getMouseDownPosition()))
         showList();
 }
 
@@ -137,8 +130,7 @@ void ValueBox::showList()
 
     menu.showMenuAsync (juce::PopupMenu::Options()
                             .withTargetComponent (this)
-                            .withTargetScreenArea (localAreaToGlobal (boxArea()))
-                            .withMinimumWidth (boxArea().getWidth())
+                            .withTargetScreenArea (localAreaToGlobal (valueArea()))
                             .withItemThatMustBeVisible (value - minValue + 1),
                         [safe = juce::Component::SafePointer<ValueBox> (this)] (int chosen) {
                             if (safe != nullptr && chosen > 0)

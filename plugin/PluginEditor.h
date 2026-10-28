@@ -4,6 +4,7 @@
 #include "ui/OrderLane.h"
 #include "ui/PatternPanel.h"
 #include "ui/PreviewComponent.h"
+#include "ui/Theme.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -14,6 +15,7 @@ class PatternArpEditor final : public juce::AudioProcessorEditor, private juce::
 {
 public:
     explicit PatternArpEditor (PatternArpProcessor& processor);
+    ~PatternArpEditor() override;
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -52,6 +54,7 @@ private:
 
     void updatePlayhead();
 
+    theme::LookAndFeel lookAndFeel; // before the components that use it, so it outlives them
     juce::TooltipWindow tooltips { this, 500 };
     PreviewComponent preview;
     OrderLane order;
@@ -59,7 +62,7 @@ private:
     juce::Viewport viewport;
     juce::Component content;
     juce::OwnedArray<PatternPanel> panels;
-    juce::TextButton addButton { "+ ADD PATTERN" }; // beside the Rotation lane
+    juce::TextButton addButton { "+ Add pattern" }; // beside the Rotation lane
 
     // A quick scroll down to a pattern that was just added, so it is clear where it went.
     double scrollFrom = 0.0, scrollTo = 0.0, scrollStartMs = -1.0; // -1: not scrolling

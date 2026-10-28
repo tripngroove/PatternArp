@@ -142,16 +142,16 @@ void NoteKeyboard::paint (juce::Graphics& g)
             const double phase = juce::Time::getMillisecondCounterHiRes() / 1000.0 * juce::MathConstants<double>::twoPi;
             const auto pulse = static_cast<float> (0.5 + 0.5 * std::cos (phase));
             g.setColour (theme::danger.withAlpha (0.45f + 0.55f * pulse));
-            g.fillRoundedRectangle (r, 4.0f);
+            g.fillRoundedRectangle (r, theme::cornerRadius);
             g.setColour (juce::Colours::white);
             text = hover ? "Done" : "Play Notes";
         }
         else
         {
             g.setColour (hover ? theme::hover : theme::panel);
-            g.fillRoundedRectangle (r, 4.0f);
+            g.fillRoundedRectangle (r, theme::cornerRadius);
             g.setColour (theme::ink);
-            g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.0f);
+            g.drawRoundedRectangle (r.reduced (0.5f), theme::cornerRadius, 1.0f);
         }
         g.setFont (theme::font (14.0f, learning));
         g.drawText (text, r, juce::Justification::centred);
@@ -204,7 +204,7 @@ void NoteKeyboard::paint (juce::Graphics& g)
         const auto w = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (f, text)) + 10.0f;
         const auto pill = juce::Rectangle<float> (static_cast<float> (area.getRight()) - w - 4.0f, static_cast<float> (area.getY()) + 4.0f, w, 16.0f);
         g.setColour (theme::panel.withAlpha (0.9f));
-        g.fillRoundedRectangle (pill, 3.0f);
+        g.fillRoundedRectangle (pill, theme::cornerRadius);
         g.setColour (theme::ink);
         g.setFont (f);
         g.drawText (text, pill, juce::Justification::centred);

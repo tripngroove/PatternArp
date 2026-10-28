@@ -80,7 +80,7 @@ void PreviewComponent::setPlayhead (double beat)
 
 juce::Rectangle<float> PreviewComponent::boxArea() const
 {
-    return getLocalBounds().toFloat().reduced (1.0f);
+    return getLocalBounds().toFloat(); // the outline is drawn inside, level with the boxes below
 }
 
 juce::Rectangle<float> PreviewComponent::rollArea() const
@@ -171,9 +171,9 @@ void PreviewComponent::paint (juce::Graphics& g)
             }
 
             g.setColour (colour.withAlpha (0.45f + 0.55f * static_cast<float> (n.velocity) / 127.0f));
-            g.fillRoundedRectangle (r, 1.5f);
+            g.fillRoundedRectangle (r, theme::cornerRadius);
             g.setColour (colour.darker (0.4f));
-            g.drawRoundedRectangle (r, 1.5f, 0.75f);
+            g.drawRoundedRectangle (r, theme::cornerRadius, 0.75f);
         }
     }
 

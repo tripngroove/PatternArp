@@ -48,11 +48,14 @@ private:
     void changed();
     void updateHoverButtons();
     void updatePausedLook();
+    void layoutHeader();
     void layoutTabs();
     int tabAt (juce::Point<int> p) const; // -1 if none
     juce::String tabText (Lane lane) const;
     int tabWidth (Lane lane) const;
-    void showTabMenu (Lane lane);
+    void showChanceMenu();
+    void showCcField();
+    void closeCcField (bool apply);
 
     Pattern pattern;
 
@@ -64,7 +67,15 @@ private:
     std::array<juce::Rectangle<int>, numLanes> tabs {}; // full height; closed tabs are drawn lower
     std::array<juce::Rectangle<int>, numLanes> tabValues {}; // the dropdown part of the Chance and CC tabs
     int hoveredTab = -1;
-    juce::Rectangle<int> playButton, titleArea;
+    // Opened from the CC tab's value. Its hint shows while it is empty, even with the cursor
+    // in it (a plain TextEditor hides it once focused).
+    struct CcField final : juce::TextEditor
+    {
+        void paintOverChildren (juce::Graphics& g) override;
+    };
+    CcField ccField;
+    juce::Rectangle<int> headerRow, playButton, titleArea;
+    std::array<int, 3> dividers {}; // x of the lines between the title, Step, Length and Dir
 
     juce::TextButton cloneButton { "Clone" }, deleteButton { "Delete" };
     bool confirmingDelete = false;
@@ -79,6 +90,16 @@ private:
         PatternPanel& panel;
     };
     HoverWatcher hoverWatcher { *this };
+
+    // While the CC field is open, a click anywhere else closes it (other components do not
+    // take the keyboard focus, so it would not lose it on its own).
+    struct ClickAwayWatcher final : juce::MouseListener
+    {
+        explicit ClickAwayWatcher (PatternPanel& p) : panel (p) {}
+        void mouseDown (const juce::MouseEvent& e) override;
+        PatternPanel& panel;
+    };
+    ClickAwayWatcher clickAway { *this };
 };
 
 } // namespace patternarp

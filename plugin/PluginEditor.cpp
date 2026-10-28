@@ -53,6 +53,7 @@ juce::PropertiesFile::Options settingsOptions()
 PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
     : AudioProcessorEditor (p), arp (p), settings (std::make_unique<juce::PropertiesFile> (settingsOptions()))
 {
+    setLookAndFeel (&lookAndFeel);
     preview.onLoopChange = [this] (double beats) { setLoopLength (beats); };
     addAndMakeVisible (preview);
 
@@ -90,6 +91,11 @@ PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
 
     updatePreview();
     startTimerHz (30);
+}
+
+PatternArpEditor::~PatternArpEditor()
+{
+    setLookAndFeel (nullptr);
 }
 
 void PatternArpEditor::paint (juce::Graphics& g)

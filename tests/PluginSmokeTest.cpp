@@ -537,8 +537,8 @@ TEST_CASE ("clicking a value box opens its list")
     auto* timing = w.find ("Step");
     REQUIRE (timing != nullptr);
 
-    // Click the value: right of the caption, left of the arrows (see ValueBox.cpp).
-    w.click (w.editor->getLocalPoint (timing, juce::Point<float> (static_cast<float> (timing->getWidth()) - 30.0f,
+    // Click the value, right of the caption (see ValueBox.cpp).
+    w.click (w.editor->getLocalPoint (timing, juce::Point<float> (static_cast<float> (timing->getWidth()) - 20.0f,
                                                                   static_cast<float> (timing->getHeight()) / 2.0f)));
     CHECK (juce::PopupMenu::dismissAllActiveMenus());
 }
@@ -627,7 +627,7 @@ TEST_CASE ("double-clicking a lane tab resets that lane")
         CHECK (note == "0");
 }
 
-TEST_CASE ("the Chance and CC tabs open their lists from their value")
+TEST_CASE ("the Chance tab opens its list from its value, and the CC tab a field")
 {
     WindowedEditor w;
     REQUIRE (w.peer != nullptr);
@@ -641,13 +641,40 @@ TEST_CASE ("the Chance and CC tabs open their lists from their value")
     CHECK (graph->getLane() == patternarp::Lane::chance);
     CHECK_FALSE (juce::PopupMenu::dismissAllActiveMenus());
 
-    // ...and the value ("Rest", "Off") opens it with its list.
-    for (const auto lane : { patternarp::Lane::chance, patternarp::Lane::cc })
-    {
-        w.click (w.editor->getLocalPoint (panel, panel->getTabValueBounds (lane).getCentre().toFloat()));
-        CHECK (graph->getLane() == lane);
-        CHECK (juce::PopupMenu::dismissAllActiveMenus());
-    }
+    // ...and the value ("Rest") opens it with its list.
+    w.click (w.editor->getLocalPoint (panel, panel->getTabValueBounds (patternarp::Lane::chance).getCentre().toFloat()));
+    CHECK (juce::PopupMenu::dismissAllActiveMenus());
+
+    // "CC: Off" opens a field to type the number in: Return sets it, and an empty field
+    // turns the lane off again. (The field passes Return and Escape on asynchronously, so
+    // they are called here directly.)
+    auto* field = dynamic_cast<juce::TextEditor*> (panel->findChildWithID ("ccField"));
+    REQUIRE (field != nullptr);
+    const auto ccNumber = [&w] { return w.state()->getChildByName ("Arrangement")->getChildByName ("Pattern")->getIntAttribute ("ccNumber"); };
+    const auto openField = [&] {
+        w.click (w.editor->getLocalPoint (panel, panel->getTabValueBounds (patternarp::Lane::cc).getCentre().toFloat()));
+        CHECK (graph->getLane() == patternarp::Lane::cc);
+        CHECK (field->isVisible());
+    };
+
+    openField();
+    CHECK (field->getText().isEmpty()); // showing "Enter MIDI CC"
+    field->setText ("74");
+    field->onReturnKey();
+    CHECK_FALSE (field->isVisible());
+    CHECK (ccNumber() == 74);
+    CHECK (w.parameter<juce::AudioParameterInt> ("p1_ccnumber")->get() == 74);
+
+    openField();
+    CHECK (field->getText() == "74");
+    field->setText ("12");
+    field->onEscapeKey();
+    CHECK (ccNumber() == 74);
+
+    openField();
+    field->setText ({});
+    field->onReturnKey();
+    CHECK (ccNumber() == -1);
 }
 
 TEST_CASE ("right-clicking a step opens its menu")

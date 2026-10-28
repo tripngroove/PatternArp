@@ -120,10 +120,10 @@ void OrderLane::paint (juce::Graphics& g)
     }
 
     g.setColour (theme::ink);
-    g.setFont (theme::font (14.0f, true));
+    g.setFont (theme::font (theme::titleSize, true));
     const auto label = juce::Rectangle<float> (labelX, 0.0f, gridX - labelX, expanded ? headerHeight : static_cast<float> (getHeight()));
-    g.drawText ("ROTATION", label, juce::Justification::centredLeft);
-    const float textWidth = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (theme::font (14.0f, true), "ROTATION"));
+    g.drawText ("Rotation", label, juce::Justification::centredLeft);
+    const float textWidth = static_cast<float> (theme::textWidth (theme::font (theme::titleSize, true), "Rotation"));
     g.setColour (hover ? theme::ink : theme::inkMuted);
     drawChevron (g, { label.getX() + textWidth + static_cast<float> (theme::spacing) + 4.0f, label.getCentreY() }, expanded);
 
@@ -149,7 +149,7 @@ void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn
     {
         // A rest (from older saves): an empty outline.
         g.setColour (theme::inkMuted);
-        g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
+        g.drawRoundedRectangle (r.reduced (0.5f), theme::cornerRadius, 1.0f);
         return;
     }
 
@@ -160,15 +160,15 @@ void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn
     if (arrangement.isHeard (turn))
     {
         g.setColour (colour);
-        g.fillRoundedRectangle (r, 3.0f);
+        g.fillRoundedRectangle (r, theme::cornerRadius);
         g.setColour (juce::Colours::white);
     }
     else
     {
         g.setColour (colour.withAlpha (0.12f));
-        g.fillRoundedRectangle (r, 3.0f);
+        g.fillRoundedRectangle (r, theme::cornerRadius);
         g.setColour (colour.withAlpha (0.5f));
-        g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
+        g.drawRoundedRectangle (r.reduced (0.5f), theme::cornerRadius, 1.0f);
     }
     g.drawText (theme::patternName (p), r, juce::Justification::centred);
 }
@@ -201,7 +201,7 @@ void OrderLane::paintExpanded (juce::Graphics& g)
         const float alpha = p.playing ? 1.0f : 0.45f;
 
         g.setColour (theme::patternColour (p.colour).withAlpha (alpha));
-        g.fillRoundedRectangle (juce::Rectangle<float> (labelX, top + (rowHeight - 10.0f) / 2.0f, 10.0f, 10.0f), 2.0f);
+        g.fillRoundedRectangle (juce::Rectangle<float> (labelX, top + (rowHeight - 10.0f) / 2.0f, 10.0f, 10.0f), theme::cornerRadius);
         g.setColour (theme::ink.withAlpha (alpha));
         g.setFont (theme::font (14.0f, true));
         g.drawText ("Pattern " + theme::patternName (p), juce::Rectangle<float> (labelX + 16.0f, top, gridX - labelX - 16.0f, rowHeight),
