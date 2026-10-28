@@ -7,21 +7,21 @@ namespace patternarp
 
 namespace
 {
-// Vertical spacing sticks to an 8-pixel grid.
-constexpr int margin = 16;
-constexpr int stripeWidth = 6;
-constexpr int headerHeight = 56;
+// Vertical spacing sticks to an 8-pixel grid; horizontal spacing is theme::padding and
+// theme::spacing.
+constexpr int verticalMargin = 16;
+constexpr int stripeWidth = 10; // the pattern's colour down the left edge
+constexpr int headerHeight = 32;
 constexpr int sectionGap = 16;
 constexpr int tabHeight = 32;
 constexpr int closedTabDrop = 4; // closed tabs sit this much lower than the open one
 constexpr int graphHeight = 168;
 constexpr int keyboardHeight = 80;
-constexpr int defaultBoxWidth = 44;
-constexpr int titleWidth = 142;
-constexpr int chanceModeWidth = 54;
-constexpr int tabPadding = 10; // either side of a tab's name
+constexpr int buttonHeight = 28;
+constexpr int caretGap = 4; // between a tab's value and its caret
 
-static_assert (PatternPanel::preferredHeight == margin + headerHeight + sectionGap + tabHeight + graphHeight + sectionGap + keyboardHeight + margin);
+static_assert (PatternPanel::preferredHeight
+               == verticalMargin + headerHeight + sectionGap + tabHeight + graphHeight + sectionGap + keyboardHeight + verticalMargin);
 
 const char* directionName (int d)
 {
@@ -29,21 +29,29 @@ const char* directionName (int d)
     return names[juce::jlimit (0, numDirections - 1, d)];
 }
 
-// Tabs with a value box: Velocity and Gate set every step, CC picks the controller number.
-bool hasDefault (Lane lane)
+const char* chanceModeName (int mode)
 {
-    return lane == Lane::velocity || lane == Lane::gate || lane == Lane::cc;
+    static const char* names[] = { "Rest", "Skip", "Extend" };
+    return names[juce::jlimit (0, numChanceModes - 1, mode)];
 }
 
-int defaultValue (const Pattern& p, Lane lane)
+juce::String ccText (int ccNumber)
 {
-    return lane == Lane::velocity ? p.defaultVelocity : (lane == Lane::gate ? p.defaultGate : p.ccNumber);
+    return ccNumber < 0 ? juce::String ("Off") : juce::String (ccNumber);
 }
 
-juce::String defaultText (const Pattern& p, Lane lane)
+// The Chance and CC tabs end in a dropdown: "Chance: Rest", "CC: Off".
+bool hasMenu (Lane lane)
 {
-    const int value = defaultValue (p, lane);
-    return value < 0 ? juce::String ("Off") : juce::String (value);
+    return lane == Lane::chance || lane == Lane::cc;
+}
+
+juce::Font titleFont() { return theme::font (16.0f, true); }
+juce::Font tabFont (bool open) { return theme::font (15.0f, open); }
+
+int buttonWidth (const juce::String& text)
+{
+    return theme::textWidth (theme::font (15.0f), text) + theme::padding * 2;
 }
 } // namespace
 
@@ -89,32 +97,9 @@ PatternPanel::PatternPanel()
         {
             learner = {}; // each take writes the Notes lane from the first step
             graph.setLane (Lane::notes);
-            layoutTabs();
             repaint();
         }
     };
-
-    defaultEditor.setEditable (true, true, false);
-    defaultEditor.setJustificationType (juce::Justification::centred);
-    defaultEditor.setFont (theme::font (14.0f, true));
-    defaultEditor.setColour (juce::Label::textColourId, theme::ink);
-    defaultEditor.setColour (juce::Label::backgroundColourId, theme::panel);
-    defaultEditor.setColour (juce::Label::outlineColourId, theme::ink);
-    defaultEditor.setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
-    defaultEditor.setComponentID ("defaultValue");
-    defaultEditor.onTextChange = [this] {
-        // Anything but a number turns the CC lane off, and is ignored elsewhere.
-        const auto lane = graph.getLane();
-        const auto text = defaultEditor.getText().trim();
-        if (text.isNotEmpty() && text.containsOnly ("0123456789"))
-            setDefault (lane, text.getIntValue());
-        else if (lane == Lane::cc)
-            setDefault (lane, -1);
-        else
-            defaultEditor.setText (defaultText (pattern, lane), juce::dontSendNotification);
-    };
-    defaultEditor.onDragStart = [this] { defaultDragStart = defaultValue (pattern, graph.getLane()); };
-    defaultEditor.onDrag = [this] (int delta) { setDefault (graph.getLane(), defaultDragStart + delta); };
 
     cloneButton.setTooltip ("Add a copy of this pattern at the end");
     deleteButton.setTooltip ("Delete this pattern");
@@ -145,7 +130,8 @@ PatternPanel::PatternPanel()
 
     for (auto* c : std::initializer_list<juce::Component*> { &timing, &length, &direction, &graph, &keyboard })
         addAndMakeVisible (c);
-    addChildComponent (defaultEditor);
+    graph.setComponentID ("graph");
+    keyboard.setComponentID ("keyboard");
 
     addMouseListener (&hoverWatcher, true);
 }
@@ -167,11 +153,10 @@ void PatternPanel::setPattern (const Pattern& newPattern, bool canAdd)
     keyboard.setNotes (pattern.enabledNotes, pattern.noteSource);
     keyboard.setColour (theme::patternColour (pattern.colour));
     updatePausedLook();
+    layoutTabs();
 
     cloneButton.setEnabled (canAdd);
 
-    if (hasDefault (graph.getLane()) && ! defaultEditor.isBeingEdited())
-        defaultEditor.setText (defaultText (pattern, graph.getLane()), juce::dontSendNotification);
     repaint();
 }
 
@@ -198,48 +183,10 @@ void PatternPanel::changed()
 {
     graph.setPattern (pattern);
     updatePausedLook();
+    layoutTabs(); // "Chance: Rest" and "CC: Off" change width with their value
     repaint();
     if (onChange)
         onChange (pattern);
-}
-
-void PatternPanel::setDefault (Lane lane, int value)
-{
-    // Every step takes the new value, edited or not.
-    if (lane == Lane::velocity)
-    {
-        value = juce::jlimit (1, 127, value);
-        for (auto& s : pattern.steps)
-            s.velocity = value;
-        pattern.defaultVelocity = value;
-    }
-    else if (lane == Lane::gate)
-    {
-        value = juce::jlimit (1, 100, value);
-        for (auto& s : pattern.steps)
-            s.gate = value;
-        pattern.defaultGate = value;
-    }
-    else if (lane == Lane::cc)
-    {
-        pattern.ccNumber = juce::jlimit (-1, 127, value);
-    }
-    defaultEditor.setText (defaultText (pattern, lane), juce::dontSendNotification);
-    changed();
-}
-
-void PatternPanel::DefaultValue::mouseDown (const juce::MouseEvent& e)
-{
-    juce::Label::mouseDown (e);
-    if (onDragStart)
-        onDragStart();
-}
-
-void PatternPanel::DefaultValue::mouseDrag (const juce::MouseEvent& e)
-{
-    juce::Label::mouseDrag (e);
-    if (onDrag && e.mouseWasDraggedSinceMouseDown())
-        onDrag (-e.getDistanceFromDragStartY() / 2);
 }
 
 void PatternPanel::timerCallback()
@@ -249,64 +196,60 @@ void PatternPanel::timerCallback()
     deleteButton.setButtonText ("Delete");
 }
 
+juce::String PatternPanel::tabText (Lane lane) const
+{
+    if (lane == Lane::chance)
+        return juce::String (laneName (lane)) + ": " + chanceModeName (static_cast<int> (pattern.chanceMode));
+    if (lane == Lane::cc)
+        return juce::String (laneName (lane)) + ": " + ccText (pattern.ccNumber);
+    return laneName (lane);
+}
+
+int PatternPanel::tabWidth (Lane lane) const
+{
+    // Measured bold, as the open tab is drawn.
+    const int caret = hasMenu (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
+    return theme::padding * 2 + theme::textWidth (tabFont (true), tabText (lane)) + caret;
+}
+
 void PatternPanel::layoutTabs()
 {
     // Tabs sit on the graph, lined up with its box.
     const auto g = graph.getBounds();
     auto row = juce::Rectangle<int> (g.getX() + 1, g.getY() - tabHeight, g.getWidth() - 2, tabHeight);
-    const auto f = theme::font (15.0f);
 
     for (int i = 0; i < numLanes; ++i)
     {
         const auto lane = static_cast<Lane> (i);
-        int w = juce::GlyphArrangement::getStringWidthInt (f, laneName (lane)) + tabPadding * 2 + 4;
-        if (hasDefault (lane))
-            w += defaultBoxWidth;
-        tabs[static_cast<size_t> (i)] = row.removeFromLeft (w);
-        row.removeFromLeft (4);
-    }
+        const auto tab = row.removeFromLeft (tabWidth (lane));
+        tabs[static_cast<size_t> (i)] = tab;
+        row.removeFromLeft (theme::spacing / 2);
 
-    // Rest / Skip / Extend choice for the Chance tab sits at the end of the row, over the
-    // graph's label gutter too, so it clears the tabs in a narrow window.
-    auto choice = row.removeFromRight (chanceModeWidth * numChanceModes).reduced (0, 4).translated (0, -2);
-    for (auto& button : chanceModeButtons)
-        button = choice.removeFromLeft (chanceModeWidth);
-
-    const auto lane = graph.getLane();
-    if (hasDefault (lane))
-    {
-        const auto tab = tabs[static_cast<size_t> (lane)];
-        defaultEditor.setBounds (tab.withTrimmedLeft (tab.getWidth() - defaultBoxWidth - 6).withWidth (defaultBoxWidth).reduced (0, 5).translated (0, 1));
-        defaultEditor.setText (defaultText (pattern, lane), juce::dontSendNotification);
-        defaultEditor.setTooltip (lane == Lane::cc ? "The CC number this lane sends, on the notes' channel: drag up or down, or click to type. "
-                                                     "Off sends nothing."
-                                                   : "Sets every step, and new and reset ones: drag up or down, or click to type");
-        defaultEditor.setVisible (true);
-    }
-    else
-    {
-        defaultEditor.setVisible (false);
+        // Clicking the value part ("Rest", "Off") opens its list.
+        tabValues[static_cast<size_t> (i)] = hasMenu (lane)
+            ? tab.withTrimmedLeft (theme::padding + theme::textWidth (tabFont (true), juce::String (laneName (lane)) + ":"))
+            : juce::Rectangle<int>();
     }
 }
 
 void PatternPanel::resized()
 {
-    auto area = getLocalBounds().reduced (margin).withTrimmedLeft (stripeWidth);
+    auto area = getLocalBounds().withTrimmedLeft (1 + stripeWidth + theme::spacing).withTrimmedRight (theme::spacing).reduced (0, verticalMargin);
 
+    // One row: play/pause, the title, then Step, Length and Dir; Clone and Delete on the right.
     auto header = area.removeFromTop (headerHeight);
-    playButton = { header.getX(), header.getBottom() - 33, 32, 32 }; // level with the value boxes
-    header.removeFromLeft (titleWidth); // play/pause and pattern title
+    playButton = header.removeFromLeft (headerHeight);
+    header.removeFromLeft (theme::spacing);
+    titleArea = header.removeFromLeft (theme::textWidth (titleFont(), "Pattern W")); // the same for every letter, so the boxes line up
+    for (auto* box : { &timing, &length, &direction })
+    {
+        header.removeFromLeft (theme::spacing);
+        box->setBounds (header.removeFromLeft (box->getPreferredWidth()));
+    }
 
-    auto buttons = header.removeFromRight (156).removeFromTop (26);
-    deleteButton.setBounds (buttons.removeFromRight (74));
-    buttons.removeFromRight (4);
-    cloneButton.setBounds (buttons.removeFromRight (70));
-
-    timing.setBounds (header.removeFromLeft (110));
-    header.removeFromLeft (12);
-    length.setBounds (header.removeFromLeft (90));
-    header.removeFromLeft (12);
-    direction.setBounds (header.removeFromLeft (140));
+    deleteButton.setBounds (header.removeFromRight (buttonWidth ("Delete")).withSizeKeepingCentre (buttonWidth ("Delete"), buttonHeight));
+    header.removeFromRight (theme::spacing);
+    cloneButton.setBounds (header.removeFromRight (buttonWidth ("Clone")).withSizeKeepingCentre (buttonWidth ("Clone"), buttonHeight));
 
     area.removeFromTop (sectionGap + tabHeight);
     graph.setBounds (area.removeFromTop (graphHeight));
@@ -351,18 +294,12 @@ void PatternPanel::paint (juce::Graphics& g)
         }
     }
 
-    auto title = playButton.withX (playButton.getRight() + 10).withWidth (titleWidth - playButton.getWidth() - 10);
     g.setColour (pattern.playing ? theme::ink : theme::inkMuted);
-    g.setFont (theme::font (17.0f, true));
-    g.drawText ("PATTERN " + theme::patternName (pattern), title, juce::Justification::centredLeft);
-    if (! pattern.playing)
-    {
-        g.setFont (theme::font (12.0f));
-        g.drawText ("Paused", playButton.withWidth (titleWidth).translated (0, -24).withHeight (22), juce::Justification::bottomLeft);
-    }
+    g.setFont (titleFont());
+    g.drawText ("Pattern " + theme::patternName (pattern), titleArea, juce::Justification::centredLeft);
 
     // Lane tabs. The open one is white and runs into the graph below (see paintOverChildren);
-    // the others sit a little lower in grey. Velocity, Gate and CC show their box's value.
+    // the others sit a little lower in grey. Chance and CC end in a dropdown.
     const auto active = graph.getLane();
     for (int i = 0; i < numLanes; ++i)
     {
@@ -380,20 +317,17 @@ void PatternPanel::paint (juce::Graphics& g)
         g.fillPath (outside);
         g.setColour (on ? theme::panel : (i == hoveredTab ? theme::hover : theme::background));
         g.fillPath (inside);
-        g.setFont (theme::font (15.0f, on));
 
-        auto text = tab.reduced (tabPadding, 0);
-        if (hasDefault (lane))
-        {
-            auto value = text.removeFromRight (defaultBoxWidth - 6);
-            if (! on)
-            {
-                g.setColour (theme::inkMuted);
-                g.drawText ("(" + defaultText (pattern, lane) + ")", value, juce::Justification::centredRight);
-            }
-        }
+        // The name (and value) centred, so the padding is even either side.
+        const auto f = tabFont (on);
+        const auto text = tabText (lane);
+        const int contentWidth = theme::textWidth (f, text) + (hasMenu (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0);
+        auto content = tab.withSizeKeepingCentre (contentWidth, tab.getHeight());
         g.setColour (on ? theme::ink : theme::ink.withAlpha (0.7f));
-        g.drawText (laneName (lane), text, juce::Justification::centredLeft);
+        g.setFont (f);
+        g.drawText (text, content, juce::Justification::centredLeft);
+        if (hasMenu (lane))
+            theme::drawCaret (g, { static_cast<float> (content.getRight()) - theme::caretWidth / 2.0f, static_cast<float> (content.getCentreY()) + 1.0f });
 
         // A badge on lanes that loop over fewer steps than the pattern.
         if (const int steps = laneLength (pattern, lane); steps < pattern.length)
@@ -404,29 +338,6 @@ void PatternPanel::paint (juce::Graphics& g)
             g.setColour (juce::Colours::white);
             g.setFont (theme::font (11.0f, true));
             g.drawText (juce::String (steps), badge, juce::Justification::centred);
-        }
-    }
-
-    if (active == Lane::chance)
-    {
-        static constexpr const char* labels[] = { "Rest", "Skip", "Extend" };
-        g.setFont (theme::font (14.0f));
-        for (int i = 0; i < numChanceModes; ++i)
-        {
-            const auto r = chanceModeButtons[static_cast<size_t> (i)];
-            g.setColour (static_cast<int> (pattern.chanceMode) == i ? theme::fill : theme::panel);
-            g.fillRect (r);
-            g.setColour (theme::ink);
-            g.drawRect (r, 1);
-            g.drawText (labels[i], r, juce::Justification::centred);
-        }
-        // Labelled, if there is room after the tabs.
-        const auto label = chanceModeButtons.front().translated (-90, 0).withWidth (86);
-        if (label.getX() > tabs.back().getRight() + 8)
-        {
-            g.setColour (theme::inkMuted);
-            g.setFont (theme::font (12.0f));
-            g.drawText ("Failed steps:", label, juce::Justification::centredRight);
         }
     }
 }
@@ -452,18 +363,51 @@ void PatternPanel::mouseDown (const juce::MouseEvent& e)
     if (const int tab = tabAt (pos); tab >= 0)
     {
         graph.setLane (static_cast<Lane> (tab));
-        layoutTabs();
         repaint();
-        return;
+        if (tabValues[static_cast<size_t> (tab)].contains (pos))
+            showTabMenu (static_cast<Lane> (tab));
+    }
+}
+
+void PatternPanel::showTabMenu (Lane lane)
+{
+    juce::PopupMenu menu;
+    const juce::Component::SafePointer<PatternPanel> safe (this);
+
+    if (lane == Lane::chance)
+    {
+        static constexpr const char* items[] = { "Rest: silent, keeps its time", "Skip: takes no time", "Extend: holds the note before" };
+        menu.addSectionHeader ("When a step's chance fails");
+        for (int i = 0; i < numChanceModes; ++i)
+            menu.addItem (items[i], true, static_cast<int> (pattern.chanceMode) == i, [safe, i] {
+                if (safe != nullptr)
+                {
+                    safe->pattern.chanceMode = static_cast<ChanceMode> (i);
+                    safe->changed();
+                }
+            });
+    }
+    else
+    {
+        // Off, then every CC number in columns of 16.
+        auto choose = [safe] (int number) {
+            if (safe != nullptr)
+            {
+                safe->pattern.ccNumber = number;
+                safe->changed();
+            }
+        };
+        menu.addItem ("Off", true, pattern.ccNumber < 0, [choose] { choose (-1); });
+        for (int n = 0; n < 128; ++n)
+        {
+            if (n > 0 && n % 16 == 0)
+                menu.addColumnBreak();
+            menu.addItem (juce::String (n), true, pattern.ccNumber == n, [choose, n] { choose (n); });
+        }
     }
 
-    if (graph.getLane() == Lane::chance)
-        for (int i = 0; i < numChanceModes; ++i)
-            if (chanceModeButtons[static_cast<size_t> (i)].contains (pos))
-            {
-                pattern.chanceMode = static_cast<ChanceMode> (i);
-                changed();
-            }
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (
+        localAreaToGlobal (tabs[static_cast<size_t> (lane)])));
 }
 
 void PatternPanel::mouseDoubleClick (const juce::MouseEvent& e)

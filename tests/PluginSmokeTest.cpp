@@ -2,6 +2,9 @@
 // then a stopped one, host automation and saved state, checking the MIDI that comes out.
 
 #include "PluginProcessor.h"
+#include "ui/LaneGraph.h"
+#include "ui/OrderLane.h"
+#include "ui/PatternPanel.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -513,13 +516,12 @@ TEST_CASE ("clicking a pattern's play button pauses and resumes it")
 {
     WindowedEditor w;
     REQUIRE (w.peer != nullptr);
-    auto* panel = w.find ("Pattern A");
+    auto* panel = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern A"));
     auto* play = w.parameter<juce::AudioParameterBool> ("p1_play");
     REQUIRE (panel != nullptr);
     REQUIRE (play != nullptr);
 
-    // The play button sits at the left of the panel's header (see PatternPanel::resized).
-    const auto button = w.editor->getLocalPoint (panel, juce::Point<float> (38.0f, 55.0f));
+    const auto button = w.editor->getLocalPoint (panel, panel->getPlayButtonBounds().getCentre().toFloat());
 
     CHECK (play->get());
     w.click (button);
@@ -532,11 +534,12 @@ TEST_CASE ("clicking a value box opens its list")
 {
     WindowedEditor w;
     REQUIRE (w.peer != nullptr);
-    auto* timing = w.find ("Timing");
+    auto* timing = w.find ("Step");
     REQUIRE (timing != nullptr);
 
-    // Click the value, left of the arrows and below the caption.
-    w.click (w.editor->getLocalPoint (timing, juce::Point<float> (20.0f, static_cast<float> (timing->getHeight()) - 12.0f)));
+    // Click the value: right of the caption, left of the arrows (see ValueBox.cpp).
+    w.click (w.editor->getLocalPoint (timing, juce::Point<float> (static_cast<float> (timing->getWidth()) - 30.0f,
+                                                                  static_cast<float> (timing->getHeight()) / 2.0f)));
     CHECK (juce::PopupMenu::dismissAllActiveMenus());
 }
 
@@ -551,9 +554,10 @@ TEST_CASE ("the Rotation lane opens on a click and paints steps")
     w.click (w.editor->getLocalPoint (lane, lane->getLocalBounds().getCentre().toFloat()));
     CHECK (lane->getHeight() > closedHeight);
 
-    // Give the first step to pattern B: the grid starts right of the row labels (116), below
-    // the header (40) and an 8-pixel margin, with a 28-pixel row per pattern (see OrderLane.cpp).
-    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (116.0f + 10.0f, 40.0f + 8.0f + 28.0f * 1.5f)));
+    // Give the first step to pattern B: the grid starts right of the row labels, below the
+    // header (40) and an 8-pixel margin, with a 28-pixel row per pattern (see OrderLane.cpp).
+    constexpr auto gridX = static_cast<float> (patternarp::OrderLane::labelWidth);
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + 10.0f, 40.0f + 8.0f + 28.0f * 1.5f)));
 
     const auto xml = w.state();
     REQUIRE (xml != nullptr);
@@ -564,15 +568,15 @@ TEST_CASE ("the Rotation lane opens on a click and paints steps")
     // Clicking B's lit steps quiets them; once both are quiet, B is paused.
     auto* play = w.parameter<juce::AudioParameterBool> ("p2_play");
     REQUIRE (play != nullptr);
-    const float stepWidth = std::min (40.0f, (static_cast<float> (lane->getWidth()) - 116.0f - 12.0f) / 16.0f);
+    const float stepWidth = std::min (40.0f, (static_cast<float> (lane->getWidth()) - gridX - 12.0f) / 16.0f);
     const float rowB = 40.0f + 8.0f + 28.0f * 1.5f;
-    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (116.0f + stepWidth * 0.5f, rowB)));
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + stepWidth * 0.5f, rowB)));
     CHECK (play->get());
-    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (116.0f + stepWidth * 1.5f, rowB)));
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + stepWidth * 1.5f, rowB)));
     CHECK_FALSE (play->get());
 
     // And clicking one again plays B with just that step lit.
-    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (116.0f + stepWidth * 1.5f, rowB)));
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + stepWidth * 1.5f, rowB)));
     CHECK (play->get());
     CHECK (w.state()->getChildByName ("Arrangement")->getStringAttribute ("quiet") == "0");
 }
@@ -585,14 +589,15 @@ TEST_CASE ("arming MIDI Learn switches a MIDI Thru pattern to Piano Roll")
     auto* source = w.parameter<juce::AudioParameterChoice> ("p1_notesource");
     REQUIRE (panel != nullptr);
     REQUIRE (source != nullptr);
+    auto* keyboard = panel->findChildWithID ("keyboard");
+    REQUIRE (keyboard != nullptr);
 
-    // The keyboard row starts 304 pixels down the panel, with the Piano Roll / MIDI Thru
-    // switch at its left and the Learn button under it (see PatternPanel::resized and
-    // NoteKeyboard.cpp).
-    w.click (w.editor->getLocalPoint (panel, juce::Point<float> (60.0f, 304.0f + 37.0f)));
+    // The Piano Roll / MIDI Thru switch is at the keyboard's left, with the Learn button
+    // under it (see NoteKeyboard.cpp).
+    w.click (w.editor->getLocalPoint (keyboard, juce::Point<float> (40.0f, 37.0f)));
     REQUIRE (source->getIndex() == 1);
 
-    w.click (w.editor->getLocalPoint (panel, juce::Point<float> (60.0f, 304.0f + 67.0f)));
+    w.click (w.editor->getLocalPoint (keyboard, juce::Point<float> (40.0f, 67.0f)));
     CHECK (source->getIndex() == 0);
 }
 
@@ -600,7 +605,7 @@ TEST_CASE ("double-clicking a lane tab resets that lane")
 {
     WindowedEditor w;
     REQUIRE (w.peer != nullptr);
-    auto* panel = w.find ("Pattern A");
+    auto* panel = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern A"));
     REQUIRE (panel != nullptr);
 
     // Pattern A's notes as saved: the first number of each step.
@@ -615,102 +620,34 @@ TEST_CASE ("double-clicking a lane tab resets that lane")
     };
     REQUIRE (notes().joinIntoString (",").startsWith ("0,0.5,1"));
 
-    // The Notes tab is the first one, on top of the graph (see PatternPanel::resized).
-    w.doubleClick (w.editor->getLocalPoint (panel, juce::Point<float> (40.0f, 104.0f)));
+    w.doubleClick (w.editor->getLocalPoint (panel, panel->getTabBounds (patternarp::Lane::notes).getCentre().toFloat()));
     const auto after = notes();
     REQUIRE (! after.isEmpty());
     for (const auto& note : after)
         CHECK (note == "0");
 }
 
-TEST_CASE ("the Velocity default drags up and down and sets every step")
-{
-    // Start with pattern A's second step at velocity 40.
-    juce::String stateXml;
-    {
-        WindowedEditor original;
-        auto xml = original.state();
-        REQUIRE (xml != nullptr);
-        auto* pattern = xml->getChildByName ("Arrangement")->getChildByName ("Pattern");
-        auto steps = juce::StringArray::fromTokens (pattern->getStringAttribute ("steps"), ";", {});
-        auto second = juce::StringArray::fromTokens (steps[1], " ", {});
-        second.set (1, "40");
-        steps.set (1, second.joinIntoString (" "));
-        pattern->setAttribute ("steps", steps.joinIntoString (";"));
-        stateXml = xml->toString();
-    }
-
-    WindowedEditor w (stateXml.toRawUTF8());
-    REQUIRE (w.peer != nullptr);
-    auto* panel = w.find ("Pattern A");
-    REQUIRE (panel != nullptr);
-
-    // Open the Velocity tab, the second one on top of the graph (see PatternPanel::layoutTabs).
-    w.click (w.editor->getLocalPoint (panel, juce::Point<float> (120.0f, 104.0f)));
-    auto* value = panel->findChildWithID ("defaultValue");
-    REQUIRE (value != nullptr);
-    REQUIRE (value->isVisible());
-
-    // Pattern A's default velocity, then each step's velocity.
-    const auto velocities = [&w] {
-        std::vector<int> result;
-        const auto xml = w.state();
-        if (const auto* arrangement = xml != nullptr ? xml->getChildByName ("Arrangement") : nullptr)
-            if (const auto* pattern = arrangement->getChildByName ("Pattern"))
-            {
-                result.push_back (pattern->getIntAttribute ("defaultVelocity"));
-                for (const auto& step : juce::StringArray::fromTokens (pattern->getStringAttribute ("steps"), ";", {}))
-                    result.push_back (juce::StringArray::fromTokens (step, " ", {})[1].getIntValue());
-            }
-        return result;
-    };
-    REQUIRE (velocities().size() > 3);
-    REQUIRE (velocities()[0] == 100);
-    REQUIRE (velocities()[2] == 40);
-
-    // Up 20 pixels is 10 more.
-    const auto start = w.editor->getLocalPoint (value, value->getLocalBounds().getCentre().toFloat());
-    w.mouse (start, true);
-    for (int i = 1; i <= 4; ++i)
-        w.mouse (start.translated (0.0f, -5.0f * static_cast<float> (i)), true);
-    w.mouse (start.translated (0.0f, -20.0f), false);
-    for (const int velocity : velocities())
-        CHECK (velocity == 110);
-}
-
-TEST_CASE ("the CC tab's box picks the CC number, starting at Off")
+TEST_CASE ("the Chance and CC tabs open their lists from their value")
 {
     WindowedEditor w;
     REQUIRE (w.peer != nullptr);
-    auto* panel = w.find ("Pattern A");
+    auto* panel = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern A"));
     REQUIRE (panel != nullptr);
+    auto* graph = dynamic_cast<patternarp::LaneGraph*> (panel->findChildWithID ("graph"));
+    REQUIRE (graph != nullptr);
 
-    // Open the CC tab, the last one on top of the graph (see PatternPanel::layoutTabs).
-    w.click (w.editor->getLocalPoint (panel, juce::Point<float> (560.0f, 104.0f)));
-    auto* value = dynamic_cast<juce::Label*> (panel->findChildWithID ("defaultValue"));
-    REQUIRE (value != nullptr);
-    REQUIRE (value->isVisible());
-    CHECK (value->getText() == "Off");
+    // The name opens the tab...
+    w.click (w.editor->getLocalPoint (panel, panel->getTabBounds (patternarp::Lane::chance).withWidth (12).getCentre().toFloat()));
+    CHECK (graph->getLane() == patternarp::Lane::chance);
+    CHECK_FALSE (juce::PopupMenu::dismissAllActiveMenus());
 
-    const auto ccNumber = [&w] { return w.state()->getChildByName ("Arrangement")->getChildByName ("Pattern")->getIntAttribute ("ccNumber"); };
-    CHECK (ccNumber() == -1);
-
-    // Up 20 pixels is 10 more, from Off (-1).
-    const auto start = w.editor->getLocalPoint (value, value->getLocalBounds().getCentre().toFloat());
-    w.mouse (start, true);
-    for (int i = 1; i <= 4; ++i)
-        w.mouse (start.translated (0.0f, -5.0f * static_cast<float> (i)), true);
-    w.mouse (start.translated (0.0f, -20.0f), false);
-    CHECK (ccNumber() == 9);
-    CHECK (value->getText() == "9");
-
-    // Typing anything but a number turns it off again.
-    value->setText ("off", juce::sendNotificationSync);
-    CHECK (ccNumber() == -1);
-    CHECK (value->getText() == "Off");
-    value->setText ("74", juce::sendNotificationSync);
-    CHECK (ccNumber() == 74);
-    CHECK (w.parameter<juce::AudioParameterInt> ("p1_ccnumber")->get() == 74);
+    // ...and the value ("Rest", "Off") opens it with its list.
+    for (const auto lane : { patternarp::Lane::chance, patternarp::Lane::cc })
+    {
+        w.click (w.editor->getLocalPoint (panel, panel->getTabValueBounds (lane).getCentre().toFloat()));
+        CHECK (graph->getLane() == lane);
+        CHECK (juce::PopupMenu::dismissAllActiveMenus());
+    }
 }
 
 TEST_CASE ("right-clicking a step opens its menu")
@@ -719,8 +656,10 @@ TEST_CASE ("right-clicking a step opens its menu")
     REQUIRE (w.peer != nullptr);
     auto* panel = w.find ("Pattern A");
     REQUIRE (panel != nullptr);
+    auto* graph = panel->findChildWithID ("graph");
+    REQUIRE (graph != nullptr);
 
-    const auto point = w.editor->getLocalPoint (panel, juce::Point<float> (60.0f, 200.0f)); // the first step
+    const auto point = w.editor->getLocalPoint (graph, juce::Point<float> (20.0f, 100.0f)); // the first step
     w.peer->handleMouseEvent (juce::MouseInputSource::InputSourceType::mouse, point, juce::ModifierKeys::rightButtonModifier,
                               juce::MouseInputSource::defaultPressure, 0.0f, w.time += 100);
     w.peer->handleMouseEvent (juce::MouseInputSource::InputSourceType::mouse, point, juce::ModifierKeys(),

@@ -35,6 +35,7 @@ public:
     void setExpanded (bool shouldExpand);
 
     static constexpr int collapsedHeight = 40;
+    static constexpr int labelWidth = 104; // "ROTATION" and, when open, "Pattern A"...; the steps start after it
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;

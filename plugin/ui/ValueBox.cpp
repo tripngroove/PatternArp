@@ -7,9 +7,12 @@ namespace patternarp
 
 namespace
 {
-constexpr int captionHeight = 22;
-constexpr int arrowWidth = 22;
+constexpr int captionGap = 4; // between the caption and its box
+constexpr int arrowWidth = 18;
 constexpr int pixelsPerStep = 8;
+
+juce::Font captionFont() { return theme::font (15.0f); }
+juce::Font valueFont() { return theme::font (16.0f); }
 } // namespace
 
 ValueBox::ValueBox (juce::String captionText) : caption (std::move (captionText))
@@ -48,9 +51,17 @@ void ValueBox::change (int newValue)
         onChange (value);
 }
 
+int ValueBox::getPreferredWidth() const
+{
+    int widest = 0;
+    for (int v = minValue; v <= maxValue; ++v)
+        widest = juce::jmax (widest, theme::textWidth (valueFont(), toText (v)));
+    return theme::textWidth (captionFont(), caption + ":") + captionGap + theme::padding + widest + arrowWidth + 2;
+}
+
 juce::Rectangle<int> ValueBox::boxArea() const
 {
-    return getLocalBounds().withTrimmedTop (captionHeight).reduced (1);
+    return getLocalBounds().withTrimmedLeft (theme::textWidth (captionFont(), caption + ":") + captionGap).reduced (1);
 }
 
 juce::Rectangle<int> ValueBox::arrowArea() const
@@ -61,45 +72,33 @@ juce::Rectangle<int> ValueBox::arrowArea() const
 void ValueBox::paint (juce::Graphics& g)
 {
     g.setColour (theme::ink);
-    g.setFont (theme::font (16.0f));
-    g.drawText (caption, getLocalBounds().removeFromTop (captionHeight), juce::Justification::bottomLeft);
+    g.setFont (captionFont());
+    g.drawText (caption + ":", getLocalBounds(), juce::Justification::centredLeft);
 
-    auto box = boxArea();
+    const auto box = boxArea();
     g.setColour (isMouseOver (true) ? theme::hover : theme::panel);
     g.fillRect (box);
     g.setColour (theme::ink);
     g.drawRect (box, 1);
 
-    auto arrows = arrowArea();
-    g.drawVerticalLine (arrows.getX(), static_cast<float> (box.getY()), static_cast<float> (box.getBottom()));
-
-    auto drawTriangle = [&] (juce::Rectangle<float> area, bool up) {
-        auto r = area.withSizeKeepingCentre (10.0f, 8.0f);
+    // Two small chevrons, stacked: up above the middle, down below it.
+    const auto arrows = arrowArea().toFloat();
+    auto drawChevron = [&] (float centreY, bool up) {
+        const float x = arrows.getCentreX(), dy = up ? -2.0f : 2.0f;
         juce::Path p;
-        if (up)
-            p.addTriangle (r.getCentreX(), r.getY(), r.getRight(), r.getBottom(), r.getX(), r.getBottom());
-        else
-            p.addTriangle (r.getX(), r.getY(), r.getRight(), r.getY(), r.getCentreX(), r.getBottom());
-        g.fillPath (p);
+        p.startNewSubPath (x - 4.0f, centreY - dy);
+        p.lineTo (x, centreY + dy);
+        p.lineTo (x + 4.0f, centreY - dy);
+        g.strokePath (p, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     };
+    g.setColour (value < maxValue ? theme::ink : theme::inkMuted.withAlpha (0.5f));
+    drawChevron (arrows.getCentreY() - 4.5f, true);
+    g.setColour (value > minValue ? theme::ink : theme::inkMuted.withAlpha (0.5f));
+    drawChevron (arrows.getCentreY() + 4.5f, false);
 
-    auto arrowsF = arrows.toFloat();
-    g.setColour (value < maxValue ? theme::ink : theme::inkMuted);
-    drawTriangle (arrowsF.removeFromTop (arrowsF.getHeight() / 2.0f), true);
-    g.setColour (value > minValue ? theme::ink : theme::inkMuted);
-    drawTriangle (arrowsF, false);
-
-    auto textArea = box.withTrimmedRight (arrowWidth).reduced (10, 2);
     g.setColour (theme::ink);
-    if (drawValue)
-    {
-        drawValue (g, textArea.toFloat(), value);
-    }
-    else
-    {
-        g.setFont (theme::font (18.0f));
-        g.drawText (toText (value), textArea, juce::Justification::centredLeft);
-    }
+    g.setFont (valueFont());
+    g.drawText (toText (value), box.withTrimmedLeft (theme::padding).withTrimmedRight (arrowWidth), juce::Justification::centredLeft);
 }
 
 void ValueBox::mouseDown (const juce::MouseEvent& e)
@@ -114,7 +113,7 @@ void ValueBox::mouseDown (const juce::MouseEvent& e)
 
 void ValueBox::mouseDrag (const juce::MouseEvent& e)
 {
-    if (arrowArea().contains (e.getMouseDownPosition()))
+    if (! boxArea().contains (e.getMouseDownPosition()) || arrowArea().contains (e.getMouseDownPosition()))
         return;
 
     if (! draggingValue && std::abs (e.getDistanceFromDragStartY()) < 3)

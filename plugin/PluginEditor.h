@@ -31,6 +31,7 @@ private:
     void showSettingsMenu();
     void copyStateForDebugging();
     void setLoopLength (double beats); // 0 = natural length
+    void setStepDefaults (int velocity, int gate); // for every pattern
     juce::Rectangle<int> titleArea() const;
 
     void edit (int index, const Pattern& pattern);

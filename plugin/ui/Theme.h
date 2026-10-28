@@ -42,6 +42,26 @@ inline juce::Font font (float height, bool bold = false)
     return juce::Font (juce::FontOptions (height, bold ? juce::Font::bold : juce::Font::plain));
 }
 
+inline int textWidth (const juce::Font& f, const juce::String& text)
+{
+    return juce::GlyphArrangement::getStringWidthInt (f, text);
+}
+
+// Horizontal spacing is the same everywhere: `padding` inside a box, button or tab, either
+// side of its text, and `spacing` between neighbouring controls and at the window's edges.
+inline constexpr int padding = 8;
+inline constexpr int spacing = 8;
+
+// A small downward caret beside something that opens a list.
+inline constexpr float caretWidth = 8.0f;
+
+inline void drawCaret (juce::Graphics& g, juce::Point<float> centre)
+{
+    juce::Path p;
+    p.addTriangle (centre.x - caretWidth / 2.0f, centre.y - 2.5f, centre.x + caretWidth / 2.0f, centre.y - 2.5f, centre.x, centre.y + 2.5f);
+    g.fillPath (p);
+}
+
 // The length handles of the preview, the lanes and the Rotation lane all look alike: a 1px
 // line through what they shorten, with a grip tab centred on it.
 inline constexpr float handleWidth = 14.0f;

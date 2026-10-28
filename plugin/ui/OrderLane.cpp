@@ -7,7 +7,8 @@ namespace patternarp
 
 namespace
 {
-constexpr float labelWidth = 116.0f; // "ROTATION" and, when open, "Pattern A"...
+constexpr float labelWidth = static_cast<float> (OrderLane::labelWidth);
+constexpr float labelX = static_cast<float> (theme::padding);
 constexpr float rightMargin = 12.0f;
 constexpr float headerHeight = static_cast<float> (OrderLane::collapsedHeight); // the label stays put when opened
 constexpr float stepHeight = 24.0f; // a step's box, the same open or closed
@@ -120,11 +121,11 @@ void OrderLane::paint (juce::Graphics& g)
 
     g.setColour (theme::ink);
     g.setFont (theme::font (14.0f, true));
-    const auto label = juce::Rectangle<float> (12.0f, 0.0f, labelWidth - 12.0f, expanded ? headerHeight : static_cast<float> (getHeight()));
+    const auto label = juce::Rectangle<float> (labelX, 0.0f, labelWidth - labelX, expanded ? headerHeight : static_cast<float> (getHeight()));
     g.drawText ("ROTATION", label, juce::Justification::centredLeft);
     const float textWidth = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (theme::font (14.0f, true), "ROTATION"));
     g.setColour (hover ? theme::ink : theme::inkMuted);
-    drawChevron (g, { label.getX() + textWidth + 12.0f, label.getCentreY() }, expanded);
+    drawChevron (g, { label.getX() + textWidth + static_cast<float> (theme::spacing) + 4.0f, label.getCentreY() }, expanded);
 
     if (expanded)
         paintExpanded (g);
@@ -200,10 +201,10 @@ void OrderLane::paintExpanded (juce::Graphics& g)
         const float alpha = p.playing ? 1.0f : 0.45f;
 
         g.setColour (theme::patternColour (p.colour).withAlpha (alpha));
-        g.fillRoundedRectangle (juce::Rectangle<float> (12.0f, top + (rowHeight - 10.0f) / 2.0f, 10.0f, 10.0f), 2.0f);
+        g.fillRoundedRectangle (juce::Rectangle<float> (labelX, top + (rowHeight - 10.0f) / 2.0f, 10.0f, 10.0f), 2.0f);
         g.setColour (theme::ink.withAlpha (alpha));
         g.setFont (theme::font (14.0f, true));
-        g.drawText ("Pattern " + theme::patternName (p), juce::Rectangle<float> (30.0f, top, labelWidth - 34.0f, rowHeight),
+        g.drawText ("Pattern " + theme::patternName (p), juce::Rectangle<float> (labelX + 16.0f, top, labelWidth - labelX - 16.0f, rowHeight),
                     juce::Justification::centredLeft);
 
         for (int i = 0; i < arrangement.orderLength; ++i)

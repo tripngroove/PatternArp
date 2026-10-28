@@ -3,6 +3,8 @@
 #include "ui/Theme.h"
 
 #include <algorithm>
+#include <functional>
+#include <vector>
 
 namespace patternarp
 {
@@ -12,9 +14,7 @@ namespace
 // Vertical spacing sticks to an 8-pixel grid.
 constexpr int topBarHeight = 48;
 constexpr int previewHeight = 120;
-constexpr int gap = 8;     // between the boxes
-constexpr int gutter = 16; // either side of the window
-constexpr int addButtonWidth = 152;
+constexpr int gap = 8; // between the boxes
 constexpr double scrollMs = 280.0;
 
 constexpr double maxPreviewBeats = 64.0; // 16 bars on screen
@@ -73,7 +73,7 @@ PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
 
     addButton.setColour (juce::TextButton::buttonColourId, theme::panel);
     addButton.setColour (juce::TextButton::textColourOffId, theme::ink);
-    addButton.onClick = [this] { addPattern (makeDefaultPattern()); };
+    addButton.onClick = [this] { addPattern (makeDefaultPattern (shown.defaultVelocity(), shown.defaultGate())); };
     addButton.setTooltip ("Add a new pattern at the end");
     addAndMakeVisible (addButton);
 
@@ -101,16 +101,15 @@ void PatternArpEditor::paint (juce::Graphics& g)
     g.drawText ("PatternArp", titleArea(), juce::Justification::centredLeft);
 
     // A small caret says the title opens the settings menu.
-    const auto caret = titleArea().toFloat().removeFromRight (16.0f).withSizeKeepingCentre (9.0f, 6.0f);
-    juce::Path p;
-    p.addTriangle (caret.getX(), caret.getY(), caret.getRight(), caret.getY(), caret.getCentreX(), caret.getBottom());
+    const auto title = titleArea().toFloat();
     g.setColour (theme::inkMuted);
-    g.fillPath (p);
+    theme::drawCaret (g, { title.getRight() - theme::caretWidth / 2.0f, title.getCentreY() });
 }
 
 juce::Rectangle<int> PatternArpEditor::titleArea() const
 {
-    return { gutter, 0, 130, topBarHeight };
+    const int width = theme::textWidth (theme::font (22.0f, true), "PatternArp") + theme::spacing + static_cast<int> (theme::caretWidth);
+    return { theme::spacing, 0, width, topBarHeight };
 }
 
 void PatternArpEditor::mouseMove (const juce::MouseEvent& e)
@@ -148,6 +147,25 @@ void PatternArpEditor::showSettingsMenu()
         latch = ! latch.get();
         latch.endChangeGesture();
     });
+
+    // What new and reset steps get, in every pattern; saved with the project. Steps already
+    // set keep their values.
+    juce::PopupMenu velocities, gates;
+    const int velocity = shown.defaultVelocity(), gate = shown.defaultGate();
+    const auto choices = [] (std::vector<int> values, int current) {
+        values.push_back (current); // listed even if set some other way
+        std::sort (values.begin(), values.end(), std::greater<>());
+        values.erase (std::unique (values.begin(), values.end()), values.end());
+        return values;
+    };
+    for (const int v : choices ({ 127, 120, 110, 100, 90, 80, 70, 64, 60, 50, 40, 30, 20, 10 }, velocity))
+        velocities.addItem (juce::String (v), true, v == velocity, [this, v] { setStepDefaults (v, shown.defaultGate()); });
+    for (const int v : choices ({ 100, 95, 90, 80, 75, 70, 60, 50, 40, 30, 25, 20, 10, 5 }, gate))
+        gates.addItem (juce::String (v) + "%", true, v == gate, [this, v] { setStepDefaults (shown.defaultVelocity(), v); });
+    const bool anyPatterns = shown.numPatterns > 0;
+    menu.addSubMenu ("Default velocity: " + juce::String (velocity) + " (new and reset steps)", velocities, anyPatterns);
+    menu.addSubMenu ("Default gate: " + juce::String (gate) + "% (new and reset steps)", gates, anyPatterns);
+
     menu.addSubMenu ("Chance steps in dragged-out clips", dragOut);
 
     // DAWs such as Bitwig round a dropped MIDI clip up to a whole bar, which leaves a gap in
@@ -181,12 +199,13 @@ void PatternArpEditor::resized()
     auto area = getLocalBounds();
     area.removeFromTop (topBarHeight);
     area.removeFromBottom (gap);
-    area.reduce (gutter, 0);
+    area.reduce (theme::spacing, 0);
     preview.setBounds (area.removeFromTop (previewHeight));
     area.removeFromTop (gap);
     auto row = area.removeFromTop (order.getPreferredHeight());
-    addButton.setBounds (row.removeFromRight (addButtonWidth).withHeight (OrderLane::collapsedHeight));
-    row.removeFromRight (gap);
+    const int addWidth = theme::textWidth (theme::font (16.0f), addButton.getButtonText()) + theme::padding * 2;
+    addButton.setBounds (row.removeFromRight (addWidth).withHeight (OrderLane::collapsedHeight));
+    row.removeFromRight (theme::spacing);
     order.setBounds (row);
     area.removeFromTop (gap);
     viewport.setBounds (area);
@@ -438,6 +457,13 @@ void PatternArpEditor::updatePreview()
 
     const double handle = shown.loopLength > 0 ? previewPassBeats : viewBeats;
     preview.setLoop (handle, snap, label);
+}
+
+void PatternArpEditor::setStepDefaults (int velocity, int gate)
+{
+    shown.setStepDefaults (velocity, gate);
+    arp.setArrangement (shown);
+    syncPanels();
 }
 
 void PatternArpEditor::setLoopLength (double beats)

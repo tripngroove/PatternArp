@@ -905,6 +905,24 @@ TEST_CASE ("the CC lane sends once per step that plays, just before its first no
     }
 }
 
+TEST_CASE ("default velocity and gate are set for every pattern, for new and reset steps")
+{
+    auto a = arrangementOf ({ patternOf ({ C, E }), patternOf ({ F }) });
+    a.patterns[0].steps[1].velocity = 30;
+    a.setStepDefaults (80, 50);
+    CHECK (a.defaultVelocity() == 80);
+    CHECK (a.defaultGate() == 50);
+    CHECK (a.patterns[1].defaultVelocity == 80);
+    CHECK (a.patterns[0].steps[1].velocity == 30); // steps already set keep their values
+
+    resetStep (a.patterns[0].steps[1], Lane::velocity, a.patterns[0]);
+    CHECK (a.patterns[0].steps[1].velocity == 80);
+
+    const auto added = makeDefaultPattern (a.defaultVelocity(), a.defaultGate());
+    CHECK (added.steps[5].velocity == 80);
+    CHECK (added.steps[5].gate == 50);
+}
+
 TEST_CASE ("copying a lane value leaves the other lanes alone")
 {
     Step from, to;

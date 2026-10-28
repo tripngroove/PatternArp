@@ -291,7 +291,7 @@ void LaneGraph::paint (juce::Graphics& g)
     {
         // On a pill in the top quarter, clear of the bars and the step lines.
         const auto f = theme::font (14.0f);
-        const juce::String text = "Set a CC number in the tab above to send this lane";
+        const juce::String text = "Pick a CC number in the tab above to send this lane";
         const auto w = static_cast<float> (juce::GlyphArrangement::getStringWidthInt (f, text)) + 20.0f;
         const auto pill = juce::Rectangle<float> (w, 24.0f).withCentre ({ area.getCentreX(), area.getY() + area.getHeight() * 0.25f });
         g.setColour (theme::panel);
