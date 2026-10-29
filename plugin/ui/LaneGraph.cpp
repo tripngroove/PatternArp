@@ -9,7 +9,7 @@ namespace patternarp
 
 namespace
 {
-constexpr float boxPadding = 2.0f; // between the box's lines and the steps
+constexpr float boxPadding = 3.0f; // the box's 1px line, then 2px of white before the steps
 } // namespace
 
 LaneGraph::LaneGraph()
@@ -185,7 +185,7 @@ void LaneGraph::drawNoteGrid (juce::Graphics& g, juce::Rectangle<float> area) co
         {
             const float y = area.getBottom() - area.getHeight() * static_cast<float> (i) / 4.0f;
             g.setColour (theme::gridLine);
-            g.drawDashedLine ({ boxArea().getX(), y, boxArea().getRight(), y }, dots, 2, 1.0f);
+            g.drawDashedLine ({ area.getX(), y, area.getRight(), y }, dots, 2, 1.0f);
         }
         g.setColour (theme::ink);
         const auto gutter = juce::Rectangle<float> (area.getRight() + 12.0f, area.getY(), static_cast<float> (labelGutter) - 12.0f, area.getHeight());
@@ -212,7 +212,7 @@ void LaneGraph::drawNoteGrid (juce::Graphics& g, juce::Rectangle<float> area) co
     {
         const float y = area.getBottom() - (static_cast<float> (i) + 0.5f) * rowHeight;
         g.setColour (theme::gridLine);
-        g.drawDashedLine ({ boxArea().getX(), y, area.getRight() + static_cast<float> (labelGutter) * 0.25f, y }, dots, 2, 1.0f);
+        g.drawDashedLine ({ area.getX(), y, area.getRight(), y }, dots, 2, 1.0f);
 
         if (i % labelEvery == 0)
         {
@@ -253,8 +253,6 @@ void LaneGraph::paint (juce::Graphics& g)
         const auto fill = theme::patternColour (pattern.colour);
         g.setColour ((belowLine ? fill.interpolatedWith (theme::panel, 0.5f) : fill).withMultipliedAlpha (alpha));
         g.fillRect (bar);
-        g.setColour (theme::ink.withAlpha (alpha));
-        g.drawRect (bar, 1.0f);
 
         if (stepWidth > 34.0f)
         {
@@ -268,19 +266,19 @@ void LaneGraph::paint (juce::Graphics& g)
         }
     }
 
-    // Step dividers and the centre line for bipolar lanes.
+    // Step dividers and the centre line for bipolar lanes, inside the padding like the bars.
     const float dashes[] = { 4.0f, 3.0f };
     g.setColour (theme::ink);
     for (int i = 1; i < pattern.length; ++i)
     {
         const float x = area.getX() + stepWidth * static_cast<float> (i);
-        g.drawDashedLine ({ x, box.getY(), x, box.getBottom() }, dashes, 2, 1.0f);
+        g.drawDashedLine ({ x, area.getY(), x, area.getBottom() }, dashes, 2, 1.0f);
     }
 
     if (isBipolar())
     {
         g.setColour (theme::ink);
-        g.drawHorizontalLine (juce::roundToInt (area.getCentreY()), box.getX(), box.getRight());
+        g.drawHorizontalLine (juce::roundToInt (area.getCentreY()), area.getX(), area.getRight());
         g.setColour (theme::inkMuted);
         g.setFont (theme::font (12.0f));
         const auto gutter = juce::Rectangle<float> (area.getRight() + 12.0f, area.getY(), static_cast<float> (labelGutter) - 12.0f, area.getHeight());

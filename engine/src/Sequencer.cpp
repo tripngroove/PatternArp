@@ -380,7 +380,7 @@ bool Sequencer::nextInCycle (Slot& slot)
     return true;
 }
 
-void Sequencer::fastForwardTo (double beat)
+Slot Sequencer::fastForwardTo (double beat)
 {
     // With a set loop length, jump straight to the loop pass that contains `beat`.
     if (const double loop = loopBeats(); loop > 0.0)
@@ -391,6 +391,7 @@ void Sequencer::fastForwardTo (double beat)
     while (nextStart < beat - epsilon && next (slot))
     {
     }
+    return slot;
 }
 
 namespace
@@ -539,13 +540,17 @@ std::vector<SequencedNote> render (const Arrangement& arrangement, double fromBe
     std::vector<SequencedNote> notes;
     Sequencer sequencer (arrangement);
     sequencer.setInputNotes (inputNotes.data(), static_cast<int> (inputNotes.size()));
-    sequencer.fastForwardTo (fromBeat);
-
-    Slot slot;
-    while (sequencer.position() < toBeat - epsilon && sequencer.next (slot))
+    const auto keep = [&] (const Slot& slot) {
         for (int i = 0; i < slot.numNotes; ++i)
             if (const auto& n = slot.notes[static_cast<size_t> (i)]; n.start >= fromBeat - epsilon && n.start < toBeat - epsilon)
                 notes.push_back (n);
+    };
+
+    keep (sequencer.fastForwardTo (fromBeat));
+
+    Slot slot;
+    while (sequencer.position() < toBeat - epsilon && sequencer.next (slot))
+        keep (slot);
 
     return notes;
 }
