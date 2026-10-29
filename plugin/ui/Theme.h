@@ -7,8 +7,8 @@
 namespace patternarp::theme
 {
 
-// Colours follow the layout sketch: white panels and black outlines. Highlights inside a
-// pattern's panel (filled steps, selected keys, hover) use that pattern's colour.
+// Colours follow the layout sketch: white panels and black outlines. Each pattern has one main
+// colour and one lighter tint of it (see tint), and draws with nothing else.
 inline const juce::Colour background { 0xfff3f4f6 };
 inline const juce::Colour panel { 0xffffffff };
 inline const juce::Colour ink { 0xff15171a };
@@ -19,11 +19,12 @@ inline const juce::Colour hover { 0xffe8f5fc };
 inline const juce::Colour danger { 0xffd64545 };
 inline const juce::Colour separator { 0xffdcdfe3 }; // very light grey dividers
 
-// A pale wash of a pattern's colour: hover highlights inside its panel, paused patterns.
-// A stronger wash marks hover over something already tinted.
-inline juce::Colour tint (juce::Colour c, float amount = 0.12f)
+// A pattern's lighter tint: its main colour at 45% on white. The main colour is for what is on
+// (playing, lit, filled steps) and for editable values; the tint is for what is off (paused,
+// quiet, steps past a lane's end, ratios below the Chance line) and for hover highlights.
+inline juce::Colour tint (juce::Colour main)
 {
-    return panel.interpolatedWith (c, amount);
+    return panel.interpolatedWith (main, 0.45f);
 }
 
 // Section titles: "Rotation", "Pattern A".
@@ -121,6 +122,15 @@ inline void drawLengthHandleLabel (juce::Graphics& g, const juce::String& text, 
 class LookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
+    // Anything clickable shows the pointing hand; components that draw their own controls set
+    // it themselves, and drag handles use a resize cursor instead.
+    juce::MouseCursor getMouseCursorFor (juce::Component& component) override
+    {
+        if (dynamic_cast<juce::Button*> (&component) != nullptr)
+            return juce::MouseCursor::PointingHandCursor;
+        return LookAndFeel_V4::getMouseCursorFor (component);
+    }
+
     void drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y, int width, int height, bool vertical, int thumbStart,
                         int thumbSize, bool mouseOver, bool) override
     {

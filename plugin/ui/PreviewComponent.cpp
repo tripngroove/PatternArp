@@ -163,18 +163,12 @@ void PreviewComponent::paint (juce::Graphics& g)
             const auto r = juce::Rectangle<float> (x, bottom - (row + 1.0f) * rowHeight, juce::jmax (1.0f, width), juce::jmax (2.0f, rowHeight - 2.0f));
             const auto colour = theme::patternColour (colourOf[static_cast<size_t> (juce::jlimit (0, maxPatterns - 1, n.pattern))]);
 
-            // Slivers get a solid fill on whole pixels: an outline or blur would swallow them.
+            // In the pattern's colour. Slivers go on whole pixels so a blur can't swallow them.
+            g.setColour (colour);
             if (r.getWidth() < 4.0f)
-            {
-                g.setColour (colour.darker (0.2f));
                 g.fillRect (r.withX (std::round (x)).withWidth (juce::jmax (1.0f, std::round (r.getWidth()))));
-                continue;
-            }
-
-            g.setColour (colour.withAlpha (0.45f + 0.55f * static_cast<float> (n.velocity) / 127.0f));
-            g.fillRoundedRectangle (r, theme::cornerRadius);
-            g.setColour (colour.darker (0.4f));
-            g.drawRoundedRectangle (r, theme::cornerRadius, 0.75f);
+            else
+                g.fillRoundedRectangle (r, theme::cornerRadius);
         }
     }
 
