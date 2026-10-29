@@ -56,6 +56,8 @@ const char* const ccPlaceholder = "Enter MIDI CC";
 
 juce::Font titleFont() { return theme::font (theme::titleSize, true); }
 juce::Font tabFont (bool open) { return theme::font (15.0f, open); }
+juce::Font stepsFont() { return theme::font (11.0f); }
+constexpr int tabNameHeight = 17, tabStepsHeight = 12; // the two lines of a tab that shows its steps
 
 int buttonWidth (const juce::String& text)
 {
@@ -86,8 +88,15 @@ PatternPanel::PatternPanel()
     };
 
     graph.onEdit = [this] (const Pattern& edited) {
+        const bool lengthsChanged = edited.laneLength != pattern.laneLength;
         pattern.steps = edited.steps;
         pattern.laneLength = edited.laneLength;
+        if (lengthsChanged)
+        {
+            // While the length handle is dragged, so the tab's step count follows it.
+            layoutTabs();
+            repaint();
+        }
         if (onChange)
             onChange (pattern);
     };
@@ -239,11 +248,20 @@ juce::String PatternPanel::tabValue (Lane lane) const
     return {};
 }
 
+juce::String PatternPanel::tabSteps (Lane lane) const
+{
+    const int steps = laneLength (pattern, lane);
+    if (steps >= pattern.length)
+        return {};
+    return juce::String (steps) + (steps == 1 ? " Step" : " Steps");
+}
+
 int PatternPanel::tabWidth (Lane lane) const
 {
     // Measured bold, as the open tab is drawn.
     const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
-    return theme::padding * 2 + theme::textWidth (tabFont (true), tabName (lane)) + theme::textWidth (tabFont (true), tabValue (lane)) + caret;
+    const int line = theme::textWidth (tabFont (true), tabName (lane)) + theme::textWidth (tabFont (true), tabValue (lane)) + caret;
+    return theme::padding * 2 + juce::jmax (line, theme::textWidth (stepsFont(), tabSteps (lane)));
 }
 
 void PatternPanel::layoutTabs()
@@ -373,11 +391,21 @@ void PatternPanel::paint (juce::Graphics& g)
             g.fillRect (shape.reduced (1.0f, 0.0f).withTrimmedTop (1.0f));
 
             // The name and value centred, so the padding is even either side. The value is
-            // bold in the pattern's colour, like every value that can be edited.
+            // bold in the pattern's colour, like every value that can be edited. A lane that
+            // loops over fewer steps than the pattern says how many under its name.
             const auto nameFont = tabFont (open), valueFont = tabFont (true);
-            const auto name = tabName (lane), value = tabValue (lane);
+            const auto name = tabName (lane), value = tabValue (lane), steps = tabSteps (lane);
             const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
-            auto content = tab.withSizeKeepingCentre (theme::textWidth (nameFont, name) + theme::textWidth (valueFont, value) + caret, tab.getHeight());
+            const int line = theme::textWidth (nameFont, name) + theme::textWidth (valueFont, value) + caret;
+            auto block = tab.withSizeKeepingCentre (juce::jmax (line, theme::textWidth (stepsFont(), steps)),
+                                                    steps.isEmpty() ? tab.getHeight() : tabNameHeight + tabStepsHeight);
+            auto content = block.removeFromTop (steps.isEmpty() ? block.getHeight() : tabNameHeight).withWidth (line);
+            if (steps.isNotEmpty())
+            {
+                g.setColour (theme::inkMuted);
+                g.setFont (stepsFont());
+                g.drawText (steps, block, juce::Justification::centredLeft);
+            }
             g.setColour (open ? theme::ink : theme::ink.withAlpha (0.7f));
             g.setFont (nameFont);
             g.drawText (name, content.removeFromLeft (theme::textWidth (nameFont, name)), juce::Justification::centredLeft);
@@ -386,21 +414,6 @@ void PatternPanel::paint (juce::Graphics& g)
             g.drawText (value, content, juce::Justification::centredLeft);
             if (hasCaret (lane))
                 theme::drawCaret (g, { static_cast<float> (content.getRight()) - theme::caretWidth / 2.0f, static_cast<float> (content.getCentreY()) + 1.0f });
-        }
-    }
-
-    // A badge on lanes that loop over fewer steps than the pattern, over the tabs' lines.
-    for (int i = 0; i < numLanes; ++i)
-    {
-        if (const int steps = laneLength (pattern, static_cast<Lane> (i)); steps < pattern.length)
-        {
-            const auto tab = tabs[static_cast<size_t> (i)];
-            const auto badge = juce::Rectangle<float> (static_cast<float> (tab.getRight()) - 9.0f, static_cast<float> (tab.getY()) - 7.0f, 16.0f, 14.0f);
-            g.setColour (theme::patternColour (pattern.colour));
-            g.fillRoundedRectangle (badge, theme::cornerRadius);
-            g.setColour (juce::Colours::white);
-            g.setFont (theme::font (11.0f, true));
-            g.drawText (juce::String (steps), badge, juce::Justification::centred);
         }
     }
 }

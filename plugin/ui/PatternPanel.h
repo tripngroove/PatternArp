@@ -53,6 +53,7 @@ private:
     int tabAt (juce::Point<int> p) const; // -1 if none
     juce::String tabName (Lane lane) const;  // "Chance: "
     juce::String tabValue (Lane lane) const; // "Rest", or empty for lanes with no value
+    juce::String tabSteps (Lane lane) const; // "2 Steps" under the name, or empty when the lane runs the pattern's length
     int tabWidth (Lane lane) const;
     void showChanceMenu();
     void showCcField();
