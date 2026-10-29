@@ -7,14 +7,14 @@
 namespace patternarp
 {
 
-// A die in a pattern's colour, with white pips: randomizes the open lane's steps.
+// A die in a pattern's colour, with white pips: randomizes the open lane's steps. It shows the
+// pattern's tint while pressed.
 class DiceButton final : public juce::Button
 {
 public:
     DiceButton() : juce::Button ("Randomize")
     {
         setTooltip ("Randomize this lane's steps");
-        setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
 
     void setColour (juce::Colour c)
@@ -23,10 +23,10 @@ public:
         repaint();
     }
 
-    void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+    void paintButton (juce::Graphics& g, bool, bool down) override
     {
         const auto face = getLocalBounds().toFloat();
-        g.setColour (down ? colour.darker (0.3f) : (highlighted ? colour.darker (0.15f) : colour));
+        g.setColour (down ? theme::tint (colour) : colour);
         g.fillRoundedRectangle (face, theme::cornerRadius);
 
         // Five pips.
