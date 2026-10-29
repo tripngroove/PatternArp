@@ -113,17 +113,25 @@ juce::Rectangle<int> NoteKeyboard::keysArea() const
 
 float NoteKeyboard::whiteKeyWidth() const
 {
-    return static_cast<float> (keysArea().getWidth()) / static_cast<float> (totalWhiteKeys);
+    // One pixel short of the area, so the last key's right line stays inside it.
+    return static_cast<float> (keysArea().getWidth() - 1) / static_cast<float> (totalWhiteKeys);
 }
 
 juce::Rectangle<float> NoteKeyboard::keyBounds (int note) const
 {
+    // Keys sit on whole pixels so every line is a crisp 1px. Neighbouring white keys overlap
+    // by a pixel to share the line between them; black keys have an odd width so they centre
+    // exactly on that line.
     const auto area = keysArea().toFloat();
     const float w = whiteKeyWidth();
-    const float x = area.getX() + whitePosition (note) * w;
+    const float x = std::round (area.getX() + whitePosition (note) * w);
     if (isBlack (note))
-        return { x - w * 0.3f, area.getY(), w * 0.6f, area.getHeight() * 0.6f };
-    return { x, area.getY(), w, area.getHeight() };
+    {
+        const float half = std::round (w * 0.3f);
+        return { x - half, area.getY(), 2.0f * half + 1.0f, std::round (area.getHeight() * 0.6f) };
+    }
+    const float right = std::round (area.getX() + (whitePosition (note) + 1.0f) * w);
+    return juce::Rectangle<float>::leftTopRightBottom (x, area.getY(), right + 1.0f, area.getBottom());
 }
 
 int NoteKeyboard::noteAt (juce::Point<float> p) const
