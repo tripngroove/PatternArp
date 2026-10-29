@@ -35,7 +35,8 @@ public:
     static constexpr int labelGutter = 44;
 
 private:
-    juce::Rectangle<float> graphArea() const;
+    juce::Rectangle<float> boxArea() const;   // the outlined box, which the open tab runs into
+    juce::Rectangle<float> graphArea() const; // where steps are drawn: the box less its padding
     int currentLaneLength() const { return laneLength (pattern, lane); }
     float handleX() const; // where the lane length handle's line is
     bool isOnHandle (juce::Point<float> p) const;
