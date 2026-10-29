@@ -74,8 +74,9 @@ public:
     // Beat position where the next slot will start.
     double position() const { return nextStart; }
 
-    // Skips ahead until the next slot starts at or after `beat`.
-    void fastForwardTo (double beat);
+    // Skips ahead until the next slot starts at or after `beat`. Returns the slot under way
+    // at `beat` (empty if none): its later notes, a ratchet's, can still be to come.
+    Slot fastForwardTo (double beat);
 
 private:
     friend LoopInfo findLoop (const Arrangement&, const std::vector<int>&, std::int64_t);
