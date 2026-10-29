@@ -77,6 +77,57 @@ void resetStep (Step& s, Lane lane, const Pattern& p)
     }
 }
 
+namespace
+{
+// SplitMix64: cheap, well mixed and the same on every platform (unlike std's distributions).
+struct Random
+{
+    std::uint64_t state;
+
+    std::uint64_t next()
+    {
+        auto z = (state += 0x9e3779b97f4a7c15ULL);
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+        return z ^ (z >> 31);
+    }
+
+    int below (int n) { return static_cast<int> (next() % static_cast<std::uint64_t> (n)); }
+};
+} // namespace
+
+void randomizeLane (Pattern& p, Lane lane, std::uint64_t seed)
+{
+    Random random { seed };
+    const int numEnabled = static_cast<int> (p.enabledNotes.count());
+    constexpr int numPercents = 21; // 0%, 5% ... 100%
+
+    for (int i = 0; i < laneLength (p, lane); ++i)
+    {
+        auto& s = p.steps[static_cast<size_t> (i)];
+        switch (lane)
+        {
+            case Lane::notes:
+                if (p.noteSource == NoteSource::midiIn)
+                    s.note = static_cast<float> (random.below (101)) / 100.0f;
+                else
+                    s.note = numEnabled > 1 ? static_cast<float> (random.below (numEnabled)) / static_cast<float> (numEnabled - 1) : 0.0f;
+                break;
+            case Lane::velocity: s.velocity = 1 + random.below (127); break;
+            case Lane::gate:     s.gate = 1 + random.below (100); break;
+            case Lane::octave:   s.octave = random.below (7) - 3; break;
+            case Lane::ratchet:  s.ratchet = 1 + random.below (8); break;
+            case Lane::cc:       s.cc = random.below (128); break;
+            case Lane::chance:
+            {
+                const int pick = random.below (numPercents + numChanceRatios);
+                s.chance = pick < numPercents ? pick * 5 : ratioChance (chanceRatioAt (pick - numPercents));
+                break;
+            }
+        }
+    }
+}
+
 void NoteLearner::learn (Pattern& p, int note)
 {
     if (note < 0 || note > 127)

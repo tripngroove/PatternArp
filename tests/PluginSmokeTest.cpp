@@ -625,6 +625,41 @@ TEST_CASE ("double-clicking a lane tab resets that lane")
         CHECK (note == "0");
 }
 
+TEST_CASE ("the dice randomizes the open lane and leaves the others alone")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panel = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern A"));
+    REQUIRE (panel != nullptr);
+    auto* dice = panel->findChildWithID ("dice");
+    REQUIRE (dice != nullptr);
+
+    // Pattern A's steps as saved: "note velocity gate ..." each.
+    const auto steps = [&w] {
+        if (const auto xml = w.state())
+            if (const auto* arrangement = xml->getChildByName ("Arrangement"))
+                if (const auto* pattern = arrangement->getChildByName ("Pattern"))
+                    return juce::StringArray::fromTokens (pattern->getStringAttribute ("steps"), ";", {});
+        return juce::StringArray();
+    };
+    const auto field = [] (const juce::String& step, int i) { return juce::StringArray::fromTokens (step, " ", {})[i]; };
+    const auto before = steps();
+    REQUIRE (! before.isEmpty());
+
+    w.click (w.editor->getLocalPoint (panel, panel->getTabBounds (patternarp::Lane::velocity).getCentre().toFloat()));
+    w.click (w.editor->getLocalPoint (dice, dice->getLocalBounds().getCentre().toFloat()));
+
+    const auto after = steps();
+    REQUIRE (after.size() == before.size());
+    bool velocityChanged = false;
+    for (int i = 0; i < after.size(); ++i)
+    {
+        CHECK (field (after[i], 0) == field (before[i], 0)); // notes untouched
+        velocityChanged = velocityChanged || field (after[i], 1) != field (before[i], 1);
+    }
+    CHECK (velocityChanged);
+}
+
 TEST_CASE ("the Chance tab opens its list from its value, and the CC tab a field")
 {
     WindowedEditor w;

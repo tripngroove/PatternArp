@@ -171,6 +171,12 @@ void resetStep (Step& step, Lane lane, const Pattern& pattern);
 // Copies one lane's value from a step to another, leaving the other lanes alone.
 void copyLaneValue (const Step& from, Step& to, Lane lane);
 
+// Gives each step a lane plays (up to its length) a random value, one that could have been
+// drawn: an enabled note (any height, to the percent, for MIDI Thru), velocity 1..127, gate
+// 1..100%, octave -3..+3, ratchet 1..8, chance in 5% steps or a ratio, CC 0..127. Other lanes
+// and steps are left alone. The same seed gives the same values.
+void randomizeLane (Pattern& pattern, Lane lane, std::uint64_t seed);
+
 // A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away,
 // with every step at the default velocity and gate.
 Pattern makeDefaultPattern (int defaultVelocity = 100, int defaultGate = 90);

@@ -923,6 +923,54 @@ TEST_CASE ("default velocity and gate are set for every pattern, for new and res
     CHECK (added.steps[5].gate == 50);
 }
 
+TEST_CASE ("randomizing a lane gives its playing steps drawable values and leaves the rest alone")
+{
+    auto p = makeDefaultPattern(); // 8 steps, C3 E3 G3
+    p.laneLength[static_cast<size_t> (Lane::velocity)] = 6;
+    const auto before = p;
+
+    randomizeLane (p, Lane::velocity, 42);
+    bool changed = false;
+    for (int i = 0; i < maxSteps; ++i)
+    {
+        const auto& s = p.steps[static_cast<size_t> (i)];
+        const auto& was = before.steps[static_cast<size_t> (i)];
+        CHECK (s.note == was.note); // other lanes untouched
+        CHECK (s.gate == was.gate);
+        if (i < 6)
+        {
+            CHECK (s.velocity >= 1);
+            CHECK (s.velocity <= 127);
+            changed = changed || s.velocity != was.velocity;
+        }
+        else
+        {
+            CHECK (s.velocity == was.velocity); // past the lane's own length
+        }
+    }
+    CHECK (changed);
+
+    // The same seed gives the same values; another seed, others.
+    auto again = before, other = before;
+    randomizeLane (again, Lane::velocity, 42);
+    randomizeLane (other, Lane::velocity, 43);
+    CHECK (again == p);
+    CHECK_FALSE (other == p);
+
+    // Notes land on enabled notes; chance on 5% steps or ratios.
+    randomizeLane (p, Lane::notes, 7);
+    randomizeLane (p, Lane::chance, 7);
+    for (int i = 0; i < p.length; ++i)
+    {
+        const auto& s = p.steps[static_cast<size_t> (i)];
+        CHECK ((s.note == 0.0f || s.note == 0.5f || s.note == 1.0f));
+        if (s.chance >= 0)
+            CHECK (s.chance % 5 == 0);
+        else
+            CHECK (chanceRatioIndex (chanceRatio (s.chance)) < numChanceRatios);
+    }
+}
+
 TEST_CASE ("copying a lane value leaves the other lanes alone")
 {
     Step from, to;

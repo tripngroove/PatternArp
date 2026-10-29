@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DiceButton.h"
 #include "LaneGraph.h"
 #include "NoteKeyboard.h"
 #include "ValueBox.h"
@@ -64,9 +65,10 @@ private:
     ValueBox timing { "Step" }, length { "Length" }, direction { "Dir" };
     LaneGraph graph;
     NoteKeyboard keyboard;
+    DiceButton dice; // above the graph's top right corner
     NoteLearner learner; // the current MIDI Learn take
 
-    std::array<juce::Rectangle<int>, numLanes> tabs {}; // full height; closed tabs are drawn lower
+    std::array<juce::Rectangle<int>, numLanes> tabs {}; // fitted to their text, sharing dividing lines
     std::array<juce::Rectangle<int>, numLanes> tabValues {}; // the dropdown part of the Chance and CC tabs
     int hoveredTab = -1;
     // Opened from the CC tab's value. Its hint shows while it is empty, even with the cursor
