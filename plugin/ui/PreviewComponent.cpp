@@ -108,6 +108,7 @@ bool PreviewComponent::isOverHandle (juce::Point<float> p) const
 void PreviewComponent::paint (juce::Graphics& g)
 {
     const auto box = boxArea();
+    const auto inside = box.reduced (theme::boxPadding); // where lines stop, short of the outline
     const auto roll = rollArea();
     g.setColour (theme::panel);
     g.fillRect (box);
@@ -117,7 +118,7 @@ void PreviewComponent::paint (juce::Graphics& g)
     for (int b = 0; b <= static_cast<int> (std::floor (beats + 1.0e-6)); ++b)
     {
         g.setColour (b % 4 == 0 ? theme::gridLine : theme::gridLine.withAlpha (0.35f));
-        g.drawVerticalLine (juce::roundToInt (roll.getX() + pxPerBeat * static_cast<float> (b)), box.getY(), box.getBottom());
+        g.drawVerticalLine (juce::roundToInt (roll.getX() + pxPerBeat * static_cast<float> (b)), inside.getY(), inside.getBottom());
     }
 
     const auto drawn = visibleNotes();
@@ -182,21 +183,21 @@ void PreviewComponent::paint (juce::Graphics& g)
     if (isShortened())
     {
         g.setColour (theme::background.withAlpha (0.75f));
-        g.fillRect (box.withLeft (hx));
+        g.fillRect (inside.withLeft (hx));
     }
 
     if (playhead >= 0.0 && playhead <= beats)
     {
         g.setColour (theme::danger);
-        g.fillRect (juce::Rectangle<float> (beatToX (playhead) - 0.5f, box.getY(), 1.0f, box.getHeight()));
+        g.fillRect (juce::Rectangle<float> (beatToX (playhead) - 0.5f, inside.getY(), 1.0f, inside.getHeight()));
     }
 
     g.setColour (theme::ink);
     g.drawRect (box, 1.0f);
 
     // Loop handle: a line through the roll with a grab tab, and the repeat length beside it.
-    theme::drawLengthHandle (g, hx, box.getVerticalRange());
-    theme::drawLengthHandleLabel (g, label(), theme::font (13.0f, true), hx, box.getVerticalRange(), box.getRight() - 4.0f);
+    theme::drawLengthHandle (g, hx, inside.getVerticalRange());
+    theme::drawLengthHandleLabel (g, label(), theme::font (13.0f, true), hx, inside.getVerticalRange(), inside.getRight() - 1.0f);
 }
 
 void PreviewComponent::mouseMove (const juce::MouseEvent& e)

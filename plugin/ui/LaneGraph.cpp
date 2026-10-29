@@ -9,8 +9,6 @@ namespace patternarp
 
 namespace
 {
-constexpr float boxPadding = 3.0f; // the box's 1px line, then 2px of white before the steps
-
 // Bars, grid lines and step dividers sit on whole pixels so they meet crisply: a bar's top
 // covers the grid line it sits on instead of leaving a faint fringe above it.
 float pixel (float v)
@@ -55,18 +53,21 @@ juce::Rectangle<float> LaneGraph::boxArea() const
 juce::Rectangle<float> LaneGraph::graphArea() const
 {
     // A little white inside the box, so bars at the top or edges do not touch its lines.
-    return boxArea().reduced (boxPadding);
+    return boxArea().reduced (theme::boxPadding);
 }
 
 float LaneGraph::handleX() const
 {
+    // On the step divider it stops at, or the last pixel column inside the padding when the
+    // lane is full length.
     const auto area = graphArea();
-    return area.getX() + area.getWidth() * static_cast<float> (currentLaneLength()) / static_cast<float> (pattern.length);
+    const float x = area.getX() + area.getWidth() * static_cast<float> (currentLaneLength()) / static_cast<float> (pattern.length);
+    return juce::jmin (pixel (x), area.getRight() - 1.0f) + 0.5f;
 }
 
 bool LaneGraph::isOnHandle (juce::Point<float> p) const
 {
-    return theme::lengthHandleTab (handleX(), boxArea().getVerticalRange()).expanded (4.0f).contains (p);
+    return theme::lengthHandleTab (handleX(), graphArea().getVerticalRange()).expanded (4.0f).contains (p);
 }
 
 int LaneGraph::stepAt (float x) const
@@ -334,14 +335,14 @@ void LaneGraph::paint (juce::Graphics& g)
     const int laneSteps = currentLaneLength();
     const bool shortened = laneSteps < pattern.length;
     const float hx = handleX();
-    theme::drawLengthHandle (g, hx, box.getVerticalRange());
+    theme::drawLengthHandle (g, hx, area.getVerticalRange());
 
     const bool hover = isMouseOver() && isOnHandle (getMouseXYRelative().toFloat());
     if (shortened || hover)
     {
         const auto text = shortened ? juce::String (laneName (lane)) + " repeats every " + juce::String (laneSteps) + (laneSteps == 1 ? " step" : " steps")
                                     : juce::String ("Drag to shorten this lane");
-        theme::drawLengthHandleLabel (g, text, theme::font (12.0f), hx, box.getVerticalRange(), box.getRight() - 2.0f);
+        theme::drawLengthHandleLabel (g, text, theme::font (12.0f), hx, area.getVerticalRange(), area.getRight());
     }
 }
 

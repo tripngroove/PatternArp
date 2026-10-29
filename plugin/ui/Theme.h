@@ -19,10 +19,11 @@ inline const juce::Colour hover { 0xffe8f5fc };
 inline const juce::Colour danger { 0xffd64545 };
 inline const juce::Colour separator { 0xffdcdfe3 }; // very light grey dividers
 
-// A pale wash of a pattern's colour: hover highlights inside its panel.
-inline juce::Colour tint (juce::Colour c)
+// A pale wash of a pattern's colour: hover highlights inside its panel, paused patterns.
+// A stronger wash marks hover over something already tinted.
+inline juce::Colour tint (juce::Colour c, float amount = 0.12f)
 {
-    return panel.interpolatedWith (c, 0.12f);
+    return panel.interpolatedWith (c, amount);
 }
 
 // Section titles: "Rotation", "Pattern A".
@@ -64,6 +65,10 @@ inline constexpr float cornerRadius = 3.0f;
 // side of its text, and `spacing` between neighbouring controls and at the window's edges.
 inline constexpr int padding = 8;
 inline constexpr int spacing = 8;
+
+// Inside an outlined box (the preview, the lanes), lines and steps stop short of its edge:
+// its 1px line, then 2px of white.
+inline constexpr float boxPadding = 3.0f;
 
 // A small downward caret beside something that opens a list.
 inline constexpr float caretWidth = 8.0f;
