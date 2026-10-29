@@ -67,6 +67,7 @@ private:
     NoteKeyboard keyboard;
     DiceButton dice; // above the graph's top right corner
     NoteLearner learner; // the current MIDI Learn take
+    NoteEntry entry;     // notes clicked into an empty Piano Roll
 
     std::array<juce::Rectangle<int>, numLanes> tabs {}; // fitted to their text, sharing dividing lines
     std::array<juce::Rectangle<int>, numLanes> tabValues {}; // the dropdown part of the Chance and CC tabs

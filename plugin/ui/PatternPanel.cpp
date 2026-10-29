@@ -103,7 +103,13 @@ PatternPanel::PatternPanel()
     };
 
     keyboard.onNotesChange = [this] (const std::bitset<128>& notes) {
-        pattern.enabledNotes = notes;
+        // Notes switched on go through the entry, which writes them into the Notes lane in the
+        // order added when the Piano Roll started out empty.
+        const auto added = notes & ~pattern.enabledNotes;
+        pattern.enabledNotes &= notes;
+        for (int n = 0; n < 128; ++n)
+            if (added.test (static_cast<size_t> (n)))
+                entry.add (pattern, n);
         changed();
     };
     keyboard.onSourceChange = [this] (NoteSource source) {

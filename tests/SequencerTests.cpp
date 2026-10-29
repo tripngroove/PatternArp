@@ -911,6 +911,63 @@ TEST_CASE ("MIDI Learn starts afresh and plays the notes back in the order playe
     }
 }
 
+TEST_CASE ("notes clicked into an empty Piano Roll fill the Notes lane in the order added")
+{
+    auto p = patternOf ({ A, B, C, E }); // four steps
+    p.enabledNotes.reset();
+    const auto plays = [&p] { return firstNotes (arrangementOf ({ p }), p.length); };
+
+    NoteEntry entry;
+    entry.add (p, E);
+    CHECK (plays() == std::vector<int> { E, E, E, E }); // the first note fills every step
+
+    entry.add (p, C);
+    entry.add (p, F);
+    CHECK (p.length == 4);
+    CHECK (plays() == std::vector<int> { E, C, F, E }); // steps not reached play the first note
+
+    SECTION ("past the last step, notes only join the Piano Roll")
+    {
+        entry.add (p, A);
+        entry.add (p, B);
+        CHECK (p.enabledNotes.count() == 5);
+        CHECK (plays() == std::vector<int> { E, C, F, A });
+    }
+
+    SECTION ("only the steps the lane plays are filled")
+    {
+        p.laneLength[static_cast<size_t> (Lane::notes)] = 2;
+        entry.add (p, A);
+        CHECK (p.enabledNotes.count() == 4);
+        CHECK (plays() == std::vector<int> { E, C, E, C });
+    }
+
+    SECTION ("a longer pattern's new steps carry on the order")
+    {
+        p.length = 6;
+        entry.add (p, A);
+        CHECK (plays() == std::vector<int> { E, C, F, A, E, E });
+    }
+
+    SECTION ("changing the notes or the Notes lane in between ends the entry")
+    {
+        p.steps[0].note = 1.0f; // step 1 now plays the top note, F
+        entry.add (p, A);
+        CHECK (p.enabledNotes.count() == 4);
+        CHECK (p.steps[0].note == 1.0f); // just switched on; the lane is left alone
+    }
+}
+
+TEST_CASE ("adding a note to a Piano Roll that was not empty just switches it on")
+{
+    auto p = patternOf ({ C, E });
+    const auto before = p.steps;
+    NoteEntry entry;
+    entry.add (p, F);
+    CHECK (p.enabledNotes.count() == 3);
+    CHECK (p.steps == before);
+}
+
 TEST_CASE ("the CC lane sends once per step that plays, just before its first note")
 {
     auto p = patternOf ({ A, C, E, F });
