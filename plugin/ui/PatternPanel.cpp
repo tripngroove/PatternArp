@@ -345,18 +345,17 @@ void PatternPanel::paint (juce::Graphics& g)
     g.setColour (theme::ink.withAlpha (0.25f));
     g.drawRoundedRectangle (bounds, theme::cornerRadius, 1.0f);
 
-    // Play/pause: filled with the pattern colour, with pause bars, while playing; an outlined
-    // play triangle while paused.
+    // Play/pause: filled with the pattern colour, with white pause bars, while playing; the
+    // pattern's pale tint with a play triangle in its colour while paused.
     {
         const auto r = playButton.toFloat();
+        const auto colour = theme::patternColour (pattern.colour);
         const bool hover = isMouseOver (true) && playButton.contains (getMouseXYRelative());
-        g.setColour (pattern.playing ? theme::patternColour (pattern.colour) : (hover ? theme::tint (theme::patternColour (pattern.colour)) : theme::panel));
+        g.setColour (pattern.playing ? colour : theme::tint (colour, hover ? 0.25f : 0.12f));
         g.fillRoundedRectangle (r, theme::cornerRadius);
-        g.setColour (theme::ink);
-        g.drawRoundedRectangle (r, theme::cornerRadius, 1.0f);
 
         const auto icon = r.withSizeKeepingCentre (12.0f, 12.0f);
-        g.setColour (pattern.playing ? juce::Colours::white : theme::ink);
+        g.setColour (pattern.playing ? juce::Colours::white : colour);
         if (pattern.playing)
         {
             g.fillRect (icon.withWidth (4.0f));
