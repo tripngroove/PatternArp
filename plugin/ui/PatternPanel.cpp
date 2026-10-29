@@ -56,8 +56,8 @@ const char* const ccPlaceholder = "Enter MIDI CC";
 
 juce::Font titleFont() { return theme::font (theme::titleSize, true); }
 juce::Font tabFont (bool open) { return theme::font (15.0f, open); }
-juce::Font stepsFont() { return theme::font (11.0f); }
-constexpr int tabNameHeight = 17, tabStepsHeight = 12; // the two lines of a tab that shows its steps
+juce::Font stepsFont() { return theme::font (9.0f); }
+constexpr int tabStepsHeight = 10; // the step count's line, tucked under the name
 
 int buttonWidth (const juce::String& text)
 {
@@ -260,8 +260,7 @@ int PatternPanel::tabWidth (Lane lane) const
 {
     // Measured bold, as the open tab is drawn.
     const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
-    const int line = theme::textWidth (tabFont (true), tabName (lane)) + theme::textWidth (tabFont (true), tabValue (lane)) + caret;
-    return theme::padding * 2 + juce::jmax (line, theme::textWidth (stepsFont(), tabSteps (lane)));
+    return theme::padding * 2 + theme::textWidth (tabFont (true), tabName (lane)) + theme::textWidth (tabFont (true), tabValue (lane)) + caret;
 }
 
 void PatternPanel::layoutTabs()
@@ -391,20 +390,20 @@ void PatternPanel::paint (juce::Graphics& g)
             g.fillRect (shape.reduced (1.0f, 0.0f).withTrimmedTop (1.0f));
 
             // The name and value centred, so the padding is even either side. The value is
-            // bold in the pattern's colour, like every value that can be edited. A lane that
-            // loops over fewer steps than the pattern says how many under its name.
+            // bold in the pattern's colour, like every value that can be edited.
             const auto nameFont = tabFont (open), valueFont = tabFont (true);
-            const auto name = tabName (lane), value = tabValue (lane), steps = tabSteps (lane);
+            const auto name = tabName (lane), value = tabValue (lane);
             const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
-            const int line = theme::textWidth (nameFont, name) + theme::textWidth (valueFont, value) + caret;
-            auto block = tab.withSizeKeepingCentre (juce::jmax (line, theme::textWidth (stepsFont(), steps)),
-                                                    steps.isEmpty() ? tab.getHeight() : tabNameHeight + tabStepsHeight);
-            auto content = block.removeFromTop (steps.isEmpty() ? block.getHeight() : tabNameHeight).withWidth (line);
-            if (steps.isNotEmpty())
+            auto content = tab.withSizeKeepingCentre (theme::textWidth (nameFont, name) + theme::textWidth (valueFont, value) + caret, tab.getHeight());
+
+            // A lane that loops over fewer steps than the pattern says how many, small, under
+            // its name, without moving it or widening the tab.
+            if (const auto steps = tabSteps (lane); steps.isNotEmpty())
             {
                 g.setColour (theme::inkMuted);
                 g.setFont (stepsFont());
-                g.drawText (steps, block, juce::Justification::centredLeft);
+                g.drawText (steps, content.withTop (tab.getBottom() - tabStepsHeight - 1).withRight (tab.getRight() - 2),
+                            juce::Justification::centredLeft);
             }
             g.setColour (open ? theme::ink : theme::ink.withAlpha (0.7f));
             g.setFont (nameFont);
