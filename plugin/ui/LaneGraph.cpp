@@ -170,7 +170,7 @@ void LaneGraph::drawNoteGrid (juce::Graphics& g, juce::Rectangle<float> area) co
     {
         // Positions between the lowest and highest held note, whatever is being played.
         g.setFont (theme::font (14.0f));
-        for (int i = 0; i <= 4; ++i)
+        for (int i = 1; i < 4; ++i) // High and Low are the box's own top and bottom
         {
             const float y = area.getBottom() - area.getHeight() * static_cast<float> (i) / 4.0f;
             g.setColour (theme::gridLine);
@@ -239,7 +239,8 @@ void LaneGraph::paint (juce::Graphics& g)
         // Steps past this lane's own length are kept but do not play: draw them faded.
         const float alpha = i < currentLaneLength() && ! ccOff ? 1.0f : 0.3f;
         const bool belowLine = lane == Lane::chance && s.chance < 0;
-        g.setColour ((belowLine ? theme::fill.interpolatedWith (theme::panel, 0.5f) : theme::fill).withMultipliedAlpha (alpha));
+        const auto fill = theme::patternColour (pattern.colour);
+        g.setColour ((belowLine ? fill.interpolatedWith (theme::panel, 0.5f) : fill).withMultipliedAlpha (alpha));
         g.fillRect (bar);
         g.setColour (theme::ink.withAlpha (alpha));
         g.drawRect (bar, 1.0f);

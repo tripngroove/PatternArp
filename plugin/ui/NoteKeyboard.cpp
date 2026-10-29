@@ -77,7 +77,7 @@ void NoteKeyboard::setInputNotes (const std::bitset<128>& notes)
 
 int NoteKeyboard::tabsWidth() const
 {
-    // The Learn button stops `spacing` short of the keys, which the tabs run into.
+    // The Learn button stops `spacing` short of the tabs' right line.
     const auto plain = theme::font (14.0f), bold = theme::font (14.0f, true);
     const int learnText = juce::jmax (theme::textWidth (plain, "MIDI Learn"), theme::textWidth (bold, "Play Notes"));
     const int learn = theme::padding * 2 + static_cast<int> (dotSize) + dotGap + learnText + theme::spacing;
@@ -107,8 +107,8 @@ juce::Rectangle<int> NoteKeyboard::learnArea() const
 
 juce::Rectangle<int> NoteKeyboard::keysArea() const
 {
-    // Overlaps the tabs by 1px, so their right side is the keys' left line.
-    return getLocalBounds().withTrimmedLeft (tabsWidth() - 1);
+    // White space between the tabs' right line and the keys, for the open tab to run into.
+    return getLocalBounds().withTrimmedLeft (tabsWidth() + theme::spacing);
 }
 
 float NoteKeyboard::whiteKeyWidth() const
@@ -146,7 +146,6 @@ void NoteKeyboard::paint (juce::Graphics& g)
 
     const bool midiIn = source == NoteSource::midiIn;
     const auto& lit = midiIn ? input : enabled;
-    const auto litColour = midiIn ? colour : theme::fill;
 
     for (int pass = 0; pass < 2; ++pass)
     {
@@ -159,7 +158,7 @@ void NoteKeyboard::paint (juce::Graphics& g)
             const bool on = lit.test (static_cast<size_t> (n));
             juce::Colour c = pass == 1 ? theme::ink : theme::panel;
             if (on)
-                c = pass == 1 ? litColour.darker (0.25f) : litColour;
+                c = pass == 1 ? colour.darker (0.25f) : colour;
             g.setColour (c);
             g.fillRect (r);
             g.setColour (theme::ink);
@@ -167,7 +166,7 @@ void NoteKeyboard::paint (juce::Graphics& g)
 
             if (n % 12 == 0)
             {
-                g.setColour (theme::inkMuted);
+                g.setColour (on ? theme::panel : theme::inkMuted); // readable on a lit key
                 g.setFont (theme::font (11.0f));
                 g.drawText (juce::MidiMessage::getMidiNoteName (n, false, true, theme::middleCOctave), r.withTrimmedTop (r.getHeight() - 16.0f),
                             juce::Justification::centred);
@@ -194,7 +193,11 @@ void NoteKeyboard::paint (juce::Graphics& g)
     g.drawRect (area, 1);
 
     // Piano Roll and MIDI Thru tabs, coloured like the lane tabs: the open one is white and
-    // runs into the keys, the other grey. Closed lines are opaque so shared ones do not darken.
+    // opens through the line down their right side (as lane tabs do through the graph's top
+    // line), the other grey. Closed lines are opaque so shared ones do not darken.
+    const int tabsLine = tabsWidth() - 1;
+    g.setColour (theme::ink);
+    g.fillRect (tabsLine, 0, 1, getHeight());
     const auto closedLine = theme::panel.overlaidWith (theme::ink.withAlpha (0.3f));
     for (const bool open : { false, true })
         for (const auto s : { NoteSource::select, NoteSource::midiIn })
@@ -204,14 +207,14 @@ void NoteKeyboard::paint (juce::Graphics& g)
 
             const auto tab = sourceTab (s).toFloat();
             const int i = static_cast<int> (s);
-            // Its right side is the keys' line: kept for the closed tab, opened for the open one.
+            // Its right side is that line: kept for the closed tab, opened for the open one.
             g.setColour (open ? theme::ink : closedLine);
             g.fillRect (tab.withTrimmedRight (1.0f));
-            g.setColour (open ? theme::panel : (i == hoveredTab ? theme::hover : theme::background));
+            g.setColour (open ? theme::panel : (i == hoveredTab ? theme::tint (colour) : theme::background));
             g.fillRect (open ? tab.withTrimmedLeft (1.0f).reduced (0.0f, 1.0f) : tab.reduced (1.0f));
             g.setColour (open ? theme::ink : theme::ink.withAlpha (0.7f));
             g.setFont (theme::font (14.0f, open));
-            g.drawText (sourceNames[i], tab, juce::Justification::centred);
+            g.drawText (sourceNames[i], tab.withTrimmedLeft (static_cast<float> (theme::padding)), juce::Justification::centredLeft);
         }
 
     // MIDI Learn, with a record dot: pulses red while armed, like a record-armed track, and
@@ -230,7 +233,7 @@ void NoteKeyboard::paint (juce::Graphics& g)
         }
         else
         {
-            g.setColour (hover ? theme::hover : theme::panel);
+            g.setColour (hover ? theme::tint (colour) : theme::panel);
             g.fillRoundedRectangle (r, theme::cornerRadius);
             g.setColour (theme::ink);
             g.drawRoundedRectangle (r.reduced (0.5f), theme::cornerRadius, 1.0f);
@@ -238,7 +241,7 @@ void NoteKeyboard::paint (juce::Graphics& g)
 
         const auto f = theme::font (14.0f, learning);
         const float textWidth = static_cast<float> (theme::textWidth (f, text));
-        auto content = r.withSizeKeepingCentre (dotSize + static_cast<float> (dotGap) + textWidth, r.getHeight());
+        auto content = r.withTrimmedLeft (static_cast<float> (theme::padding)).withWidth (dotSize + static_cast<float> (dotGap) + textWidth);
         g.setColour (learning ? juce::Colours::white : theme::danger);
         g.fillEllipse (content.removeFromLeft (dotSize).withSizeKeepingCentre (dotSize, dotSize));
         content.removeFromLeft (static_cast<float> (dotGap));

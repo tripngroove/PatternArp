@@ -589,15 +589,13 @@ TEST_CASE ("arming MIDI Learn switches a MIDI Thru pattern to Piano Roll")
     auto* source = w.parameter<juce::AudioParameterChoice> ("p1_notesource");
     REQUIRE (panel != nullptr);
     REQUIRE (source != nullptr);
-    auto* keyboard = panel->findChildWithID ("keyboard");
+    auto* keyboard = dynamic_cast<patternarp::NoteKeyboard*> (panel->findChildWithID ("keyboard"));
     REQUIRE (keyboard != nullptr);
 
-    // The Piano Roll / MIDI Thru switch is at the keyboard's left, with the Learn button
-    // under it (see NoteKeyboard.cpp).
-    w.click (w.editor->getLocalPoint (keyboard, juce::Point<float> (40.0f, 37.0f)));
+    w.click (w.editor->getLocalPoint (keyboard, keyboard->sourceTab (patternarp::NoteSource::midiIn).getCentre().toFloat()));
     REQUIRE (source->getIndex() == 1);
 
-    w.click (w.editor->getLocalPoint (keyboard, juce::Point<float> (40.0f, 67.0f)));
+    w.click (w.editor->getLocalPoint (keyboard, keyboard->learnArea().getCentre().toFloat()));
     CHECK (source->getIndex() == 0);
 }
 

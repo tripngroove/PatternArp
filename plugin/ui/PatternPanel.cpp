@@ -149,9 +149,7 @@ PatternPanel::PatternPanel()
     ccField.setIndents (theme::padding, 6);
     ccField.setColour (juce::TextEditor::backgroundColourId, theme::panel);
     ccField.setColour (juce::TextEditor::textColourId, theme::ink);
-    ccField.setColour (juce::TextEditor::highlightColourId, theme::fill);
     ccField.setColour (juce::TextEditor::outlineColourId, theme::ink);
-    ccField.setColour (juce::TextEditor::focusedOutlineColourId, theme::fillStrong);
     ccField.onReturnKey = [this] { closeCcField (true); };
     ccField.onEscapeKey = [this] { closeCcField (false); };
     ccField.onFocusLost = [this] { closeCcField (ccField.getText().trim().isNotEmpty()); };
@@ -179,6 +177,8 @@ void PatternPanel::setPattern (const Pattern& newPattern, bool canAdd)
     keyboard.setColour (theme::patternColour (pattern.colour));
     for (auto* box : { &timing, &length, &direction })
         box->setAccent (theme::patternColour (pattern.colour));
+    ccField.setColour (juce::TextEditor::highlightColourId, theme::patternColour (pattern.colour).withAlpha (0.35f));
+    ccField.setColour (juce::TextEditor::focusedOutlineColourId, theme::patternColour (pattern.colour));
     updatePausedLook();
     layoutHeader();
     layoutTabs();
@@ -323,7 +323,7 @@ void PatternPanel::paint (juce::Graphics& g)
     {
         const auto r = playButton.toFloat();
         const bool hover = isMouseOver (true) && playButton.contains (getMouseXYRelative());
-        g.setColour (pattern.playing ? theme::patternColour (pattern.colour) : (hover ? theme::hover : theme::panel));
+        g.setColour (pattern.playing ? theme::patternColour (pattern.colour) : (hover ? theme::tint (theme::patternColour (pattern.colour)) : theme::panel));
         g.fillRoundedRectangle (r, theme::cornerRadius);
         g.setColour (theme::ink);
         g.drawRoundedRectangle (r, theme::cornerRadius, 1.0f);
@@ -369,7 +369,7 @@ void PatternPanel::paint (juce::Graphics& g)
             const auto shape = tab.toFloat().withBottom (static_cast<float> (graph.getY()) + 1.0f);
             g.setColour (open ? theme::ink : closedLine);
             g.fillRect (shape);
-            g.setColour (open ? theme::panel : (i == hoveredTab ? theme::hover : theme::background));
+            g.setColour (open ? theme::panel : (i == hoveredTab ? theme::tint (theme::patternColour (pattern.colour)) : theme::background));
             g.fillRect (shape.reduced (1.0f, 0.0f).withTrimmedTop (1.0f));
 
             // The name and value centred, so the padding is even either side. The value is
@@ -396,7 +396,7 @@ void PatternPanel::paint (juce::Graphics& g)
         {
             const auto tab = tabs[static_cast<size_t> (i)];
             const auto badge = juce::Rectangle<float> (static_cast<float> (tab.getRight()) - 9.0f, static_cast<float> (tab.getY()) - 7.0f, 16.0f, 14.0f);
-            g.setColour (theme::fillStrong);
+            g.setColour (theme::patternColour (pattern.colour));
             g.fillRoundedRectangle (badge, theme::cornerRadius);
             g.setColour (juce::Colours::white);
             g.setFont (theme::font (11.0f, true));

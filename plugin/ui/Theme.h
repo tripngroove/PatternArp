@@ -7,17 +7,23 @@
 namespace patternarp::theme
 {
 
-// Colours follow the layout sketch: white panels, black outlines, light grey fills.
+// Colours follow the layout sketch: white panels and black outlines. Highlights inside a
+// pattern's panel (filled steps, selected keys, hover) use that pattern's colour.
 inline const juce::Colour background { 0xfff3f4f6 };
 inline const juce::Colour panel { 0xffffffff };
 inline const juce::Colour ink { 0xff15171a };
 inline const juce::Colour inkMuted { 0xff8b9099 };
 inline const juce::Colour gridLine { 0xff9aa0a8 };
-inline const juce::Colour fill { 0xffd3d6db }; // filled steps, selected keys, the scrollbar
-inline const juce::Colour fillStrong { 0xff2f9fd8 };
+inline const juce::Colour fill { 0xffa4aab2 }; // neutral fill: the scrollbar, pressed buttons
 inline const juce::Colour hover { 0xffe8f5fc };
 inline const juce::Colour danger { 0xffd64545 };
 inline const juce::Colour separator { 0xffdcdfe3 }; // very light grey dividers
+
+// A pale wash of a pattern's colour: hover highlights inside its panel.
+inline juce::Colour tint (juce::Colour c)
+{
+    return panel.interpolatedWith (c, 0.12f);
+}
 
 // Section titles: "Rotation", "Pattern A".
 inline constexpr float titleSize = 18.0f;

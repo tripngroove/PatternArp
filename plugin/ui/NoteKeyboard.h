@@ -44,13 +44,14 @@ public:
     static constexpr int lowestNote = 24;  // C0
     static constexpr int highestNote = 108; // C7
 
+    juce::Rectangle<int> sourceTab (NoteSource s) const; // Piano Roll over MIDI Thru, sharing a line
+    juce::Rectangle<int> learnArea() const;
+
 private:
     void timerCallback() override { repaint (learnArea()); } // the pulse
 
     int tabsWidth() const; // fitted to the tabs' and the Learn button's text
-    juce::Rectangle<int> sourceTab (NoteSource s) const; // Piano Roll over MIDI Thru, sharing a line
     int sourceTabAt (juce::Point<int> p) const; // -1 if none
-    juce::Rectangle<int> learnArea() const;
     juce::Rectangle<int> keysArea() const;
 
     float whiteKeyWidth() const;
