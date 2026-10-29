@@ -158,7 +158,7 @@ void NoteKeyboard::paint (juce::Graphics& g)
             const bool on = lit.test (static_cast<size_t> (n));
             juce::Colour c = pass == 1 ? theme::ink : theme::panel;
             if (on)
-                c = pass == 1 ? colour.darker (0.25f) : colour;
+                c = colour;
             g.setColour (c);
             g.fillRect (r);
             g.setColour (theme::ink);
@@ -253,6 +253,12 @@ void NoteKeyboard::paint (juce::Graphics& g)
 
 void NoteKeyboard::mouseMove (const juce::MouseEvent& e)
 {
+    // The Learn button, the closed source tab and, on the Piano Roll, the keys can be clicked.
+    const int overTab = sourceTabAt (e.getPosition());
+    const bool clickable = learnArea().contains (e.getPosition()) || (overTab >= 0 && overTab != static_cast<int> (source))
+                           || (source == NoteSource::select && noteAt (e.position) >= 0);
+    setMouseCursor (clickable ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+
     repaint (learnArea()); // the Learn button's hover look
     if (const int tab = sourceTabAt (e.getPosition()); tab != hoveredTab)
     {

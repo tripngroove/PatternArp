@@ -261,11 +261,11 @@ void LaneGraph::paint (juce::Graphics& g)
         if (lane == Lane::notes && numEnabled == 0 && ! relativeNotes)
             continue;
 
-        // Steps past this lane's own length are kept but do not play: draw them faded.
-        const float alpha = i < currentLaneLength() && ! ccOff ? 1.0f : 0.3f;
-        const bool belowLine = lane == Lane::chance && s.chance < 0;
-        const auto fill = theme::patternColour (pattern.colour);
-        g.setColour ((belowLine ? fill.interpolatedWith (theme::panel, 0.5f) : fill).withMultipliedAlpha (alpha));
+        // Steps past this lane's own length are kept but do not play, and ratios sit below the
+        // Chance line: both in the pattern's tint.
+        const bool faded = i >= currentLaneLength() || ccOff || (lane == Lane::chance && s.chance < 0);
+        const auto colour = theme::patternColour (pattern.colour);
+        g.setColour (faded ? theme::tint (colour) : colour);
         g.fillRect (bar);
 
         if (stepWidth > 34.0f)
@@ -392,7 +392,12 @@ void LaneGraph::applyAt (juce::Point<float> position)
 
 void LaneGraph::mouseMove (const juce::MouseEvent& e)
 {
-    setMouseCursor (isOnHandle (e.position) ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+    auto shape = juce::MouseCursor::NormalCursor;
+    if (isOnHandle (e.position))
+        shape = juce::MouseCursor::LeftRightResizeCursor;
+    else if (boxArea().contains (e.position))
+        shape = juce::MouseCursor::PointingHandCursor; // click or drag to set steps
+    setMouseCursor (shape);
     repaint();
 }
 

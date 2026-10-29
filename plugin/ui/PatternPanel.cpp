@@ -186,7 +186,7 @@ void PatternPanel::setPattern (const Pattern& newPattern, bool canAdd)
     keyboard.setColour (theme::patternColour (pattern.colour));
     for (auto* box : { &timing, &length, &direction })
         box->setAccent (theme::patternColour (pattern.colour));
-    ccField.setColour (juce::TextEditor::highlightColourId, theme::patternColour (pattern.colour).withAlpha (0.35f));
+    ccField.setColour (juce::TextEditor::highlightColourId, theme::tint (theme::patternColour (pattern.colour)));
     ccField.setColour (juce::TextEditor::focusedOutlineColourId, theme::patternColour (pattern.colour));
     updatePausedLook();
     layoutHeader();
@@ -336,12 +336,11 @@ void PatternPanel::paint (juce::Graphics& g)
     g.drawRoundedRectangle (bounds, theme::cornerRadius, 1.0f);
 
     // Play/pause: filled with the pattern colour, with white pause bars, while playing; the
-    // pattern's pale tint with a play triangle in its colour while paused.
+    // pattern's tint with a play triangle in its colour while paused.
     {
         const auto r = playButton.toFloat();
         const auto colour = theme::patternColour (pattern.colour);
-        const bool hover = isMouseOver (true) && playButton.contains (getMouseXYRelative());
-        g.setColour (pattern.playing ? colour : theme::tint (colour, hover ? 0.25f : 0.12f));
+        g.setColour (pattern.playing ? colour : theme::tint (colour));
         g.fillRoundedRectangle (r, theme::cornerRadius);
 
         const auto icon = r.withSizeKeepingCentre (12.0f, 12.0f);
@@ -407,7 +406,9 @@ void PatternPanel::paint (juce::Graphics& g)
             g.setColour (open ? theme::ink : theme::ink.withAlpha (0.7f));
             g.setFont (nameFont);
             g.drawText (name, content.removeFromLeft (theme::textWidth (nameFont, name)), juce::Justification::centredLeft);
-            g.setColour (theme::patternColour (pattern.colour));
+            // Faded with the rest of a paused pattern's values.
+            const auto colour = theme::patternColour (pattern.colour);
+            g.setColour (pattern.playing ? colour : theme::tint (colour));
             g.setFont (valueFont);
             g.drawText (value, content, juce::Justification::centredLeft);
             if (hasCaret (lane))
@@ -534,9 +535,12 @@ void PatternPanel::mouseDoubleClick (const juce::MouseEvent& e)
 
 void PatternPanel::mouseMove (const juce::MouseEvent& e)
 {
+    // Closed tabs open their lane; values open their list or field.
     const int over = tabAt (e.getPosition());
     const bool onValue = over >= 0 && tabValues[static_cast<size_t> (over)].contains (e.getPosition());
-    setMouseCursor (onValue ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    const bool closedTab = over >= 0 && over != static_cast<int> (graph.getLane());
+    const bool clickable = onValue || closedTab || playButton.contains (e.getPosition());
+    setMouseCursor (clickable ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 
     if (const int tab = tabAt (e.getPosition()); tab != hoveredTab)
     {
