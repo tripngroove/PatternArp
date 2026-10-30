@@ -16,7 +16,6 @@ constexpr float rowHeight = stepHeight + 4.0f;
 constexpr float gridMargin = 8.0f; // above and below the open grid, as around the closed row
 constexpr float maxStepWidth = 40.0f;
 constexpr float playSize = stepHeight; // an open row's play/pause button, as tall as its steps
-constexpr float nameLeft = static_cast<float> (OrderLane::nameX); // an open row's "Pattern A"
 static_assert (OrderLane::nameX == theme::padding + static_cast<int> (playSize) + theme::spacing);
 
 juce::Font nameFont() { return theme::font (14.0f, true); }
@@ -119,7 +118,7 @@ int OrderLane::playToggleAt (juce::Point<float> p) const
     if (row < 0 || row >= arrangement.numPatterns)
         return -1;
     const auto name = nameOf (arrangement.patterns[static_cast<size_t> (row)]);
-    return p.x < nameLeft + static_cast<float> (theme::textWidth (nameFont(), name)) ? row : -1;
+    return p.x < static_cast<float> (nameX + juce::jmin (nameWidth, theme::textWidth (nameFont(), name))) ? row : -1;
 }
 
 void OrderLane::paint (juce::Graphics& g)
@@ -219,7 +218,8 @@ void OrderLane::paintExpanded (juce::Graphics& g)
         theme::drawPlayButton (g, button, theme::patternColour (p.colour), p.playing);
         g.setColour (theme::ink.withAlpha (p.playing ? 1.0f : 0.45f));
         g.setFont (nameFont());
-        g.drawText (nameOf (p), juce::Rectangle<float> (nameLeft, top, gridX - nameLeft, rowHeight), juce::Justification::centredLeft);
+        g.drawFittedText (nameOf (p), juce::Rectangle<int> (nameX, juce::roundToInt (top), nameWidth, static_cast<int> (rowHeight)),
+                          juce::Justification::centredLeft, 1, nameMinScale);
 
         for (int i = 0; i < arrangement.orderLength; ++i)
             if (arrangement.order[static_cast<size_t> (i)] == row)

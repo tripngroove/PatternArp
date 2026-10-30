@@ -39,6 +39,8 @@ public:
     static constexpr int collapsedHeight = 40;
     static constexpr int labelWidth = 104; // "Rotation" and, when open, "Pattern A"...; the steps start after it
     static constexpr int nameX = 40; // where an open row's "Pattern A" starts, after its play/pause button
+    static constexpr int nameWidth = labelWidth - nameX - 2; // its room, up to just before the steps
+    static constexpr float nameMinScale = 0.9f; // fonts differ by platform: a name too wide is narrowed this far at most
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;

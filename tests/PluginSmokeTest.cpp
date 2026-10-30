@@ -421,13 +421,15 @@ TEST_CASE ("plugin editor opens")
 
 TEST_CASE ("every name in the open Rotation lane fits between its play button and the steps")
 {
+    // Each platform has its own font: the Mac's and Linux's fit as they are, while Windows'
+    // (Verdana) is wider, so its longest names are narrowed a little.
     juce::ScopedJuceInitialiser_GUI juce;
     for (int letter = 0; letter < 26; ++letter)
     {
         const auto name = juce::String ("Pattern ") + patternarp::patternLetter (letter);
         const int width = patternarp::theme::textWidth (patternarp::theme::font (14.0f, true), name);
         INFO (name << " is " << width << "px wide");
-        CHECK (patternarp::OrderLane::nameX + width + 4 <= patternarp::OrderLane::labelWidth);
+        CHECK (static_cast<float> (width) * patternarp::OrderLane::nameMinScale <= static_cast<float> (patternarp::OrderLane::nameWidth));
     }
 }
 
