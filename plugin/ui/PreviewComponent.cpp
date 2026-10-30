@@ -108,6 +108,7 @@ bool PreviewComponent::isOverHandle (juce::Point<float> p) const
 void PreviewComponent::paint (juce::Graphics& g)
 {
     const auto box = boxArea();
+    const auto inside = box.reduced (theme::boxPadding); // where lines stop, short of the outline
     const auto roll = rollArea();
     g.setColour (theme::panel);
     g.fillRect (box);
@@ -117,7 +118,7 @@ void PreviewComponent::paint (juce::Graphics& g)
     for (int b = 0; b <= static_cast<int> (std::floor (beats + 1.0e-6)); ++b)
     {
         g.setColour (b % 4 == 0 ? theme::gridLine : theme::gridLine.withAlpha (0.35f));
-        g.drawVerticalLine (juce::roundToInt (roll.getX() + pxPerBeat * static_cast<float> (b)), box.getY(), box.getBottom());
+        g.drawVerticalLine (juce::roundToInt (roll.getX() + pxPerBeat * static_cast<float> (b)), inside.getY(), inside.getBottom());
     }
 
     const auto drawn = visibleNotes();
@@ -162,18 +163,12 @@ void PreviewComponent::paint (juce::Graphics& g)
             const auto r = juce::Rectangle<float> (x, bottom - (row + 1.0f) * rowHeight, juce::jmax (1.0f, width), juce::jmax (2.0f, rowHeight - 2.0f));
             const auto colour = theme::patternColour (colourOf[static_cast<size_t> (juce::jlimit (0, maxPatterns - 1, n.pattern))]);
 
-            // Slivers get a solid fill on whole pixels: an outline or blur would swallow them.
+            // In the pattern's colour. Slivers go on whole pixels so a blur can't swallow them.
+            g.setColour (colour);
             if (r.getWidth() < 4.0f)
-            {
-                g.setColour (colour.darker (0.2f));
                 g.fillRect (r.withX (std::round (x)).withWidth (juce::jmax (1.0f, std::round (r.getWidth()))));
-                continue;
-            }
-
-            g.setColour (colour.withAlpha (0.45f + 0.55f * static_cast<float> (n.velocity) / 127.0f));
-            g.fillRoundedRectangle (r, theme::cornerRadius);
-            g.setColour (colour.darker (0.4f));
-            g.drawRoundedRectangle (r, theme::cornerRadius, 0.75f);
+            else
+                g.fillRoundedRectangle (r, theme::cornerRadius);
         }
     }
 
@@ -182,21 +177,21 @@ void PreviewComponent::paint (juce::Graphics& g)
     if (isShortened())
     {
         g.setColour (theme::background.withAlpha (0.75f));
-        g.fillRect (box.withLeft (hx));
+        g.fillRect (inside.withLeft (hx));
     }
 
     if (playhead >= 0.0 && playhead <= beats)
     {
         g.setColour (theme::danger);
-        g.fillRect (juce::Rectangle<float> (beatToX (playhead) - 0.5f, box.getY(), 1.0f, box.getHeight()));
+        g.fillRect (juce::Rectangle<float> (beatToX (playhead) - 0.5f, inside.getY(), 1.0f, inside.getHeight()));
     }
 
     g.setColour (theme::ink);
     g.drawRect (box, 1.0f);
 
     // Loop handle: a line through the roll with a grab tab, and the repeat length beside it.
-    theme::drawLengthHandle (g, hx, box.getVerticalRange());
-    theme::drawLengthHandleLabel (g, label(), theme::font (13.0f, true), hx, box.getVerticalRange(), box.getRight() - 4.0f);
+    theme::drawLengthHandle (g, hx, inside.getVerticalRange());
+    theme::drawLengthHandleLabel (g, label(), theme::font (13.0f, true), hx, inside.getVerticalRange(), inside.getRight() - 1.0f);
 }
 
 void PreviewComponent::mouseMove (const juce::MouseEvent& e)

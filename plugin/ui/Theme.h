@@ -7,17 +7,25 @@
 namespace patternarp::theme
 {
 
-// Colours follow the layout sketch: white panels, black outlines, light grey fills.
+// Colours follow the layout sketch: white panels and black outlines. Each pattern has one main
+// colour and one lighter tint of it (see tint), and draws with nothing else.
 inline const juce::Colour background { 0xfff3f4f6 };
 inline const juce::Colour panel { 0xffffffff };
 inline const juce::Colour ink { 0xff15171a };
 inline const juce::Colour inkMuted { 0xff8b9099 };
 inline const juce::Colour gridLine { 0xff9aa0a8 };
-inline const juce::Colour fill { 0xffd3d6db }; // filled steps, selected keys, the scrollbar
-inline const juce::Colour fillStrong { 0xff2f9fd8 };
+inline const juce::Colour fill { 0xffa4aab2 }; // neutral fill: the scrollbar, pressed buttons
 inline const juce::Colour hover { 0xffe8f5fc };
 inline const juce::Colour danger { 0xffd64545 };
 inline const juce::Colour separator { 0xffdcdfe3 }; // very light grey dividers
+
+// A pattern's lighter tint: its main colour at 45% on white. The main colour is for what is on
+// (playing, lit, filled steps) and for editable values; the tint is for what is off (paused,
+// quiet, steps past a lane's end, ratios below the Chance line) and for hover highlights.
+inline juce::Colour tint (juce::Colour main)
+{
+    return panel.interpolatedWith (main, 0.45f);
+}
 
 // Section titles: "Rotation", "Pattern A".
 inline constexpr float titleSize = 18.0f;
@@ -58,6 +66,10 @@ inline constexpr float cornerRadius = 3.0f;
 // side of its text, and `spacing` between neighbouring controls and at the window's edges.
 inline constexpr int padding = 8;
 inline constexpr int spacing = 8;
+
+// Inside an outlined box (the preview, the lanes), lines and steps stop short of its edge:
+// its 1px line, then 2px of white.
+inline constexpr float boxPadding = 3.0f;
 
 // A small downward caret beside something that opens a list.
 inline constexpr float caretWidth = 8.0f;
@@ -110,6 +122,15 @@ inline void drawLengthHandleLabel (juce::Graphics& g, const juce::String& text, 
 class LookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
+    // Anything clickable shows the pointing hand; components that draw their own controls set
+    // it themselves, and drag handles use a resize cursor instead.
+    juce::MouseCursor getMouseCursorFor (juce::Component& component) override
+    {
+        if (dynamic_cast<juce::Button*> (&component) != nullptr)
+            return juce::MouseCursor::PointingHandCursor;
+        return LookAndFeel_V4::getMouseCursorFor (component);
+    }
+
     void drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y, int width, int height, bool vertical, int thumbStart,
                         int thumbSize, bool mouseOver, bool) override
     {

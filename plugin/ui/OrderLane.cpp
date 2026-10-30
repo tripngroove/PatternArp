@@ -153,7 +153,8 @@ void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn
         return;
     }
 
-    // Lit: filled in the pattern's colour. Quiet (or paused): a pale outline of it.
+    // Lit: filled in the pattern's colour with a white letter. Quiet (or paused): its tint, with
+    // the letter in its colour.
     const auto& p = arrangement.patterns[static_cast<size_t> (owner)];
     const auto colour = theme::patternColour (p.colour);
     g.setFont (theme::font (13.0f, true));
@@ -165,10 +166,9 @@ void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn
     }
     else
     {
-        g.setColour (colour.withAlpha (0.12f));
+        g.setColour (theme::tint (colour));
         g.fillRoundedRectangle (r, theme::cornerRadius);
-        g.setColour (colour.withAlpha (0.5f));
-        g.drawRoundedRectangle (r.reduced (0.5f), theme::cornerRadius, 1.0f);
+        g.setColour (colour);
     }
     g.drawText (theme::patternName (p), r, juce::Justification::centred);
 }
@@ -200,7 +200,8 @@ void OrderLane::paintExpanded (juce::Graphics& g)
         const float top = grid.getY() + rowHeight * static_cast<float> (row);
         const float alpha = p.playing ? 1.0f : 0.45f;
 
-        g.setColour (theme::patternColour (p.colour).withAlpha (alpha));
+        const auto colour = theme::patternColour (p.colour);
+        g.setColour (p.playing ? colour : theme::tint (colour));
         g.fillRoundedRectangle (juce::Rectangle<float> (labelX, top + (rowHeight - 10.0f) / 2.0f, 10.0f, 10.0f), theme::cornerRadius);
         g.setColour (theme::ink.withAlpha (alpha));
         g.setFont (theme::font (14.0f, true));
@@ -246,6 +247,9 @@ void OrderLane::mouseMove (const juce::MouseEvent& e)
         shape = juce::MouseCursor::LeftRightResizeCursor;
     else if (headerArea().contains (e.position))
         shape = juce::MouseCursor::PointingHandCursor;
+    else if (const int step = stepAt (e.position.x), row = rowAt (e.position.y);
+             step >= 0 && step < arrangement.orderLength && row >= 0 && row < arrangement.numPatterns)
+        shape = juce::MouseCursor::PointingHandCursor; // a turn to give, quiet or light
     setMouseCursor (shape);
     repaint();
 }

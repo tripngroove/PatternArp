@@ -14,7 +14,7 @@ constexpr int stripeWidth = 10; // the pattern's colour down the left edge
 constexpr int headerHeight = 32;
 constexpr int sectionGap = 16;
 constexpr int tabHeight = 32;
-constexpr int closedTabDrop = 4; // closed tabs sit this much lower than the open one
+constexpr int diceSize = 22;
 constexpr int graphHeight = 168;
 constexpr int keyboardHeight = 80;
 constexpr int buttonHeight = 28;
@@ -57,6 +57,8 @@ const char* const ccPlaceholder = "Enter MIDI CC";
 
 juce::Font titleFont() { return theme::font (theme::titleSize, true); }
 juce::Font tabFont (bool open) { return theme::font (15.0f, open); }
+juce::Font stepsFont() { return theme::font (9.0f); }
+constexpr int tabStepsHeight = 10; // the step count's line, tucked under the name
 
 int buttonWidth (const juce::String& text)
 {
@@ -87,14 +89,27 @@ PatternPanel::PatternPanel()
     };
 
     graph.onEdit = [this] (const Pattern& edited) {
+        const bool lengthsChanged = edited.laneLength != pattern.laneLength;
         pattern.steps = edited.steps;
         pattern.laneLength = edited.laneLength;
+        if (lengthsChanged)
+        {
+            // While the length handle is dragged, so the tab's step count follows it.
+            layoutTabs();
+            repaint();
+        }
         if (onChange)
             onChange (pattern);
     };
 
     keyboard.onNotesChange = [this] (const std::bitset<128>& notes) {
-        pattern.enabledNotes = notes;
+        // Notes switched on go through the entry, which writes them into the Notes lane in the
+        // order added when the Piano Roll started out empty.
+        const auto added = notes & ~pattern.enabledNotes;
+        pattern.enabledNotes &= notes;
+        for (int n = 0; n < 128; ++n)
+            if (added.test (static_cast<size_t> (n)))
+                entry.add (pattern, n);
         changed();
     };
     keyboard.onSourceChange = [this] (NoteSource source) {
@@ -137,10 +152,15 @@ PatternPanel::PatternPanel()
     }
     deleteButton.setColour (juce::TextButton::textColourOffId, theme::danger);
 
-    for (auto* c : std::initializer_list<juce::Component*> { &timing, &length, &direction, &graph, &keyboard })
+    for (auto* c : std::initializer_list<juce::Component*> { &timing, &length, &direction, &graph, &keyboard, &dice })
         addAndMakeVisible (c);
     graph.setComponentID ("graph");
     keyboard.setComponentID ("keyboard");
+    dice.setComponentID ("dice");
+    dice.onClick = [this] {
+        randomizeLane (pattern, graph.getLane(), static_cast<std::uint64_t> (juce::Random::getSystemRandom().nextInt64()));
+        changed();
+    };
 
     // The CC number, typed in. Return sets it (nothing turns the lane off), Escape leaves it,
     // and clicking away sets it if something was typed.
@@ -150,9 +170,7 @@ PatternPanel::PatternPanel()
     ccField.setIndents (theme::padding, 6);
     ccField.setColour (juce::TextEditor::backgroundColourId, theme::panel);
     ccField.setColour (juce::TextEditor::textColourId, theme::ink);
-    ccField.setColour (juce::TextEditor::highlightColourId, theme::fill);
     ccField.setColour (juce::TextEditor::outlineColourId, theme::ink);
-    ccField.setColour (juce::TextEditor::focusedOutlineColourId, theme::fillStrong);
     ccField.onReturnKey = [this] { closeCcField (true); };
     ccField.onEscapeKey = [this] { closeCcField (false); };
     ccField.onFocusLost = [this] { closeCcField (ccField.getText().trim().isNotEmpty()); };
@@ -178,8 +196,11 @@ void PatternPanel::setPattern (const Pattern& newPattern, bool canAdd)
     graph.setPattern (pattern);
     keyboard.setNotes (pattern.enabledNotes, pattern.noteSource);
     keyboard.setColour (theme::patternColour (pattern.colour));
+    dice.setColour (theme::patternColour (pattern.colour));
     for (auto* box : { &timing, &length, &direction })
         box->setAccent (theme::patternColour (pattern.colour));
+    ccField.setColour (juce::TextEditor::highlightColourId, theme::tint (theme::patternColour (pattern.colour)));
+    ccField.setColour (juce::TextEditor::focusedOutlineColourId, theme::patternColour (pattern.colour));
     updatePausedLook();
     layoutHeader();
     layoutTabs();
@@ -240,6 +261,14 @@ juce::String PatternPanel::tabValue (Lane lane) const
     return {};
 }
 
+juce::String PatternPanel::tabSteps (Lane lane) const
+{
+    const int steps = laneLength (pattern, lane);
+    if (steps >= pattern.length)
+        return {};
+    return juce::String (steps) + (steps == 1 ? " Step" : " Steps");
+}
+
 int PatternPanel::tabWidth (Lane lane) const
 {
     // Measured bold, as the open tab is drawn.
@@ -258,7 +287,7 @@ void PatternPanel::layoutTabs()
         const auto lane = static_cast<Lane> (i);
         const auto tab = row.removeFromLeft (tabWidth (lane));
         tabs[static_cast<size_t> (i)] = tab;
-        row.removeFromLeft (theme::spacing / 2);
+        row.setLeft (tab.getRight() - 1); // neighbours share a dividing line
 
         // Clicking the value part ("Rest", "Off") opens its list.
         tabValues[static_cast<size_t> (i)] = hasValue (lane)
@@ -280,6 +309,9 @@ void PatternPanel::resized()
     graph.setBounds (area.removeFromTop (graphHeight).expanded (1, 0));
     area.removeFromTop (sectionGap);
     keyboard.setBounds (area.removeFromTop (keyboardHeight).withTrimmedRight (LaneGraph::labelGutter));
+
+    // The dice sits on the tabs' row, its right edge on the graph's (which the keyboard's matches).
+    dice.setBounds (juce::Rectangle<int> (keyboard.getRight() - diceSize, graph.getY() - tabHeight, diceSize, tabHeight).withSizeKeepingCentre (diceSize, diceSize));
 
     layoutTabs();
 }
@@ -319,18 +351,16 @@ void PatternPanel::paint (juce::Graphics& g)
     g.setColour (theme::ink.withAlpha (0.25f));
     g.drawRoundedRectangle (bounds, theme::cornerRadius, 1.0f);
 
-    // Play/pause: filled with the pattern colour, with pause bars, while playing; an outlined
-    // play triangle while paused.
+    // Play/pause: filled with the pattern colour, with white pause bars, while playing; the
+    // pattern's tint with a play triangle in its colour while paused.
     {
         const auto r = playButton.toFloat();
-        const bool hover = isMouseOver (true) && playButton.contains (getMouseXYRelative());
-        g.setColour (pattern.playing ? theme::patternColour (pattern.colour) : (hover ? theme::hover : theme::panel));
+        const auto colour = theme::patternColour (pattern.colour);
+        g.setColour (pattern.playing ? colour : theme::tint (colour));
         g.fillRoundedRectangle (r, theme::cornerRadius);
-        g.setColour (theme::ink);
-        g.drawRoundedRectangle (r, theme::cornerRadius, 1.0f);
 
         const auto icon = r.withSizeKeepingCentre (12.0f, 12.0f);
-        g.setColour (pattern.playing ? juce::Colours::white : theme::ink);
+        g.setColour (pattern.playing ? juce::Colours::white : colour);
         if (pattern.playing)
         {
             g.fillRect (icon.withWidth (4.0f));
@@ -352,52 +382,53 @@ void PatternPanel::paint (juce::Graphics& g)
     g.setFont (titleFont());
     g.drawText ("Pattern " + theme::patternName (pattern), titleArea, juce::Justification::centredLeft);
 
-    // Lane tabs. The open one is white and runs into the graph below (see paintOverChildren);
-    // the others sit a little lower in grey. Chance and CC end in a dropdown.
+    // Lane tabs: one flat strip, neighbours sharing a dividing line. The open one is white,
+    // outlined in ink and runs into the graph below (see paintOverChildren); the others are
+    // grey. Closed lines are opaque so shared ones do not darken. Chance and CC end in a value.
     const auto active = graph.getLane();
-    for (int i = 0; i < numLanes; ++i)
+    const auto closedLine = theme::panel.overlaidWith (theme::ink.withAlpha (0.3f));
+    for (const bool open : { false, true })
     {
-        const auto lane = static_cast<Lane> (i);
-        const bool on = lane == active;
-        const auto tab = on ? tabs[static_cast<size_t> (i)] : tabs[static_cast<size_t> (i)].withTrimmedTop (closedTabDrop);
-
-        // Down to the graph's top line, so the sides join it.
-        const auto shape = tab.toFloat().withBottom (static_cast<float> (graph.getY()) + 1.0f);
-        juce::Path outside, inside;
-        outside.addRoundedRectangle (shape.getX(), shape.getY(), shape.getWidth(), shape.getHeight(), theme::cornerRadius, theme::cornerRadius,
-                                     true, true, false, false);
-        inside.addRoundedRectangle (shape.getX() + 1.0f, shape.getY() + 1.0f, shape.getWidth() - 2.0f, shape.getHeight() - 1.0f,
-                                    theme::cornerRadius - 1.0f, theme::cornerRadius - 1.0f,
-                                    true, true, false, false);
-        g.setColour (on ? theme::ink : theme::ink.withAlpha (0.3f));
-        g.fillPath (outside);
-        g.setColour (on ? theme::panel : (i == hoveredTab ? theme::hover : theme::background));
-        g.fillPath (inside);
-
-        // The name and value centred, so the padding is even either side. The value is bold
-        // in the pattern's colour, like every value that can be edited.
-        const auto nameFont = tabFont (on), valueFont = tabFont (true);
-        const auto name = tabName (lane), value = tabValue (lane);
-        const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
-        auto content = tab.withSizeKeepingCentre (theme::textWidth (nameFont, name) + theme::textWidth (valueFont, value) + caret, tab.getHeight());
-        g.setColour (on ? theme::ink : theme::ink.withAlpha (0.7f));
-        g.setFont (nameFont);
-        g.drawText (name, content.removeFromLeft (theme::textWidth (nameFont, name)), juce::Justification::centredLeft);
-        g.setColour (theme::patternColour (pattern.colour));
-        g.setFont (valueFont);
-        g.drawText (value, content, juce::Justification::centredLeft);
-        if (hasCaret (lane))
-            theme::drawCaret (g, { static_cast<float> (content.getRight()) - theme::caretWidth / 2.0f, static_cast<float> (content.getCentreY()) + 1.0f });
-
-        // A badge on lanes that loop over fewer steps than the pattern.
-        if (const int steps = laneLength (pattern, lane); steps < pattern.length)
+        for (int i = 0; i < numLanes; ++i)
         {
-            const auto badge = juce::Rectangle<float> (static_cast<float> (tab.getRight()) - 9.0f, static_cast<float> (tab.getY()) - 7.0f, 16.0f, 14.0f);
-            g.setColour (theme::fillStrong);
-            g.fillRoundedRectangle (badge, theme::cornerRadius);
-            g.setColour (juce::Colours::white);
-            g.setFont (theme::font (11.0f, true));
-            g.drawText (juce::String (steps), badge, juce::Justification::centred);
+            const auto lane = static_cast<Lane> (i);
+            if ((lane == active) != open)
+                continue;
+
+            // Down to the graph's top line, so the sides join it.
+            const auto tab = tabs[static_cast<size_t> (i)];
+            const auto shape = tab.toFloat().withBottom (static_cast<float> (graph.getY()) + 1.0f);
+            g.setColour (open ? theme::ink : closedLine);
+            g.fillRect (shape);
+            g.setColour (open ? theme::panel : (i == hoveredTab ? theme::tint (theme::patternColour (pattern.colour)) : theme::background));
+            g.fillRect (shape.reduced (1.0f, 0.0f).withTrimmedTop (1.0f));
+
+            // The name and value centred, so the padding is even either side. The value is
+            // bold in the pattern's colour, like every value that can be edited.
+            const auto nameFont = tabFont (open), valueFont = tabFont (true);
+            const auto name = tabName (lane), value = tabValue (lane);
+            const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
+            auto content = tab.withSizeKeepingCentre (theme::textWidth (nameFont, name) + theme::textWidth (valueFont, value) + caret, tab.getHeight());
+
+            // A lane that loops over fewer steps than the pattern says how many, small, under
+            // its name, without moving it or widening the tab.
+            if (const auto steps = tabSteps (lane); steps.isNotEmpty())
+            {
+                g.setColour (theme::inkMuted);
+                g.setFont (stepsFont());
+                g.drawText (steps, content.withTop (tab.getBottom() - tabStepsHeight - 1).withRight (tab.getRight() - 2),
+                            juce::Justification::centredLeft);
+            }
+            g.setColour (open ? theme::ink : theme::ink.withAlpha (0.7f));
+            g.setFont (nameFont);
+            g.drawText (name, content.removeFromLeft (theme::textWidth (nameFont, name)), juce::Justification::centredLeft);
+            // Faded with the rest of a paused pattern's values.
+            const auto colour = theme::patternColour (pattern.colour);
+            g.setColour (pattern.playing ? colour : theme::tint (colour));
+            g.setFont (valueFont);
+            g.drawText (value, content, juce::Justification::centredLeft);
+            if (hasCaret (lane))
+                theme::drawCaret (g, { static_cast<float> (content.getRight()) - theme::caretWidth / 2.0f, static_cast<float> (content.getCentreY()) + 1.0f });
         }
     }
 }
@@ -520,9 +551,12 @@ void PatternPanel::mouseDoubleClick (const juce::MouseEvent& e)
 
 void PatternPanel::mouseMove (const juce::MouseEvent& e)
 {
+    // Closed tabs open their lane; values open their list or field.
     const int over = tabAt (e.getPosition());
     const bool onValue = over >= 0 && tabValues[static_cast<size_t> (over)].contains (e.getPosition());
-    setMouseCursor (onValue ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    const bool closedTab = over >= 0 && over != static_cast<int> (graph.getLane());
+    const bool clickable = onValue || closedTab || playButton.contains (e.getPosition());
+    setMouseCursor (clickable ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 
     if (const int tab = tabAt (e.getPosition()); tab != hoveredTab)
     {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DiceButton.h"
 #include "LaneGraph.h"
 #include "NoteKeyboard.h"
 #include "ValueBox.h"
@@ -53,6 +54,7 @@ private:
     int tabAt (juce::Point<int> p) const; // -1 if none
     juce::String tabName (Lane lane) const;  // "Chance: "
     juce::String tabValue (Lane lane) const; // "Rest", or empty for lanes with no value
+    juce::String tabSteps (Lane lane) const; // "2 Steps" under the name, or empty when the lane runs the pattern's length
     int tabWidth (Lane lane) const;
     void showChanceMenu();
     void showCcField();
@@ -63,9 +65,11 @@ private:
     ValueBox timing { "Step" }, length { "Length" }, direction { "Dir" };
     LaneGraph graph;
     NoteKeyboard keyboard;
+    DiceButton dice; // above the graph's top right corner
     NoteLearner learner; // the current MIDI Learn take
+    NoteEntry entry;     // notes clicked into an empty Piano Roll
 
-    std::array<juce::Rectangle<int>, numLanes> tabs {}; // full height; closed tabs are drawn lower
+    std::array<juce::Rectangle<int>, numLanes> tabs {}; // fitted to their text, sharing dividing lines
     std::array<juce::Rectangle<int>, numLanes> tabValues {}; // the dropdown part of the Chance and CC tabs
     int hoveredTab = -1;
     // Opened from the CC tab's value. Its hint shows while it is empty, even with the cursor

@@ -84,7 +84,7 @@ void ValueBox::paint (juce::Graphics& g)
     const auto area = valueArea();
     if (isMouseOver() && area.contains (getMouseXYRelative()))
     {
-        g.setColour (theme::hover);
+        g.setColour (theme::tint (accent));
         g.fillRoundedRectangle (area.toFloat(), theme::cornerRadius);
     }
 

@@ -171,6 +171,12 @@ void resetStep (Step& step, Lane lane, const Pattern& pattern);
 // Copies one lane's value from a step to another, leaving the other lanes alone.
 void copyLaneValue (const Step& from, Step& to, Lane lane);
 
+// Gives each step a lane plays (up to its length) a random value, one that could have been
+// drawn: an enabled note (any height, to the percent, for MIDI Thru), velocity 1..127, gate
+// 1..100%, octave -3..+3, ratchet 1..8, chance in 5% steps or a ratio, CC 0..127. Other lanes
+// and steps are left alone. The same seed gives the same values.
+void randomizeLane (Pattern& pattern, Lane lane, std::uint64_t seed);
+
 // A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away,
 // with every step at the default velocity and gate.
 Pattern makeDefaultPattern (int defaultVelocity = 100, int defaultGate = 90);
@@ -197,6 +203,28 @@ public:
 private:
     std::array<int, maxSteps> played {};
     int count = 0;
+};
+
+// Clicking notes into an empty Piano Roll writes them into the Notes lane in the order they
+// are added, keeping the pattern's length: the first note fills every step, each later one
+// takes the next step, and once every step the lane plays has its own note, more notes only
+// join the Piano Roll (the steps keep their pitches). Anything else that changes the notes or
+// the Notes lane in between ends the entry; adding to a Piano Roll that was not empty just
+// switches the note on.
+class NoteEntry
+{
+public:
+    void add (Pattern& pattern, int note);
+
+private:
+    bool untouched (const Pattern& pattern) const; // as the entry left it after its last note
+
+    std::array<int, maxSteps> entered {};
+    int count = 0;
+    bool active = false;
+    std::bitset<128> enabled;
+    std::array<float, maxSteps> written {};
+    int writtenSteps = 0;
 };
 
 // Keeps every value inside its legal range.

@@ -911,6 +911,63 @@ TEST_CASE ("MIDI Learn starts afresh and plays the notes back in the order playe
     }
 }
 
+TEST_CASE ("notes clicked into an empty Piano Roll fill the Notes lane in the order added")
+{
+    auto p = patternOf ({ A, B, C, E }); // four steps
+    p.enabledNotes.reset();
+    const auto plays = [&p] { return firstNotes (arrangementOf ({ p }), p.length); };
+
+    NoteEntry entry;
+    entry.add (p, E);
+    CHECK (plays() == std::vector<int> { E, E, E, E }); // the first note fills every step
+
+    entry.add (p, C);
+    entry.add (p, F);
+    CHECK (p.length == 4);
+    CHECK (plays() == std::vector<int> { E, C, F, E }); // steps not reached play the first note
+
+    SECTION ("past the last step, notes only join the Piano Roll")
+    {
+        entry.add (p, A);
+        entry.add (p, B);
+        CHECK (p.enabledNotes.count() == 5);
+        CHECK (plays() == std::vector<int> { E, C, F, A });
+    }
+
+    SECTION ("only the steps the lane plays are filled")
+    {
+        p.laneLength[static_cast<size_t> (Lane::notes)] = 2;
+        entry.add (p, A);
+        CHECK (p.enabledNotes.count() == 4);
+        CHECK (plays() == std::vector<int> { E, C, E, C });
+    }
+
+    SECTION ("a longer pattern's new steps carry on the order")
+    {
+        p.length = 6;
+        entry.add (p, A);
+        CHECK (plays() == std::vector<int> { E, C, F, A, E, E });
+    }
+
+    SECTION ("changing the notes or the Notes lane in between ends the entry")
+    {
+        p.steps[0].note = 1.0f; // step 1 now plays the top note, F
+        entry.add (p, A);
+        CHECK (p.enabledNotes.count() == 4);
+        CHECK (p.steps[0].note == 1.0f); // just switched on; the lane is left alone
+    }
+}
+
+TEST_CASE ("adding a note to a Piano Roll that was not empty just switches it on")
+{
+    auto p = patternOf ({ C, E });
+    const auto before = p.steps;
+    NoteEntry entry;
+    entry.add (p, F);
+    CHECK (p.enabledNotes.count() == 3);
+    CHECK (p.steps == before);
+}
+
 TEST_CASE ("the CC lane sends once per step that plays, just before its first note")
 {
     auto p = patternOf ({ A, C, E, F });
@@ -966,6 +1023,54 @@ TEST_CASE ("default velocity and gate are set for every pattern, for new and res
     const auto added = makeDefaultPattern (a.defaultVelocity(), a.defaultGate());
     CHECK (added.steps[5].velocity == 80);
     CHECK (added.steps[5].gate == 50);
+}
+
+TEST_CASE ("randomizing a lane gives its playing steps drawable values and leaves the rest alone")
+{
+    auto p = makeDefaultPattern(); // 8 steps, C3 E3 G3
+    p.laneLength[static_cast<size_t> (Lane::velocity)] = 6;
+    const auto before = p;
+
+    randomizeLane (p, Lane::velocity, 42);
+    bool changed = false;
+    for (int i = 0; i < maxSteps; ++i)
+    {
+        const auto& s = p.steps[static_cast<size_t> (i)];
+        const auto& was = before.steps[static_cast<size_t> (i)];
+        CHECK (s.note == was.note); // other lanes untouched
+        CHECK (s.gate == was.gate);
+        if (i < 6)
+        {
+            CHECK (s.velocity >= 1);
+            CHECK (s.velocity <= 127);
+            changed = changed || s.velocity != was.velocity;
+        }
+        else
+        {
+            CHECK (s.velocity == was.velocity); // past the lane's own length
+        }
+    }
+    CHECK (changed);
+
+    // The same seed gives the same values; another seed, others.
+    auto again = before, other = before;
+    randomizeLane (again, Lane::velocity, 42);
+    randomizeLane (other, Lane::velocity, 43);
+    CHECK (again == p);
+    CHECK_FALSE (other == p);
+
+    // Notes land on enabled notes; chance on 5% steps or ratios.
+    randomizeLane (p, Lane::notes, 7);
+    randomizeLane (p, Lane::chance, 7);
+    for (int i = 0; i < p.length; ++i)
+    {
+        const auto& s = p.steps[static_cast<size_t> (i)];
+        CHECK ((s.note == 0.0f || s.note == 0.5f || s.note == 1.0f));
+        if (s.chance >= 0)
+            CHECK (s.chance % 5 == 0);
+        else
+            CHECK (chanceRatioIndex (chanceRatio (s.chance)) < numChanceRatios);
+    }
 }
 
 TEST_CASE ("copying a lane value leaves the other lanes alone")
