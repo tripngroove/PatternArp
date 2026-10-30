@@ -205,6 +205,28 @@ private:
     int count = 0;
 };
 
+// Clicking notes into an empty Piano Roll writes them into the Notes lane in the order they
+// are added, keeping the pattern's length: the first note fills every step, each later one
+// takes the next step, and once every step the lane plays has its own note, more notes only
+// join the Piano Roll (the steps keep their pitches). Anything else that changes the notes or
+// the Notes lane in between ends the entry; adding to a Piano Roll that was not empty just
+// switches the note on.
+class NoteEntry
+{
+public:
+    void add (Pattern& pattern, int note);
+
+private:
+    bool untouched (const Pattern& pattern) const; // as the entry left it after its last note
+
+    std::array<int, maxSteps> entered {};
+    int count = 0;
+    bool active = false;
+    std::bitset<128> enabled;
+    std::array<float, maxSteps> written {};
+    int writtenSteps = 0;
+};
+
 // Keeps every value inside its legal range.
 void sanitise (Pattern& pattern);
 

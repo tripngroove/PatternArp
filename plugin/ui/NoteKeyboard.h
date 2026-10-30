@@ -46,6 +46,7 @@ public:
 
     juce::Rectangle<int> sourceTab (NoteSource s) const; // Piano Roll over MIDI Thru, sharing a line
     juce::Rectangle<int> learnArea() const;
+    juce::Rectangle<float> keyBounds (int note) const;
 
 private:
     void timerCallback() override { repaint (learnArea()); } // the pulse
@@ -55,7 +56,6 @@ private:
     juce::Rectangle<int> keysArea() const;
 
     float whiteKeyWidth() const;
-    juce::Rectangle<float> keyBounds (int note) const;
     int noteAt (juce::Point<float> p) const;
 
     std::bitset<128> enabled;
