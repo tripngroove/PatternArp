@@ -599,6 +599,49 @@ TEST_CASE ("arming MIDI Learn switches a MIDI Thru pattern to Piano Roll")
     CHECK (source->getIndex() == 0);
 }
 
+TEST_CASE ("keys clicked into an empty Piano Roll fill the Notes lane in that order")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panel = w.find ("Pattern A");
+    REQUIRE (panel != nullptr);
+    auto* keyboard = dynamic_cast<patternarp::NoteKeyboard*> (panel->findChildWithID ("keyboard"));
+    REQUIRE (keyboard != nullptr);
+    auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*w.plugin);
+
+    // Low on a white key, clear of the black ones.
+    const auto clickKey = [&] (int note) {
+        const auto key = keyboard->keyBounds (note);
+        w.click (w.editor->getLocalPoint (keyboard, juce::Point<float> (key.getCentreX(), key.getBottom() - 4.0f)));
+    };
+
+    // The pitch each of Pattern A's steps plays.
+    const auto stepPitches = [&arp] {
+        const auto a = arp.getArrangement();
+        const auto& p = a.patterns[0];
+        std::vector<int> enabled, pitches;
+        for (int n = 0; n < 128; ++n)
+            if (p.enabledNotes.test (static_cast<size_t> (n)))
+                enabled.push_back (n);
+        for (int i = 0; i < p.length && ! enabled.empty(); ++i)
+            pitches.push_back (enabled[static_cast<size_t> (juce::roundToInt (p.steps[static_cast<size_t> (i)].note * static_cast<float> (enabled.size() - 1)))]);
+        return pitches;
+    };
+
+    for (int note : { 60, 62, 64 }) // Pattern A starts on C3 D3 E3: switch them off
+        clickKey (note);
+    REQUIRE (arp.getArrangement().patterns[0].enabledNotes.none());
+
+    clickKey (67); // G3
+    clickKey (60); // C3
+    CHECK (stepPitches() == std::vector<int> { 67, 60, 67 });
+
+    clickKey (65); // F3
+    clickKey (72); // C4: past the last step, so it only joins the Piano Roll
+    CHECK (stepPitches() == std::vector<int> { 67, 60, 65 });
+    CHECK (arp.getArrangement().patterns[0].enabledNotes.count() == 4);
+}
+
 TEST_CASE ("double-clicking a lane tab resets that lane")
 {
     WindowedEditor w;
@@ -623,6 +666,41 @@ TEST_CASE ("double-clicking a lane tab resets that lane")
     REQUIRE (! after.isEmpty());
     for (const auto& note : after)
         CHECK (note == "0");
+}
+
+TEST_CASE ("the dice randomizes the open lane and leaves the others alone")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panel = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern A"));
+    REQUIRE (panel != nullptr);
+    auto* dice = panel->findChildWithID ("dice");
+    REQUIRE (dice != nullptr);
+
+    // Pattern A's steps as saved: "note velocity gate ..." each.
+    const auto steps = [&w] {
+        if (const auto xml = w.state())
+            if (const auto* arrangement = xml->getChildByName ("Arrangement"))
+                if (const auto* pattern = arrangement->getChildByName ("Pattern"))
+                    return juce::StringArray::fromTokens (pattern->getStringAttribute ("steps"), ";", {});
+        return juce::StringArray();
+    };
+    const auto field = [] (const juce::String& step, int i) { return juce::StringArray::fromTokens (step, " ", {})[i]; };
+    const auto before = steps();
+    REQUIRE (! before.isEmpty());
+
+    w.click (w.editor->getLocalPoint (panel, panel->getTabBounds (patternarp::Lane::velocity).getCentre().toFloat()));
+    w.click (w.editor->getLocalPoint (dice, dice->getLocalBounds().getCentre().toFloat()));
+
+    const auto after = steps();
+    REQUIRE (after.size() == before.size());
+    bool velocityChanged = false;
+    for (int i = 0; i < after.size(); ++i)
+    {
+        CHECK (field (after[i], 0) == field (before[i], 0)); // notes untouched
+        velocityChanged = velocityChanged || field (after[i], 1) != field (before[i], 1);
+    }
+    CHECK (velocityChanged);
 }
 
 TEST_CASE ("the Chance tab opens its list from its value, and the CC tab a field")

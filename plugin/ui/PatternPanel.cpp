@@ -14,6 +14,7 @@ constexpr int stripeWidth = 10; // the pattern's colour down the left edge
 constexpr int headerHeight = 32;
 constexpr int sectionGap = 16;
 constexpr int tabHeight = 32;
+constexpr int diceSize = 22;
 constexpr int graphHeight = 168;
 constexpr int keyboardHeight = 80;
 constexpr int buttonHeight = 28;
@@ -102,7 +103,13 @@ PatternPanel::PatternPanel()
     };
 
     keyboard.onNotesChange = [this] (const std::bitset<128>& notes) {
-        pattern.enabledNotes = notes;
+        // Notes switched on go through the entry, which writes them into the Notes lane in the
+        // order added when the Piano Roll started out empty.
+        const auto added = notes & ~pattern.enabledNotes;
+        pattern.enabledNotes &= notes;
+        for (int n = 0; n < 128; ++n)
+            if (added.test (static_cast<size_t> (n)))
+                entry.add (pattern, n);
         changed();
     };
     keyboard.onSourceChange = [this] (NoteSource source) {
@@ -145,10 +152,15 @@ PatternPanel::PatternPanel()
     }
     deleteButton.setColour (juce::TextButton::textColourOffId, theme::danger);
 
-    for (auto* c : std::initializer_list<juce::Component*> { &timing, &length, &direction, &graph, &keyboard })
+    for (auto* c : std::initializer_list<juce::Component*> { &timing, &length, &direction, &graph, &keyboard, &dice })
         addAndMakeVisible (c);
     graph.setComponentID ("graph");
     keyboard.setComponentID ("keyboard");
+    dice.setComponentID ("dice");
+    dice.onClick = [this] {
+        randomizeLane (pattern, graph.getLane(), static_cast<std::uint64_t> (juce::Random::getSystemRandom().nextInt64()));
+        changed();
+    };
 
     // The CC number, typed in. Return sets it (nothing turns the lane off), Escape leaves it,
     // and clicking away sets it if something was typed.
@@ -184,6 +196,7 @@ void PatternPanel::setPattern (const Pattern& newPattern, bool canAdd)
     graph.setPattern (pattern);
     keyboard.setNotes (pattern.enabledNotes, pattern.noteSource);
     keyboard.setColour (theme::patternColour (pattern.colour));
+    dice.setColour (theme::patternColour (pattern.colour));
     for (auto* box : { &timing, &length, &direction })
         box->setAccent (theme::patternColour (pattern.colour));
     ccField.setColour (juce::TextEditor::highlightColourId, theme::tint (theme::patternColour (pattern.colour)));
@@ -296,6 +309,9 @@ void PatternPanel::resized()
     graph.setBounds (area.removeFromTop (graphHeight).expanded (1, 0));
     area.removeFromTop (sectionGap);
     keyboard.setBounds (area.removeFromTop (keyboardHeight).withTrimmedRight (LaneGraph::labelGutter));
+
+    // The dice sits on the tabs' row, its right edge on the graph's (which the keyboard's matches).
+    dice.setBounds (juce::Rectangle<int> (keyboard.getRight() - diceSize, graph.getY() - tabHeight, diceSize, tabHeight).withSizeKeepingCentre (diceSize, diceSize));
 
     layoutTabs();
 }

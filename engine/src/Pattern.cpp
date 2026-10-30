@@ -77,6 +77,71 @@ void resetStep (Step& s, Lane lane, const Pattern& p)
     }
 }
 
+namespace
+{
+// SplitMix64: cheap, well mixed and the same on every platform (unlike std's distributions).
+struct Random
+{
+    std::uint64_t state;
+
+    std::uint64_t next()
+    {
+        auto z = (state += 0x9e3779b97f4a7c15ULL);
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+        return z ^ (z >> 31);
+    }
+
+    int below (int n) { return static_cast<int> (next() % static_cast<std::uint64_t> (n)); }
+};
+
+// Steps pick from the enabled notes, lowest to highest, by a value from 0 (lowest) to 1
+// (highest), so a new note shifts the others. This gives the value that picks each enabled
+// note, to point steps at their notes again.
+std::array<float, 128> stepValues (const std::bitset<128>& enabled)
+{
+    std::array<float, 128> value {};
+    const auto numEnabled = static_cast<int> (enabled.count());
+    int rank = 0;
+    for (size_t n = 0; n < value.size(); ++n)
+        if (enabled.test (n))
+            value[n] = numEnabled > 1 ? static_cast<float> (rank++) / static_cast<float> (numEnabled - 1) : 0.0f;
+    return value;
+}
+} // namespace
+
+void randomizeLane (Pattern& p, Lane lane, std::uint64_t seed)
+{
+    Random random { seed };
+    const int numEnabled = static_cast<int> (p.enabledNotes.count());
+    constexpr int numPercents = 21; // 0%, 5% ... 100%
+
+    for (int i = 0; i < laneLength (p, lane); ++i)
+    {
+        auto& s = p.steps[static_cast<size_t> (i)];
+        switch (lane)
+        {
+            case Lane::notes:
+                if (p.noteSource == NoteSource::midiIn)
+                    s.note = static_cast<float> (random.below (101)) / 100.0f;
+                else
+                    s.note = numEnabled > 1 ? static_cast<float> (random.below (numEnabled)) / static_cast<float> (numEnabled - 1) : 0.0f;
+                break;
+            case Lane::velocity: s.velocity = 1 + random.below (127); break;
+            case Lane::gate:     s.gate = 1 + random.below (100); break;
+            case Lane::octave:   s.octave = random.below (7) - 3; break;
+            case Lane::ratchet:  s.ratchet = 1 + random.below (8); break;
+            case Lane::cc:       s.cc = random.below (128); break;
+            case Lane::chance:
+            {
+                const int pick = random.below (numPercents + numChanceRatios);
+                s.chance = pick < numPercents ? pick * 5 : ratioChance (chanceRatioAt (pick - numPercents));
+                break;
+            }
+        }
+    }
+}
+
 void NoteLearner::learn (Pattern& p, int note)
 {
     if (note < 0 || note > 127)
@@ -98,17 +163,59 @@ void NoteLearner::learn (Pattern& p, int note)
             resetStep (p.steps[static_cast<size_t> (p.length)], static_cast<Lane> (lane), p);
     p.storedSteps = p.length; // a take forgets steps hidden from before it
 
-    // Steps pick from the enabled notes, lowest to highest, so a new note shifts the others:
-    // point every learned step at its note again.
-    std::array<int, 128> rank {};
-    int numEnabled = 0;
-    for (int n = 0; n < 128; ++n)
-        if (p.enabledNotes.test (static_cast<size_t> (n)))
-            rank[static_cast<size_t> (n)] = numEnabled++;
-
+    // A new note shifts the others: point every learned step at its note again.
+    const auto value = stepValues (p.enabledNotes);
     for (int i = 0; i < count; ++i)
-        p.steps[static_cast<size_t> (i)].note =
-            numEnabled > 1 ? static_cast<float> (rank[static_cast<size_t> (played[static_cast<size_t> (i)])]) / static_cast<float> (numEnabled - 1) : 0.0f;
+        p.steps[static_cast<size_t> (i)].note = value[static_cast<size_t> (played[static_cast<size_t> (i)])];
+}
+
+void NoteEntry::add (Pattern& p, int note)
+{
+    if (note < 0 || note > 127)
+        return;
+
+    // A new entry starts in an empty Piano Roll. One under way carries on only while nothing
+    // else has changed the notes or the Notes lane since its last note.
+    if (p.enabledNotes.none())
+    {
+        active = true;
+        count = 0;
+    }
+    else if (active && ! untouched (p))
+    {
+        active = false;
+    }
+
+    p.enabledNotes.set (static_cast<size_t> (note));
+    if (! active)
+        return;
+
+    // Each note takes the next step of the lane until every step that plays has its own; the
+    // steps not reached yet play the first note.
+    if (count < laneLength (p, Lane::notes))
+        entered[static_cast<size_t> (count++)] = note;
+
+    const auto value = stepValues (p.enabledNotes);
+    for (int i = 0; i < p.length; ++i)
+    {
+        auto& step = p.steps[static_cast<size_t> (i)];
+        step.note = value[static_cast<size_t> (entered[static_cast<size_t> (i < count ? i : 0)])];
+        written[static_cast<size_t> (i)] = step.note;
+    }
+    writtenSteps = p.length;
+    enabled = p.enabledNotes;
+}
+
+bool NoteEntry::untouched (const Pattern& p) const
+{
+    if (p.enabledNotes != enabled)
+        return false;
+
+    // A longer pattern's new steps were never written, so only the ones that were count.
+    for (int i = 0; i < std::min (p.length, writtenSteps); ++i)
+        if (std::abs (p.steps[static_cast<size_t> (i)].note - written[static_cast<size_t> (i)]) > 1.0e-6f)
+            return false;
+    return true;
 }
 
 void copyLaneValue (const Step& from, Step& to, Lane lane)
