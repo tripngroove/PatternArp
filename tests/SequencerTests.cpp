@@ -811,9 +811,54 @@ TEST_CASE ("engine output is the same whatever the block size")
     }
 }
 
+TEST_CASE ("editing while it plays keeps every note, ratchets included")
+{
+    // Dragging a lane in the editor sends a new arrangement every few milliseconds. Each one
+    // must take effect without losing a note that is still to come in a step already started.
+    auto a = arrangementOf ({ patternOf ({ 60, 62, 64 }), patternOf ({ 72, 74 }) });
+    a.patterns[0].steps[1].ratchet = 4;
+    a.patterns[1].steps[0].ratchet = 3;
+
+    PatternEngine steady, edited;
+    steady.setArrangement (a);
+    edited.setArrangement (a);
+
+    std::vector<NoteEvent> x, y;
+    int gate = 10;
+    for (double t = 0.0; t < 8.0; t += 0.0371)
+    {
+        const double end = std::min (t + 0.0371, 8.0);
+        steady.process (t, end, x);
+
+        for (int p = 0; p < a.numPatterns; ++p)
+            for (auto& step : a.patterns[static_cast<size_t> (p)].steps)
+                step.gate = gate;
+        gate = gate % 100 + 7;
+        edited.setArrangement (a);
+        edited.process (t, end, y);
+    }
+
+    const auto onsets = [] (const std::vector<NoteEvent>& events) {
+        std::vector<std::pair<double, int>> on;
+        for (const auto& e : events)
+            if (e.isNoteOn())
+                on.push_back ({ e.ppq, e.note });
+        return on;
+    };
+    const auto expected = onsets (x), played = onsets (y);
+    REQUIRE (played.size() == expected.size());
+    for (size_t i = 0; i < expected.size(); ++i)
+    {
+        CHECK (played[i].first == Catch::Approx (expected[i].first));
+        CHECK (played[i].second == expected[i].second);
+    }
+}
+
 TEST_CASE ("engine jumps land on the same notes as playing through")
 {
     auto a = arrangementOf ({ patternOf ({ 60, 62, 64 }), patternOf ({ 72, 74 }) });
+    for (auto& step : a.patterns[0].steps)
+        step.ratchet = 4;
 
     PatternEngine through, jumped;
     through.setArrangement (a);
@@ -823,11 +868,11 @@ TEST_CASE ("engine jumps land on the same notes as playing through")
     through.process (0.0, 10.0, x);
     jumped.process (0.0, 0.5, y);
     y.clear();
-    jumped.process (9.0, 10.0, y); // jump ahead
+    jumped.process (9.1, 10.0, y); // jump ahead, into a step whose ratchet is under way
 
     std::vector<int> expected;
     for (const auto& e : x)
-        if (e.isNoteOn() && e.ppq >= 9.0)
+        if (e.isNoteOn() && e.ppq >= 9.1)
             expected.push_back (e.note);
 
     CHECK (onPitches (y) == expected);

@@ -72,9 +72,15 @@ void PatternEngine::releaseAllHeld()
 
 void PatternEngine::resync (double ppq)
 {
+    // Play through to ppq from the start, then pick up the step under way there: its later
+    // notes (a ratchet's) are still to come. Edits arrive every few milliseconds while a lane
+    // is dragged, so dropping them would silence ratchets for as long as the drag lasts.
     sequencer.restart();
-    sequencer.fastForwardTo (ppq);
+    const auto current = sequencer.fastForwardTo (ppq);
     queueHead = queueSize = 0;
+    for (int i = 0; i < current.numNotes; ++i)
+        if (const auto& n = current.notes[static_cast<size_t> (i)]; n.start >= ppq - epsilon)
+            queue[static_cast<size_t> (queueSize++)] = n;
     needsResync = false;
 }
 
