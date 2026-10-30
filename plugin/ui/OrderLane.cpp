@@ -15,6 +15,12 @@ constexpr float stepHeight = 24.0f; // a step's box, the same open or closed
 constexpr float rowHeight = stepHeight + 4.0f;
 constexpr float gridMargin = 8.0f; // above and below the open grid, as around the closed row
 constexpr float maxStepWidth = 40.0f;
+constexpr float playSize = stepHeight; // an open row's play/pause button, as tall as its steps
+constexpr float nameX = static_cast<float> (OrderLane::nameX); // an open row's "Pattern A"
+static_assert (OrderLane::nameX == theme::padding + static_cast<int> (playSize) + theme::spacing);
+
+juce::Font nameFont() { return theme::font (14.0f, true); }
+juce::String nameOf (const Pattern& p) { return "Pattern " + theme::patternName (p); }
 
 // A small triangle pointing right (closed) or down (open).
 void drawChevron (juce::Graphics& g, juce::Point<float> centre, bool open)
@@ -103,6 +109,17 @@ int OrderLane::stepAt (float x) const
 int OrderLane::rowAt (float y) const
 {
     return static_cast<int> (std::floor ((y - gridArea().getY()) / rowHeight));
+}
+
+int OrderLane::playToggleAt (juce::Point<float> p) const
+{
+    if (! expanded || p.x < labelX)
+        return -1;
+    const int row = rowAt (p.y);
+    if (row < 0 || row >= arrangement.numPatterns)
+        return -1;
+    const auto name = nameOf (arrangement.patterns[static_cast<size_t> (row)]);
+    return p.x < nameX + static_cast<float> (theme::textWidth (nameFont(), name)) ? row : -1;
 }
 
 void OrderLane::paint (juce::Graphics& g)
@@ -198,15 +215,11 @@ void OrderLane::paintExpanded (juce::Graphics& g)
     {
         const auto& p = arrangement.patterns[static_cast<size_t> (row)];
         const float top = grid.getY() + rowHeight * static_cast<float> (row);
-        const float alpha = p.playing ? 1.0f : 0.45f;
-
-        const auto colour = theme::patternColour (p.colour);
-        g.setColour (p.playing ? colour : theme::tint (colour));
-        g.fillRoundedRectangle (juce::Rectangle<float> (labelX, top + (rowHeight - 10.0f) / 2.0f, 10.0f, 10.0f), theme::cornerRadius);
-        g.setColour (theme::ink.withAlpha (alpha));
-        g.setFont (theme::font (14.0f, true));
-        g.drawText ("Pattern " + theme::patternName (p), juce::Rectangle<float> (labelX + 16.0f, top, gridX - labelX - 16.0f, rowHeight),
-                    juce::Justification::centredLeft);
+        const auto button = juce::Rectangle<float> (labelX, top + (rowHeight - playSize) / 2.0f, playSize, playSize);
+        theme::drawPlayButton (g, button, theme::patternColour (p.colour), p.playing);
+        g.setColour (theme::ink.withAlpha (p.playing ? 1.0f : 0.45f));
+        g.setFont (nameFont());
+        g.drawText (nameOf (p), juce::Rectangle<float> (nameX, top, gridX - nameX, rowHeight), juce::Justification::centredLeft);
 
         for (int i = 0; i < arrangement.orderLength; ++i)
             if (arrangement.order[static_cast<size_t> (i)] == row)
@@ -245,7 +258,7 @@ void OrderLane::mouseMove (const juce::MouseEvent& e)
     auto shape = juce::MouseCursor::NormalCursor;
     if (isOnHandle (e.position))
         shape = juce::MouseCursor::LeftRightResizeCursor;
-    else if (headerArea().contains (e.position))
+    else if (headerArea().contains (e.position) || playToggleAt (e.position) >= 0)
         shape = juce::MouseCursor::PointingHandCursor;
     else if (const int step = stepAt (e.position.x), row = rowAt (e.position.y);
              step >= 0 && step < arrangement.orderLength && row >= 0 && row < arrangement.numPatterns)
@@ -280,6 +293,13 @@ void OrderLane::mouseDown (const juce::MouseEvent& e)
     if (headerArea().contains (e.position))
     {
         setExpanded (! expanded);
+        return;
+    }
+
+    if (const int row = playToggleAt (e.position); row >= 0)
+    {
+        arrangement.setPlaying (row, ! arrangement.patterns[static_cast<size_t> (row)].playing);
+        edited();
         return;
     }
 

@@ -351,28 +351,7 @@ void PatternPanel::paint (juce::Graphics& g)
     g.setColour (theme::ink.withAlpha (0.25f));
     g.drawRoundedRectangle (bounds, theme::cornerRadius, 1.0f);
 
-    // Play/pause: filled with the pattern colour, with white pause bars, while playing; the
-    // pattern's tint with a play triangle in its colour while paused.
-    {
-        const auto r = playButton.toFloat();
-        const auto colour = theme::patternColour (pattern.colour);
-        g.setColour (pattern.playing ? colour : theme::tint (colour));
-        g.fillRoundedRectangle (r, theme::cornerRadius);
-
-        const auto icon = r.withSizeKeepingCentre (12.0f, 12.0f);
-        g.setColour (pattern.playing ? juce::Colours::white : colour);
-        if (pattern.playing)
-        {
-            g.fillRect (icon.withWidth (4.0f));
-            g.fillRect (icon.withTrimmedLeft (8.0f));
-        }
-        else
-        {
-            juce::Path p;
-            p.addTriangle (icon.getX() + 1.0f, icon.getY(), icon.getRight(), icon.getCentreY(), icon.getX() + 1.0f, icon.getBottom());
-            g.fillPath (p);
-        }
-    }
+    theme::drawPlayButton (g, playButton.toFloat(), theme::patternColour (pattern.colour), pattern.playing);
 
     g.setColour (theme::separator);
     for (const int x : dividers)

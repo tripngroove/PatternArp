@@ -16,7 +16,9 @@ namespace patternarp
 // Click or drag in the grid to give steps to a pattern. Clicking a step a pattern already has
 // quiets it (dimmed, silent, keeping its time) or lights it again; a pattern with every step
 // quiet is paused, and pausing a pattern dims all its steps. Drag the handle on the grid to
-// change how many steps the lane loops over. Click the header to close it again.
+// change how many steps the lane loops over. Each row starts with its pattern's play/pause
+// button; clicking it or the name beside it plays or pauses the pattern, as the button on the
+// pattern's panel does. Click the header to close it again.
 class OrderLane final : public juce::Component
 {
 public:
@@ -36,6 +38,7 @@ public:
 
     static constexpr int collapsedHeight = 40;
     static constexpr int labelWidth = 104; // "Rotation" and, when open, "Pattern A"...; the steps start after it
+    static constexpr int nameX = 40; // where an open row's "Pattern A" starts, after its play/pause button
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -63,6 +66,7 @@ private:
     float stepWidth() const;
     int stepAt (float x) const;
     int rowAt (float y) const;
+    int playToggleAt (juce::Point<float> p) const; // the row whose play/pause button or name is at p, or -1
 
     void paintCollapsed (juce::Graphics& g);
     void paintExpanded (juce::Graphics& g);

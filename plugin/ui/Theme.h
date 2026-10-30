@@ -118,6 +118,35 @@ inline void drawLengthHandleLabel (juce::Graphics& g, const juce::String& text, 
     g.drawText (text, r, juce::Justification::centred);
 }
 
+// A pattern's play/pause button, in its panel's header and, smaller, beside its row in the open
+// Rotation lane: the pattern's colour with white pause bars while it plays, its tint with a play
+// triangle in its colour while paused. r should sit on whole pixels; the icon is about 3/8 of
+// its height, centred on whole pixels too, with each pause bar a third of the icon wide.
+inline void drawPlayButton (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour colour, bool playing)
+{
+    g.setColour (playing ? colour : tint (colour));
+    g.fillRoundedRectangle (r, cornerRadius);
+
+    float size = std::round (r.getHeight() * 0.375f);
+    if (juce::roundToInt (r.getHeight() - size) % 2 != 0)
+        size += 1.0f;
+    const float bar = std::round (size / 3.0f);
+    const auto icon = r.withSizeKeepingCentre (size, size);
+
+    g.setColour (playing ? juce::Colours::white : colour);
+    if (playing)
+    {
+        g.fillRect (icon.withWidth (bar));
+        g.fillRect (icon.withTrimmedLeft (size - bar));
+    }
+    else
+    {
+        juce::Path p;
+        p.addTriangle (icon.getX() + 1.0f, icon.getY(), icon.getRight(), icon.getCentreY(), icon.getX() + 1.0f, icon.getBottom());
+        g.fillPath (p);
+    }
+}
+
 // Buttons, text fields and scrollbars drawn in the editor's colours and corner radius.
 class LookAndFeel final : public juce::LookAndFeel_V4
 {
