@@ -8,23 +8,32 @@ namespace patternarp
 
 double beatsPerStep (Timing timing)
 {
+    // Each note, then its triplet (2/3) and dotted (3/2) versions.
     switch (timing)
     {
-        case Timing::sixtyFourth:        return 0.0625;
-        case Timing::thirtySecond:       return 0.125;
-        case Timing::sixteenthTriplet:   return 1.0 / 6.0;
-        case Timing::thirtySecondDotted: return 0.1875;
-        case Timing::sixteenth:          return 0.25;
-        case Timing::eighthTriplet:      return 1.0 / 3.0;
-        case Timing::sixteenthDotted:    return 0.375;
-        case Timing::eighth:             return 0.5;
-        case Timing::quarterTriplet:     return 2.0 / 3.0;
-        case Timing::eighthDotted:       return 0.75;
-        case Timing::quarter:            return 1.0;
-        case Timing::quarterDotted:      return 1.5;
-        case Timing::half:               return 2.0;
-        case Timing::halfDotted:         return 3.0;
-        case Timing::whole:              return 4.0;
+        case Timing::sixtyFourth:         return 1.0 / 16.0;
+        case Timing::thirtySecond:        return 1.0 / 8.0;
+        case Timing::sixteenth:           return 1.0 / 4.0;
+        case Timing::eighth:              return 1.0 / 2.0;
+        case Timing::quarter:             return 1.0;
+        case Timing::half:                return 2.0;
+        case Timing::whole:               return 4.0;
+
+        case Timing::sixtyFourthTriplet:  return 1.0 / 24.0;
+        case Timing::thirtySecondTriplet: return 1.0 / 12.0;
+        case Timing::sixteenthTriplet:    return 1.0 / 6.0;
+        case Timing::eighthTriplet:       return 1.0 / 3.0;
+        case Timing::quarterTriplet:      return 2.0 / 3.0;
+        case Timing::halfTriplet:         return 4.0 / 3.0;
+        case Timing::wholeTriplet:        return 8.0 / 3.0;
+
+        case Timing::sixtyFourthDotted:   return 3.0 / 32.0;
+        case Timing::thirtySecondDotted:  return 3.0 / 16.0;
+        case Timing::sixteenthDotted:     return 3.0 / 8.0;
+        case Timing::eighthDotted:        return 3.0 / 4.0;
+        case Timing::quarterDotted:       return 3.0 / 2.0;
+        case Timing::halfDotted:          return 3.0;
+        case Timing::wholeDotted:         return 6.0;
     }
     return 0.25;
 }
@@ -33,21 +42,29 @@ const char* timingName (Timing timing)
 {
     switch (timing)
     {
-        case Timing::sixtyFourth:        return "1/64";
-        case Timing::thirtySecond:       return "1/32";
-        case Timing::sixteenthTriplet:   return "1/16T";
-        case Timing::thirtySecondDotted: return "1/32D";
-        case Timing::sixteenth:          return "1/16";
-        case Timing::eighthTriplet:      return "1/8T";
-        case Timing::sixteenthDotted:    return "1/16D";
-        case Timing::eighth:             return "1/8";
-        case Timing::quarterTriplet:     return "1/4T";
-        case Timing::eighthDotted:       return "1/8D";
-        case Timing::quarter:            return "1/4";
-        case Timing::quarterDotted:      return "1/4D";
-        case Timing::half:               return "1/2";
-        case Timing::halfDotted:         return "1/2D";
-        case Timing::whole:              return "1/1";
+        case Timing::sixtyFourth:         return "1/64";
+        case Timing::thirtySecond:        return "1/32";
+        case Timing::sixteenth:           return "1/16";
+        case Timing::eighth:              return "1/8";
+        case Timing::quarter:             return "1/4";
+        case Timing::half:                return "1/2";
+        case Timing::whole:               return "1/1";
+
+        case Timing::sixtyFourthTriplet:  return "1/64T";
+        case Timing::thirtySecondTriplet: return "1/32T";
+        case Timing::sixteenthTriplet:    return "1/16T";
+        case Timing::eighthTriplet:       return "1/8T";
+        case Timing::quarterTriplet:      return "1/4T";
+        case Timing::halfTriplet:         return "1/2T";
+        case Timing::wholeTriplet:        return "1/1T";
+
+        case Timing::sixtyFourthDotted:   return "1/64D";
+        case Timing::thirtySecondDotted:  return "1/32D";
+        case Timing::sixteenthDotted:     return "1/16D";
+        case Timing::eighthDotted:        return "1/8D";
+        case Timing::quarterDotted:       return "1/4D";
+        case Timing::halfDotted:          return "1/2D";
+        case Timing::wholeDotted:         return "1/1D";
     }
     return "1/16";
 }

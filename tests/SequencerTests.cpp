@@ -94,8 +94,9 @@ TEST_CASE ("the design doc example: two patterns alternate by default")
     CHECK (loop.lengthBeats == Catch::Approx (3.0));
 }
 
-TEST_CASE ("step timings run shortest first, dotted ones half again as long as their note")
+TEST_CASE ("step timings run shortest first: every note with its triplet and dotted versions")
 {
+    CHECK (numTimings == 21);
     for (int i = 0; i < numTimings; ++i)
     {
         const auto t = static_cast<Timing> (i);
@@ -106,12 +107,41 @@ TEST_CASE ("step timings run shortest first, dotted ones half again as long as t
             CHECK (beatsPerStep (t) > beatsPerStep (static_cast<Timing> (i - 1)));
     }
 
-    CHECK (beatsPerStep (Timing::thirtySecondDotted) == Catch::Approx (1.5 * beatsPerStep (Timing::thirtySecond)));
-    CHECK (beatsPerStep (Timing::sixteenthDotted) == Catch::Approx (1.5 * beatsPerStep (Timing::sixteenth)));
-    CHECK (beatsPerStep (Timing::eighthDotted) == Catch::Approx (1.5 * beatsPerStep (Timing::eighth)));
-    CHECK (beatsPerStep (Timing::quarterDotted) == Catch::Approx (1.5 * beatsPerStep (Timing::quarter)));
-    CHECK (beatsPerStep (Timing::halfDotted) == Catch::Approx (1.5 * beatsPerStep (Timing::half)));
-    CHECK (std::string (timingName (Timing::eighthDotted)) == "1/8D");
+    struct Family
+    {
+        Timing note, triplet, dotted;
+        const char* name;
+    };
+    const Family families[] = {
+        { Timing::sixtyFourth, Timing::sixtyFourthTriplet, Timing::sixtyFourthDotted, "1/64" },
+        { Timing::thirtySecond, Timing::thirtySecondTriplet, Timing::thirtySecondDotted, "1/32" },
+        { Timing::sixteenth, Timing::sixteenthTriplet, Timing::sixteenthDotted, "1/16" },
+        { Timing::eighth, Timing::eighthTriplet, Timing::eighthDotted, "1/8" },
+        { Timing::quarter, Timing::quarterTriplet, Timing::quarterDotted, "1/4" },
+        { Timing::half, Timing::halfTriplet, Timing::halfDotted, "1/2" },
+        { Timing::whole, Timing::wholeTriplet, Timing::wholeDotted, "1/1" },
+    };
+    double length = 1.0 / 16.0;
+    for (const auto& f : families)
+    {
+        INFO (f.name);
+        CHECK (beatsPerStep (f.note) == Catch::Approx (length));
+        CHECK (beatsPerStep (f.triplet) == Catch::Approx (length * 2.0 / 3.0));
+        CHECK (beatsPerStep (f.dotted) == Catch::Approx (length * 1.5));
+        CHECK (std::string (timingName (f.note)) == f.name);
+        CHECK (std::string (timingName (f.triplet)) == std::string (f.name) + "T");
+        CHECK (std::string (timingName (f.dotted)) == std::string (f.name) + "D");
+        length *= 2.0;
+    }
+}
+
+TEST_CASE ("loop lengths are named in the largest unit that fits")
+{
+    CHECK (describeLength (8.0) == "2 bars");
+    CHECK (describeLength (0.375 * 3.0) == "9 thirty-seconds");
+    CHECK (describeLength (5.0 / 12.0) == "5 thirty-second triplets");
+    CHECK (describeLength (1.0 / 24.0) == "1 sixty-fourth triplet");
+    CHECK (describeLength (3.0 / 32.0) == "1 dotted sixty-fourth");
 }
 
 TEST_CASE ("a dotted pattern against a straight one loops when both line up")
@@ -126,7 +156,6 @@ TEST_CASE ("a dotted pattern against a straight one loops when both line up")
     CHECK (loop.repeats);
     CHECK (loop.lengthSlots == 12);
     CHECK (loop.lengthBeats == Catch::Approx (6.0));
-    CHECK (describeLength (0.375 * 3.0) == "9 thirty-seconds");
 }
 
 TEST_CASE ("a loop length set by hand starts everything over")
