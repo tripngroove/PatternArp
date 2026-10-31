@@ -5,6 +5,7 @@
 #include "ui/LaneGraph.h"
 #include "ui/OrderLane.h"
 #include "ui/PatternPanel.h"
+#include "ui/Theme.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -399,6 +400,12 @@ TEST_CASE ("plugin editor opens")
     REQUIRE (editor != nullptr);
     CHECK (editor->getWidth() > 0);
 
+    // Set PATTERNARP_OPEN_ROTATION to open the Rotation lane first.
+    if (juce::SystemStats::getEnvironmentVariable ("PATTERNARP_OPEN_ROTATION", {}).isNotEmpty())
+        for (auto* child : editor->getChildren())
+            if (auto* lane = dynamic_cast<patternarp::OrderLane*> (child))
+                lane->setExpanded (true);
+
     // Set PATTERNARP_SNAPSHOT to a .png path to save a picture of the editor.
     if (const auto path = juce::SystemStats::getEnvironmentVariable ("PATTERNARP_SNAPSHOT", {}); path.isNotEmpty())
     {
@@ -410,6 +417,20 @@ TEST_CASE ("plugin editor opens")
     }
 
     plugin->editorBeingDeleted (editor.get());
+}
+
+TEST_CASE ("every name in the open Rotation lane fits between its play button and the steps")
+{
+    // Each platform has its own font: the Mac's and Linux's fit as they are, while Windows'
+    // (Verdana) is wider, so its longest names are narrowed a little.
+    juce::ScopedJuceInitialiser_GUI juce;
+    for (int letter = 0; letter < 26; ++letter)
+    {
+        const auto name = juce::String ("Pattern ") + patternarp::patternLetter (letter);
+        const int width = patternarp::theme::textWidth (patternarp::theme::font (14.0f, true), name);
+        INFO (name << " is " << width << "px wide");
+        CHECK (static_cast<float> (width) * patternarp::OrderLane::nameMinScale <= static_cast<float> (patternarp::OrderLane::nameWidth));
+    }
 }
 
 // Sends real clicks through a window, so it runs on Linux (Xvfb in CI) only: macOS drops
@@ -555,9 +576,11 @@ TEST_CASE ("the Rotation lane opens on a click and paints steps")
     CHECK (lane->getHeight() > closedHeight);
 
     // Give the first step to pattern B: the grid starts right of the row labels, below the
-    // header (40) and an 8-pixel margin, with a 28-pixel row per pattern (see OrderLane.cpp).
+    // header (40) and an 8-pixel margin, with a row per pattern (see OrderLane.cpp).
     constexpr auto gridX = static_cast<float> (patternarp::OrderLane::labelWidth);
-    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + 10.0f, 40.0f + 8.0f + 28.0f * 1.5f)));
+    constexpr auto stepWidth = static_cast<float> (patternarp::OrderLane::stepPitch);
+    const float rowB = 40.0f + 8.0f + static_cast<float> (patternarp::OrderLane::rowPitch) * 1.5f;
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + 10.0f, rowB)));
 
     const auto xml = w.state();
     REQUIRE (xml != nullptr);
@@ -568,8 +591,6 @@ TEST_CASE ("the Rotation lane opens on a click and paints steps")
     // Clicking B's lit steps quiets them; once both are quiet, B is paused.
     auto* play = w.parameter<juce::AudioParameterBool> ("p2_play");
     REQUIRE (play != nullptr);
-    const float stepWidth = std::min (40.0f, (static_cast<float> (lane->getWidth()) - gridX - 12.0f) / 16.0f);
-    const float rowB = 40.0f + 8.0f + 28.0f * 1.5f;
     w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + stepWidth * 0.5f, rowB)));
     CHECK (play->get());
     w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + stepWidth * 1.5f, rowB)));
@@ -579,6 +600,39 @@ TEST_CASE ("the Rotation lane opens on a click and paints steps")
     w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + stepWidth * 1.5f, rowB)));
     CHECK (play->get());
     CHECK (w.state()->getChildByName ("Arrangement")->getStringAttribute ("quiet") == "0");
+}
+
+TEST_CASE ("each row of the open Rotation lane has a play button, and its name works it too")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* lane = dynamic_cast<patternarp::OrderLane*> (w.find ("Rotation"));
+    auto* play = w.parameter<juce::AudioParameterBool> ("p2_play");
+    REQUIRE (lane != nullptr);
+    REQUIRE (play != nullptr);
+    lane->setExpanded (true);
+
+    // Pattern B's row: below the header (40) and an 8-pixel margin, with a 24-pixel button at
+    // the left padding and the name after it (see OrderLane.cpp).
+    const float rowB = 40.0f + 8.0f + static_cast<float> (patternarp::OrderLane::rowPitch) * 1.5f;
+    const auto button = w.editor->getLocalPoint (lane, juce::Point<float> (8.0f + 12.0f, rowB));
+    const auto name = w.editor->getLocalPoint (lane, juce::Point<float> (patternarp::OrderLane::nameX + 10.0f, rowB));
+
+    REQUIRE (play->get());
+    w.click (button);
+    CHECK_FALSE (play->get());
+    CHECK (w.parameter<juce::AudioParameterBool> ("p1_play")->get()); // only B's row
+    w.click (name);
+    CHECK (play->get());
+    w.click (name);
+    CHECK_FALSE (play->get());
+    w.click (button);
+    CHECK (play->get());
+
+    // Past the end of the name, the label column does nothing.
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (patternarp::OrderLane::labelWidth - 2.0f, rowB)));
+    CHECK (play->get());
+    CHECK (lane->isExpanded());
 }
 
 TEST_CASE ("arming MIDI Learn switches a MIDI Thru pattern to Piano Roll")

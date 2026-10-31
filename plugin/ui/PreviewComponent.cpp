@@ -14,7 +14,7 @@ namespace patternarp
 
 namespace
 {
-constexpr float padding = 10.0f; // keeps the first/last and highest/lowest notes off the frame
+constexpr auto padding = static_cast<float> (theme::padding); // as in the Rotation lane: the first note lines up with its buttons
 constexpr float handleGrab = 6.0f; // either side of the handle's line
 } // namespace
 
@@ -85,7 +85,7 @@ juce::Rectangle<float> PreviewComponent::boxArea() const
 
 juce::Rectangle<float> PreviewComponent::rollArea() const
 {
-    return boxArea().reduced (padding, padding * 0.8f);
+    return boxArea().reduced (padding);
 }
 
 float PreviewComponent::beatToX (double beat) const
@@ -113,9 +113,9 @@ void PreviewComponent::paint (juce::Graphics& g)
     g.setColour (theme::panel);
     g.fillRect (box);
 
-    // Beat lines, with stronger bar lines.
+    // Beat lines, with stronger bar lines. None at the start: the box's edge is there already.
     const float pxPerBeat = roll.getWidth() / static_cast<float> (beats);
-    for (int b = 0; b <= static_cast<int> (std::floor (beats + 1.0e-6)); ++b)
+    for (int b = 1; b <= static_cast<int> (std::floor (beats + 1.0e-6)); ++b)
     {
         g.setColour (b % 4 == 0 ? theme::gridLine : theme::gridLine.withAlpha (0.35f));
         g.drawVerticalLine (juce::roundToInt (roll.getX() + pxPerBeat * static_cast<float> (b)), inside.getY(), inside.getBottom());

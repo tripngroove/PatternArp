@@ -16,7 +16,9 @@ namespace patternarp
 // Click or drag in the grid to give steps to a pattern. Clicking a step a pattern already has
 // quiets it (dimmed, silent, keeping its time) or lights it again; a pattern with every step
 // quiet is paused, and pausing a pattern dims all its steps. Drag the handle on the grid to
-// change how many steps the lane loops over. Click the header to close it again.
+// change how many steps the lane loops over. Each row starts with its pattern's play/pause
+// button; clicking it or the name beside it plays or pauses the pattern, as the button on the
+// pattern's panel does. Click the header to close it again.
 class OrderLane final : public juce::Component
 {
 public:
@@ -36,6 +38,11 @@ public:
 
     static constexpr int collapsedHeight = 40;
     static constexpr int labelWidth = 104; // "Rotation" and, when open, "Pattern A"...; the steps start after it
+    static constexpr int nameX = 40; // where an open row's "Pattern A" starts, after its play/pause button
+    static constexpr int nameWidth = labelWidth - nameX - 2; // its room, up to just before the steps
+    static constexpr float nameMinScale = 0.9f; // fonts differ by platform: a name too wide is narrowed this far at most
+    static constexpr int stepPitch = 38; // a step's cell, line to line: the grid's size is fixed
+    static constexpr int rowPitch = 29; // a row of the open grid: a line, 2px, a 24px step, 2px
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -60,13 +67,13 @@ private:
     juce::Rectangle<float> gridArea() const; // collapsed: the row of steps
     float handleX() const;
     bool isOnHandle (juce::Point<float> p) const; // expanded only
-    float stepWidth() const;
     int stepAt (float x) const;
     int rowAt (float y) const;
+    int playToggleAt (juce::Point<float> p) const; // the row whose play/pause button or name is at p, or -1
 
     void paintCollapsed (juce::Graphics& g);
     void paintExpanded (juce::Graphics& g);
-    juce::Rectangle<float> stepBox (int step, float y) const; // a step's box, its top at y
+    juce::Rectangle<float> stepBox (int step, float rowTop) const; // a step's box, in the row whose top line is at rowTop
     void paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn) const;
     void paintHandle (juce::Graphics& g); // the length handle
 

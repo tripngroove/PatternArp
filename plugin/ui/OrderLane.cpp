@@ -9,12 +9,23 @@ namespace
 {
 constexpr float gridX = static_cast<float> (OrderLane::labelWidth); // where the steps start, after the labels
 constexpr float labelX = static_cast<float> (theme::padding);
-constexpr float rightMargin = 12.0f;
 constexpr float headerHeight = static_cast<float> (OrderLane::collapsedHeight); // the label stays put when opened
-constexpr float stepHeight = 24.0f; // a step's box, the same open or closed
-constexpr float rowHeight = stepHeight + 4.0f;
 constexpr float gridMargin = 8.0f; // above and below the open grid, as around the closed row
-constexpr float maxStepWidth = 40.0f;
+
+// The grid is a fixed size on whole pixels: each cell has a 1px line before it, then 2px of
+// white all round its step.
+constexpr float stepHeight = 24.0f; // a step's box, the same open or closed
+constexpr float cellPadding = 2.0f;
+constexpr float stepInset = 1.0f + cellPadding; // from a cell's left or top line to its step
+constexpr float pitch = static_cast<float> (OrderLane::stepPitch);
+constexpr float rowHeight = static_cast<float> (OrderLane::rowPitch);
+static_assert (OrderLane::rowPitch == static_cast<int> (stepInset + stepHeight + cellPadding));
+
+constexpr float playSize = stepHeight; // an open row's play/pause button, as tall as its steps
+static_assert (OrderLane::nameX == theme::padding + static_cast<int> (playSize) + theme::spacing);
+
+juce::Font nameFont() { return theme::font (14.0f, true); }
+juce::String nameOf (const Pattern& p) { return "Pattern " + theme::patternName (p); }
 
 // A small triangle pointing right (closed) or down (open).
 void drawChevron (juce::Graphics& g, juce::Point<float> centre, bool open)
@@ -50,7 +61,7 @@ int OrderLane::getPreferredHeight() const
         return collapsedHeight;
 
     const auto rows = static_cast<float> (juce::jmax (1, arrangement.numPatterns));
-    return juce::roundToInt (headerHeight + gridMargin + rows * rowHeight + gridMargin);
+    return juce::roundToInt (headerHeight + gridMargin + rows * rowHeight + 1.0f + gridMargin); // + the grid's bottom line
 }
 
 void OrderLane::setExpanded (bool shouldExpand)
@@ -72,7 +83,7 @@ juce::Rectangle<float> OrderLane::headerArea() const
 
 float OrderLane::handleX() const
 {
-    return gridArea().getX() + stepWidth() * static_cast<float> (arrangement.orderLength);
+    return gridX + pitch * static_cast<float> (arrangement.orderLength) + 0.5f; // the middle of the grid line there
 }
 
 bool OrderLane::isOnHandle (juce::Point<float> p) const
@@ -80,29 +91,35 @@ bool OrderLane::isOnHandle (juce::Point<float> p) const
     return expanded && theme::lengthHandleTab (handleX(), gridArea().getVerticalRange()).expanded (4.0f).contains (p);
 }
 
-float OrderLane::stepWidth() const
-{
-    return juce::jmin (maxStepWidth, (static_cast<float> (getWidth()) - gridX - rightMargin) / static_cast<float> (maxOrderSteps));
-}
-
 juce::Rectangle<float> OrderLane::gridArea() const
 {
-    const float width = stepWidth() * static_cast<float> (maxOrderSteps);
+    const float width = pitch * static_cast<float> (maxOrderSteps) + 1.0f; // a line after the last cell too
     if (! expanded)
-        return { gridX, (headerHeight - stepHeight) / 2.0f, width, stepHeight };
+        return { gridX, (headerHeight - stepHeight) / 2.0f - stepInset, width, rowHeight }; // one row, its lines not drawn
 
     const auto rows = static_cast<float> (juce::jmax (1, arrangement.numPatterns));
-    return { gridX, headerHeight + gridMargin, width, rows * rowHeight };
+    return { gridX, headerHeight + gridMargin, width, rows * rowHeight + 1.0f };
 }
 
 int OrderLane::stepAt (float x) const
 {
-    return static_cast<int> (std::floor ((x - gridArea().getX()) / stepWidth()));
+    return static_cast<int> (std::floor ((x - gridX) / pitch));
 }
 
 int OrderLane::rowAt (float y) const
 {
     return static_cast<int> (std::floor ((y - gridArea().getY()) / rowHeight));
+}
+
+int OrderLane::playToggleAt (juce::Point<float> p) const
+{
+    if (! expanded || p.x < labelX)
+        return -1;
+    const int row = rowAt (p.y);
+    if (row < 0 || row >= arrangement.numPatterns)
+        return -1;
+    const auto name = nameOf (arrangement.patterns[static_cast<size_t> (row)]);
+    return p.x < static_cast<float> (nameX + juce::jmin (nameWidth, theme::textWidth (nameFont(), name))) ? row : -1;
 }
 
 void OrderLane::paint (juce::Graphics& g)
@@ -136,10 +153,9 @@ void OrderLane::paint (juce::Graphics& g)
     g.drawRect (box, 1.0f);
 }
 
-juce::Rectangle<float> OrderLane::stepBox (int step, float y) const
+juce::Rectangle<float> OrderLane::stepBox (int step, float rowTop) const
 {
-    const float w = stepWidth();
-    return juce::Rectangle<float> (gridArea().getX() + w * static_cast<float> (step), y, w, stepHeight).reduced (1.5f, 0.0f);
+    return { gridX + pitch * static_cast<float> (step) + stepInset, rowTop + stepInset, pitch - stepInset - cellPadding, stepHeight };
 }
 
 void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn) const
@@ -157,7 +173,7 @@ void OrderLane::paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn
     // the letter in its colour.
     const auto& p = arrangement.patterns[static_cast<size_t> (owner)];
     const auto colour = theme::patternColour (p.colour);
-    g.setFont (theme::font (13.0f, true));
+    g.setFont (nameFont()); // the same as the row names, so the letters line up with them
     if (arrangement.isHeard (turn))
     {
         g.setColour (colour);
@@ -183,42 +199,47 @@ void OrderLane::paintCollapsed (juce::Graphics& g)
 void OrderLane::paintExpanded (juce::Graphics& g)
 {
     const auto grid = gridArea();
-    const float w = stepWidth();
 
     g.setColour (theme::ink.withAlpha (0.25f));
     g.drawHorizontalLine (juce::roundToInt (headerHeight), 1.0f, boxArea().getRight() - 1.0f);
 
     // Steps past the end of the lane are greyed out.
-    const float end = grid.getX() + w * static_cast<float> (arrangement.orderLength);
+    const float end = gridX + pitch * static_cast<float> (arrangement.orderLength);
     g.setColour (theme::background);
     g.fillRect (grid.withLeft (end));
 
     // A row per pattern, labelled, with its steps drawn just as they are when the lane is closed.
+    // The button, the name and the steps share one top and height, so their text lines up.
     for (int row = 0; row < arrangement.numPatterns; ++row)
     {
         const auto& p = arrangement.patterns[static_cast<size_t> (row)];
         const float top = grid.getY() + rowHeight * static_cast<float> (row);
-        const float alpha = p.playing ? 1.0f : 0.45f;
-
-        const auto colour = theme::patternColour (p.colour);
-        g.setColour (p.playing ? colour : theme::tint (colour));
-        g.fillRoundedRectangle (juce::Rectangle<float> (labelX, top + (rowHeight - 10.0f) / 2.0f, 10.0f, 10.0f), theme::cornerRadius);
-        g.setColour (theme::ink.withAlpha (alpha));
-        g.setFont (theme::font (14.0f, true));
-        g.drawText ("Pattern " + theme::patternName (p), juce::Rectangle<float> (labelX + 16.0f, top, gridX - labelX - 16.0f, rowHeight),
-                    juce::Justification::centredLeft);
+        const auto button = juce::Rectangle<float> (labelX, top + stepInset, playSize, playSize);
+        theme::drawPlayButton (g, button, theme::patternColour (p.colour), p.playing);
+        g.setColour (theme::ink.withAlpha (p.playing ? 1.0f : 0.45f));
+        g.setFont (nameFont());
+        g.drawFittedText (nameOf (p), button.withX (static_cast<float> (nameX)).withWidth (static_cast<float> (nameWidth)).toNearestInt(),
+                          juce::Justification::centredLeft, 1, nameMinScale);
 
         for (int i = 0; i < arrangement.orderLength; ++i)
             if (arrangement.order[static_cast<size_t> (i)] == row)
-                paintStep (g, stepBox (i, top + (rowHeight - stepHeight) / 2.0f), i);
+                paintStep (g, stepBox (i, top), i);
     }
 
-    // Grid lines.
-    g.setColour (theme::gridLine.withAlpha (0.35f));
-    for (int i = 1; i < maxOrderSteps; ++i)
-        g.drawVerticalLine (juce::roundToInt (grid.getX() + w * static_cast<float> (i)), grid.getY(), grid.getBottom());
+    // Grid lines, darker every 4 steps like the bar lines in the preview. The light ones go in
+    // one list, which draws each pixel once, so they don't darken where they cross.
+    const auto gridInt = grid.toNearestInt();
+    juce::RectangleList<int> lines;
     for (int row = 1; row < arrangement.numPatterns; ++row)
-        g.drawHorizontalLine (juce::roundToInt (grid.getY() + rowHeight * static_cast<float> (row)), grid.getX(), grid.getRight());
+        lines.add (gridInt.withY (gridInt.getY() + OrderLane::rowPitch * row).withHeight (1));
+    for (int i = 1; i < maxOrderSteps; ++i)
+        if (i % 4 != 0)
+            lines.add (gridInt.withX (gridInt.getX() + stepPitch * i).withWidth (1));
+    g.setColour (theme::gridLine.withAlpha (0.35f));
+    g.fillRectList (lines);
+    g.setColour (theme::gridLine);
+    for (int i = 4; i < maxOrderSteps; i += 4)
+        g.fillRect (gridInt.withX (gridInt.getX() + stepPitch * i).withWidth (1));
     g.setColour (theme::ink);
     g.drawRect (grid, 1.0f);
 
@@ -245,7 +266,7 @@ void OrderLane::mouseMove (const juce::MouseEvent& e)
     auto shape = juce::MouseCursor::NormalCursor;
     if (isOnHandle (e.position))
         shape = juce::MouseCursor::LeftRightResizeCursor;
-    else if (headerArea().contains (e.position))
+    else if (headerArea().contains (e.position) || playToggleAt (e.position) >= 0)
         shape = juce::MouseCursor::PointingHandCursor;
     else if (const int step = stepAt (e.position.x), row = rowAt (e.position.y);
              step >= 0 && step < arrangement.orderLength && row >= 0 && row < arrangement.numPatterns)
@@ -280,6 +301,13 @@ void OrderLane::mouseDown (const juce::MouseEvent& e)
     if (headerArea().contains (e.position))
     {
         setExpanded (! expanded);
+        return;
+    }
+
+    if (const int row = playToggleAt (e.position); row >= 0)
+    {
+        arrangement.setPlaying (row, ! arrangement.patterns[static_cast<size_t> (row)].playing);
+        edited();
         return;
     }
 
@@ -340,7 +368,7 @@ void OrderLane::applyAt (juce::Point<float> position)
 
 void OrderLane::setLengthFromX (float x)
 {
-    const int steps = juce::jlimit (1, maxOrderSteps, juce::roundToInt ((x - gridArea().getX()) / stepWidth()));
+    const int steps = juce::jlimit (1, maxOrderSteps, juce::roundToInt ((x - gridX) / pitch));
     auto from = dragStart;
     from.setOrderLength (steps);
     from.pauseFullyQuietPatterns(); // shortening can leave a pattern only quiet turns

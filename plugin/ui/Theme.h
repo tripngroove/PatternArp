@@ -83,12 +83,13 @@ inline void drawCaret (juce::Graphics& g, juce::Point<float> centre)
 
 // The length handles of the preview, the lanes and the Rotation lane all look alike: a 1px
 // line through what they shorten, with a grip tab centred on it.
-inline constexpr float handleWidth = 14.0f;
+inline constexpr float handleWidth = 15.0f; // odd, so a line on a whole pixel has as much tab either side
 inline constexpr float handleHeight = 28.0f;
 
+// The tab sits on whole pixels: x is the middle of the line, at a pixel's centre when it is crisp.
 inline juce::Rectangle<float> lengthHandleTab (float x, juce::Range<float> line)
 {
-    return juce::Rectangle<float> (handleWidth, handleHeight).withCentre ({ x, (line.getStart() + line.getEnd()) / 2.0f });
+    return { std::round (x - handleWidth / 2.0f), std::round ((line.getStart() + line.getEnd() - handleHeight) / 2.0f), handleWidth, handleHeight };
 }
 
 inline void drawLengthHandle (juce::Graphics& g, float x, juce::Range<float> line)
@@ -116,6 +117,35 @@ inline void drawLengthHandleLabel (juce::Graphics& g, const juce::String& text, 
     g.setColour (ink);
     g.setFont (textFont);
     g.drawText (text, r, juce::Justification::centred);
+}
+
+// A pattern's play/pause button, in its panel's header and, smaller, beside its row in the open
+// Rotation lane: the pattern's colour with white pause bars while it plays, its tint with a play
+// triangle in its colour while paused. r should sit on whole pixels; the icon is about 3/8 of
+// its height, centred on whole pixels too, with each pause bar a third of the icon wide.
+inline void drawPlayButton (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour colour, bool playing)
+{
+    g.setColour (playing ? colour : tint (colour));
+    g.fillRoundedRectangle (r, cornerRadius);
+
+    float size = std::round (r.getHeight() * 0.375f);
+    if (juce::roundToInt (r.getHeight() - size) % 2 != 0)
+        size += 1.0f;
+    const float bar = std::round (size / 3.0f);
+    const auto icon = r.withSizeKeepingCentre (size, size);
+
+    g.setColour (playing ? juce::Colours::white : colour);
+    if (playing)
+    {
+        g.fillRect (icon.withWidth (bar));
+        g.fillRect (icon.withTrimmedLeft (size - bar));
+    }
+    else
+    {
+        juce::Path p;
+        p.addTriangle (icon.getX() + 1.0f, icon.getY(), icon.getRight(), icon.getCentreY(), icon.getX() + 1.0f, icon.getBottom());
+        g.fillPath (p);
+    }
 }
 
 // Buttons, text fields and scrollbars drawn in the editor's colours and corner radius.
