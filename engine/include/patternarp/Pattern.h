@@ -16,25 +16,37 @@ constexpr int numLetters = 26;
 // Patterns are named by letter: 0 = A, 1 = B...
 constexpr char patternLetter (int letter) { return static_cast<char> ('A' + letter); }
 
-// Loop lengths are counted in 48ths of a beat, which every Timing divides into evenly.
-constexpr int ticksPerBeat = 48;
+// Loop lengths are counted in 96ths of a beat, which every Timing divides into evenly.
+constexpr int ticksPerBeat = 96;
 
-// Step length of a pattern, shortest first.
+// Step length of a pattern, shortest first: every note from 1/64 to 1/1, with its triplet
+// (two thirds as long) and dotted (half again as long) versions.
 enum class Timing
 {
+    sixtyFourthTriplet,
     sixtyFourth,
+    thirtySecondTriplet,
+    sixtyFourthDotted,
     thirtySecond,
     sixteenthTriplet,
+    thirtySecondDotted,
     sixteenth,
     eighthTriplet,
+    sixteenthDotted,
     eighth,
     quarterTriplet,
+    eighthDotted,
     quarter,
+    halfTriplet,
+    quarterDotted,
     half,
-    whole
+    wholeTriplet,
+    halfDotted,
+    whole,
+    wholeDotted
 };
 
-constexpr int numTimings = 10;
+constexpr int numTimings = 21;
 double beatsPerStep (Timing timing); // in quarter notes
 const char* timingName (Timing timing);
 
@@ -262,8 +274,8 @@ struct Arrangement
     int nextLetter() const;
 
     // Adds a pattern at the end, with a new colour and letter, and gives it the next step of
-    // the Order lane (the last step, if the lane is already full). Returns false when there is
-    // no room.
+    // the Order lane (the last step, if the lane is already full). The first pattern after
+    // every other was deleted takes every step instead. Returns false when there is no room.
     bool addPattern (const Pattern& pattern);
 
     // The default velocity and gate: what new and reset steps get. They are set for every

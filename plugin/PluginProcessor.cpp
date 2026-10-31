@@ -11,7 +11,36 @@ namespace
 const juce::Identifier stateType { "PatternArpState" };
 // 5: 1/64 joined the timings (every timing index moved up one) and loop lengths went
 //    from 24 to 48 ticks a beat.
-constexpr int stateVersion = 5;
+// 6: five dotted timings joined (a build tried on 2026-10-31, before the full set).
+// 7: every note got its triplet and dotted versions, and loop lengths went from 48 to 96
+//    ticks a beat (see upgradeTiming).
+constexpr int stateVersion = 7;
+
+// A timing index from a save of the given version, as it is now.
+int upgradeTiming (int timing, int version)
+{
+    // Where each timing of the version 5 and 6 lists is now.
+    static constexpr std::array<int, 10> fromVersion5 { 1, 4, 5, 7, 8, 10, 11, 13, 16, 19 };
+    static constexpr std::array<int, 15> fromVersion6 { 1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 18, 19 };
+
+    if (version < 5)
+        ++timing; // 1/64 went in first
+    if (version < 6)
+        return fromVersion5[static_cast<size_t> (std::clamp (timing, 0, 9))];
+    if (version < 7)
+        return fromVersion6[static_cast<size_t> (std::clamp (timing, 0, 14))];
+    return timing;
+}
+
+// A loop length from a save of the given version, in today's ticks.
+int upgradeLoopLength (int ticks, int version)
+{
+    if (version < 5)
+        ticks *= 2;
+    if (version < 7)
+        ticks *= 2;
+    return ticks;
+}
 
 const juce::ParameterID latchId { "latch", 1 };
 
@@ -483,17 +512,16 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
     *latch = static_cast<bool> (state.getProperty ("latch", false));
 
     const int version = state.getProperty ("version", 0);
-    const bool before64ths = version < 5;
 
     // Older saves (before patterns existed) have no arrangement; keep the default one.
     Arrangement loaded;
     if (fromValueTree (state.getChildWithName ("Arrangement"), loaded))
     {
-        if (before64ths)
+        loaded.loopLength = upgradeLoopLength (loaded.loopLength, version);
+        for (int i = 0; i < loaded.numPatterns; ++i)
         {
-            loaded.loopLength *= 2;
-            for (auto& p : loaded.patterns)
-                p.timing = static_cast<Timing> (static_cast<int> (p.timing) + 1);
+            auto& p = loaded.patterns[static_cast<size_t> (i)];
+            p.timing = static_cast<Timing> (upgradeTiming (static_cast<int> (p.timing), version));
         }
         setArrangement (loaded);
     }
@@ -516,9 +544,8 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
         if (hasGlobals)
             for (int i = 0; i < 2; ++i)
                 values[static_cast<size_t> (globalsAt + i)] = slotValues[maxPatterns * stride + i].getIntValue();
-        if (before64ths)
-            for (size_t i = 0; i < globalsAt; i += parametersPerPattern)
-                ++values[i]; // timing
+        for (size_t i = 0; i < globalsAt; i += parametersPerPattern)
+            values[i] = upgradeTiming (values[i], version); // each slot's timing
         setParameters (values);
     }
 

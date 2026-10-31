@@ -578,6 +578,12 @@ std::string describeLength (double beats)
         return plural (std::llround (beats * 8.0), "thirty-second");
     if (isWhole (beats * 16.0))
         return plural (std::llround (beats * 16.0), "sixty-fourth");
+    if (isWhole (beats * 12.0))
+        return plural (std::llround (beats * 12.0), "thirty-second triplet");
+    if (isWhole (beats * 24.0))
+        return plural (std::llround (beats * 24.0), "sixty-fourth triplet");
+    if (isWhole (beats * 32.0 / 3.0))
+        return plural (std::llround (beats * 32.0 / 3.0), "dotted sixty-fourth");
 
     char text[32];
     std::snprintf (text, sizeof (text), "%.2f beats", beats);

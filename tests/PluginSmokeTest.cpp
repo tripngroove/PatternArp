@@ -376,10 +376,72 @@ TEST_CASE ("saves from before 1/64 keep their timings and loop length")
     REQUIRE (reloaded != nullptr);
     const auto* arrangement = reloaded->getChildByName ("Arrangement");
     REQUIRE (arrangement != nullptr);
-    CHECK (arrangement->getIntAttribute ("loopLength") == 48);
+    CHECK (arrangement->getIntAttribute ("loopLength") == patternarp::ticksPerBeat);
     REQUIRE (arrangement->getChildByName ("Pattern") != nullptr);
-    CHECK (arrangement->getChildByName ("Pattern")->getIntAttribute ("timing") == 5);
-    CHECK (reloaded->getStringAttribute ("slots").startsWith ("5,4,"));
+    CHECK (arrangement->getChildByName ("Pattern")->getIntAttribute ("timing") == static_cast<int> (patternarp::Timing::eighth));
+    CHECK (reloaded->getStringAttribute ("slots").startsWith (juce::String (static_cast<int> (patternarp::Timing::eighth)) + ",4,"));
+}
+
+TEST_CASE ("saves from before the full set of triplets and dotted notes keep their timings")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+    using patternarp::Timing;
+
+    // Loads a save of the given version whose two patterns (slots 1 and 2) and empty slots have
+    // these timings, as that version numbered them, then checks what they are now.
+    const auto check = [&plugin] (int version, int loopLength, const std::array<int, 8>& saved, const std::array<Timing, 8>& now) {
+        juce::String slots;
+        for (int slot = 0; slot < 8; ++slot)
+            slots << (slot == 0 ? "" : ",") << saved[static_cast<size_t> (slot)] << ",4,0,0,0,1";
+        const auto xml = juce::parseXML ("<PatternArpState version=\"" + juce::String (version) + "\" latch=\"0\" slots=\"" + slots + "\">"
+                                         "<Arrangement loopLength=\"" + juce::String (loopLength) + "\" order=\"0,1\" orderLength=\"2\">"
+                                         "<Pattern timing=\"" + juce::String (saved[0]) + "\" length=\"4\" notes=\"60\"/>"
+                                         "<Pattern timing=\"" + juce::String (saved[1]) + "\" length=\"2\" notes=\"64\"/>"
+                                         "</Arrangement></PatternArpState>");
+        REQUIRE (xml != nullptr);
+        juce::MemoryBlock state;
+        juce::AudioProcessor::copyXmlToBinary (*xml, state);
+        plugin->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+
+        for (int slot = 0; slot < 8; ++slot)
+        {
+            juce::AudioParameterChoice* timing = nullptr;
+            for (auto* p : plugin->getParameters())
+                if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (p);
+                    choice != nullptr && choice->getParameterID() == "p" + juce::String (slot + 1) + "_timing")
+                    timing = choice;
+            REQUIRE (timing != nullptr);
+            CHECK (timing->getCurrentChoiceName() == patternarp::timingName (now[static_cast<size_t> (slot)]));
+        }
+
+        juce::MemoryBlock out;
+        plugin->getStateInformation (out);
+        const auto reloaded = juce::AudioProcessor::getXmlFromBinary (out.getData(), static_cast<int> (out.getSize()));
+        REQUIRE (reloaded != nullptr);
+        const auto* arrangement = reloaded->getChildByName ("Arrangement");
+        REQUIRE (arrangement != nullptr);
+        CHECK (arrangement->getIntAttribute ("loopLength") == 2 * patternarp::ticksPerBeat); // two beats
+        const auto* first = arrangement->getChildByName ("Pattern");
+        REQUIRE (first != nullptr);
+        CHECK (first->getIntAttribute ("timing") == static_cast<int> (now[0]));
+        REQUIRE (first->getNextElement() != nullptr);
+        CHECK (first->getNextElement()->getIntAttribute ("timing") == static_cast<int> (now[1]));
+    };
+
+    SECTION ("version 5: 1/64, 1/32, 1/16T, 1/16, 1/8T, 1/8, 1/4T, 1/4, 1/2, 1/1, at 48 ticks a beat")
+    {
+        check (5, 96, { 4, 9, 0, 1, 2, 5, 6, 8 },
+               { Timing::eighthTriplet, Timing::whole, Timing::sixtyFourth, Timing::thirtySecond, Timing::sixteenthTriplet,
+                 Timing::eighth, Timing::quarterTriplet, Timing::half });
+    }
+
+    SECTION ("version 6: those with five dotted timings in between")
+    {
+        check (6, 96, { 3, 11, 6, 9, 13, 14, 4, 7 },
+               { Timing::thirtySecondDotted, Timing::quarterDotted, Timing::sixteenthDotted, Timing::eighthDotted,
+                 Timing::halfDotted, Timing::whole, Timing::sixteenth, Timing::eighth });
+    }
 }
 
 TEST_CASE ("plugin editor opens")

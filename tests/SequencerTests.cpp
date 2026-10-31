@@ -4,7 +4,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <initializer_list>
+#include <string>
 #include <vector>
 
 using namespace patternarp;
@@ -90,6 +92,70 @@ TEST_CASE ("the design doc example: two patterns alternate by default")
     CHECK (loop.repeats);
     CHECK (loop.lengthSlots == 12);
     CHECK (loop.lengthBeats == Catch::Approx (3.0));
+}
+
+TEST_CASE ("step timings run shortest first: every note with its triplet and dotted versions")
+{
+    CHECK (numTimings == 21);
+    for (int i = 0; i < numTimings; ++i)
+    {
+        const auto t = static_cast<Timing> (i);
+        const double ticks = beatsPerStep (t) * ticksPerBeat;
+        INFO (timingName (t));
+        CHECK (ticks == Catch::Approx (std::round (ticks))); // loop lengths stay whole ticks
+        if (i > 0)
+            CHECK (beatsPerStep (t) > beatsPerStep (static_cast<Timing> (i - 1)));
+    }
+
+    struct Family
+    {
+        Timing note, triplet, dotted;
+        const char* name;
+    };
+    const Family families[] = {
+        { Timing::sixtyFourth, Timing::sixtyFourthTriplet, Timing::sixtyFourthDotted, "1/64" },
+        { Timing::thirtySecond, Timing::thirtySecondTriplet, Timing::thirtySecondDotted, "1/32" },
+        { Timing::sixteenth, Timing::sixteenthTriplet, Timing::sixteenthDotted, "1/16" },
+        { Timing::eighth, Timing::eighthTriplet, Timing::eighthDotted, "1/8" },
+        { Timing::quarter, Timing::quarterTriplet, Timing::quarterDotted, "1/4" },
+        { Timing::half, Timing::halfTriplet, Timing::halfDotted, "1/2" },
+        { Timing::whole, Timing::wholeTriplet, Timing::wholeDotted, "1/1" },
+    };
+    double length = 1.0 / 16.0;
+    for (const auto& f : families)
+    {
+        INFO (f.name);
+        CHECK (beatsPerStep (f.note) == Catch::Approx (length));
+        CHECK (beatsPerStep (f.triplet) == Catch::Approx (length * 2.0 / 3.0));
+        CHECK (beatsPerStep (f.dotted) == Catch::Approx (length * 1.5));
+        CHECK (std::string (timingName (f.note)) == f.name);
+        CHECK (std::string (timingName (f.triplet)) == std::string (f.name) + "T");
+        CHECK (std::string (timingName (f.dotted)) == std::string (f.name) + "D");
+        length *= 2.0;
+    }
+}
+
+TEST_CASE ("loop lengths are named in the largest unit that fits")
+{
+    CHECK (describeLength (8.0) == "2 bars");
+    CHECK (describeLength (0.375 * 3.0) == "9 thirty-seconds");
+    CHECK (describeLength (5.0 / 12.0) == "5 thirty-second triplets");
+    CHECK (describeLength (1.0 / 24.0) == "1 sixty-fourth triplet");
+    CHECK (describeLength (3.0 / 32.0) == "1 dotted sixty-fourth");
+}
+
+TEST_CASE ("a dotted pattern against a straight one loops when both line up")
+{
+    // Three dotted eighths against two sixteenths, taking turns: A's notes last 0.75 beats and
+    // B's 0.25, so each A-B pair takes a beat, and both are back at their start after 12 turns.
+    auto a = arrangementOf ({ patternOf ({ A, B, C }), patternOf ({ E, F }) });
+    a.patterns[0].timing = Timing::eighthDotted;
+    CHECK (firstNotes (a, 6) == std::vector<int> { A, E, B, F, C, E });
+
+    const auto loop = findLoop (a);
+    CHECK (loop.repeats);
+    CHECK (loop.lengthSlots == 12);
+    CHECK (loop.lengthBeats == Catch::Approx (6.0));
 }
 
 TEST_CASE ("a loop length set by hand starts everything over")
@@ -450,6 +516,24 @@ TEST_CASE ("editing patterns keeps the Order lane in step")
         a.removePattern (1);
         CHECK (a.orderLength == 2);
         CHECK (a.order[0] == 0);
+        CHECK (a.order[1] == 1);
+    }
+
+    SECTION ("a pattern added after deleting them all takes the first step, without lengthening")
+    {
+        a.removePattern (1);
+        a.removePattern (0);
+        REQUIRE (a.numPatterns == 0);
+        REQUIRE (a.orderLength == 1);
+
+        REQUIRE (a.addPattern (patternOf ({ C })));
+        CHECK (a.orderLength == 1);
+        CHECK (a.order[0] == 0);
+        CHECK (a.isHeard (0));
+        CHECK (firstNotes (a, 3) == std::vector<int> { C, C, C });
+
+        REQUIRE (a.addPattern (patternOf ({ E })));
+        CHECK (a.orderLength == 2);
         CHECK (a.order[1] == 1);
     }
 
