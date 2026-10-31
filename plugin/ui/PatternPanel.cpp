@@ -40,17 +40,19 @@ juce::String ccText (int ccNumber)
     return ccNumber < 0 ? juce::String ("Off") : juce::String (ccNumber);
 }
 
-// The Chance and CC tabs show a value that can be clicked: "Chance: Rest" opens a list,
-// "CC: Off" a field to type the number in.
+// Some tabs show values that can be clicked: "Chance: Rest" opens a list, "CC: Off" a
+// field to type the number in, and the lanes that can move on per note show their mode,
+// "Velocity: Step", which opens a list too.
 bool hasValue (Lane lane)
 {
-    return lane == Lane::chance || lane == Lane::cc;
+    return lane == Lane::chance || hasLaneMode (lane);
 }
 
-bool hasCaret (Lane lane)
+const char* laneModeName (LaneMode mode)
 {
-    return lane == Lane::chance;
+    return mode == LaneMode::note ? "Note" : "Step";
 }
+
 
 constexpr int ccFieldHeight = 28;
 const char* const ccPlaceholder = "Enter MIDI CC";
@@ -233,7 +235,7 @@ void PatternPanel::changed()
 {
     graph.setPattern (pattern);
     updatePausedLook();
-    layoutHeader(); // the header and the Chance and CC tabs fit their values
+    layoutHeader(); // the header and the tabs fit their values
     layoutTabs();
     repaint();
     if (onChange)
@@ -261,6 +263,25 @@ juce::String PatternPanel::tabValue (Lane lane) const
     return {};
 }
 
+juce::String PatternPanel::tabMode (Lane lane) const
+{
+    // A CC lane that is off sends nothing, so how it moves on does not matter yet.
+    if (! hasLaneMode (lane) || (lane == Lane::cc && pattern.ccNumber < 0))
+        return {};
+    return laneModeName (pattern.laneMode[static_cast<size_t> (lane)]);
+}
+
+int PatternPanel::tabDividerWidth (Lane lane) const
+{
+    // A light line between the CC number and its mode, spaced like the header's.
+    return tabValue (lane).isNotEmpty() && tabMode (lane).isNotEmpty() ? theme::spacing * 2 + 1 : 0;
+}
+
+bool PatternPanel::tabHasCaret (Lane lane) const
+{
+    return lane == Lane::chance || tabMode (lane).isNotEmpty();
+}
+
 juce::String PatternPanel::tabSteps (Lane lane) const
 {
     const int steps = laneLength (pattern, lane);
@@ -272,8 +293,15 @@ juce::String PatternPanel::tabSteps (Lane lane) const
 int PatternPanel::tabWidth (Lane lane) const
 {
     // Measured bold, as the open tab is drawn.
-    const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
-    return theme::padding * 2 + theme::textWidth (tabFont (true), tabName (lane)) + theme::textWidth (tabFont (true), tabValue (lane)) + caret;
+    return theme::padding * 2 + tabContentWidth (lane, tabFont (true));
+}
+
+int PatternPanel::tabContentWidth (Lane lane, const juce::Font& nameFont) const
+{
+    const auto valueFont = tabFont (true);
+    const int caret = tabHasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
+    return theme::textWidth (nameFont, tabName (lane)) + theme::textWidth (valueFont, tabValue (lane))
+         + tabDividerWidth (lane) + theme::textWidth (valueFont, tabMode (lane)) + caret;
 }
 
 void PatternPanel::layoutTabs()
@@ -289,10 +317,19 @@ void PatternPanel::layoutTabs()
         tabs[i] = tab;
         row.setLeft (tab.getRight() - 1); // neighbours share a dividing line
 
-        // Clicking the value part ("Rest", "Off") opens its list.
-        tabValues[i] = hasValue (lane)
-            ? tab.withTrimmedLeft (theme::padding + theme::textWidth (tabFont (true), juce::String (laneName (lane)) + ":"))
-            : juce::Rectangle<int>();
+        // Clicking a value ("Rest", "Off") opens its list or field, and the mode ("Step") its
+        // list. Each reaches back over the space before it, and the last to the tab's edge.
+        tabValues[i] = tabModes[i] = {};
+        if (! hasValue (lane))
+            continue;
+
+        auto rest = tab.withTrimmedLeft (theme::padding + theme::textWidth (tabFont (true), juce::String (laneName (lane)) + ":"));
+        if (const auto value = tabValue (lane); value.isNotEmpty())
+            tabValues[i] = tabMode (lane).isEmpty()
+                ? rest
+                : rest.removeFromLeft (theme::textWidth (tabFont (true), " " + value) + tabDividerWidth (lane) / 2);
+        if (tabMode (lane).isNotEmpty())
+            tabModes[i] = rest;
     }
 }
 
@@ -382,12 +419,11 @@ void PatternPanel::paint (juce::Graphics& g)
             g.setColour (open ? theme::panel : (i == hoveredTab ? theme::tint (theme::patternColour (pattern.colour)) : theme::background));
             g.fillRect (shape.reduced (1.0f, 0.0f).withTrimmedTop (1.0f));
 
-            // The name and value centred, so the padding is even either side. The value is
+            // The name and values centred, so the padding is even either side. Values are
             // bold in the pattern's colour, like every value that can be edited.
             const auto nameFont = tabFont (open), valueFont = tabFont (true);
-            const auto name = tabName (lane), value = tabValue (lane);
-            const int caret = hasCaret (lane) ? caretGap + static_cast<int> (theme::caretWidth) : 0;
-            auto content = tab.withSizeKeepingCentre (theme::textWidth (nameFont, name) + theme::textWidth (valueFont, value) + caret, tab.getHeight());
+            const auto name = tabName (lane), value = tabValue (lane), mode = tabMode (lane);
+            auto content = tab.withSizeKeepingCentre (tabContentWidth (lane, nameFont), tab.getHeight());
 
             // A lane that loops over fewer steps than the pattern says how many, small, under
             // its name, without moving it or widening the tab.
@@ -402,11 +438,19 @@ void PatternPanel::paint (juce::Graphics& g)
             g.setFont (nameFont);
             g.drawText (name, content.removeFromLeft (theme::textWidth (nameFont, name)), juce::Justification::centredLeft);
             // Faded with the rest of a paused pattern's values.
-            const auto colour = theme::patternColour (pattern.colour);
-            g.setColour (pattern.playing ? colour : theme::tint (colour));
+            const auto colour = pattern.playing ? theme::patternColour (pattern.colour) : theme::tint (theme::patternColour (pattern.colour));
+            g.setColour (colour);
             g.setFont (valueFont);
-            g.drawText (value, content, juce::Justification::centredLeft);
-            if (hasCaret (lane))
+            g.drawText (value, content.removeFromLeft (theme::textWidth (valueFont, value)), juce::Justification::centredLeft);
+            if (const int divider = tabDividerWidth (lane); divider > 0)
+            {
+                g.setColour (theme::separator);
+                g.fillRect (content.getX() + theme::spacing, tab.getY() + 6, 1, tab.getHeight() - 12);
+                content.removeFromLeft (divider);
+                g.setColour (colour);
+            }
+            g.drawText (mode, content, juce::Justification::centredLeft);
+            if (tabHasCaret (lane))
                 theme::drawCaret (g, { static_cast<float> (content.getRight()) - theme::caretWidth / 2.0f, static_cast<float> (content.getCentreY()) + 1.0f });
         }
     }
@@ -434,7 +478,11 @@ void PatternPanel::mouseDown (const juce::MouseEvent& e)
     {
         graph.setLane (static_cast<Lane> (tab));
         repaint();
-        if (tabValues[static_cast<size_t> (tab)].contains (pos))
+        if (tabModes[static_cast<size_t> (tab)].contains (pos))
+        {
+            showModeMenu (static_cast<Lane> (tab));
+        }
+        else if (tabValues[static_cast<size_t> (tab)].contains (pos))
         {
             if (tab == static_cast<int> (Lane::cc))
                 showCcField();
@@ -463,6 +511,25 @@ void PatternPanel::showChanceMenu()
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (
         localAreaToGlobal (tabs[static_cast<size_t> (Lane::chance)])));
+}
+
+void PatternPanel::showModeMenu (Lane lane)
+{
+    juce::PopupMenu menu;
+    const juce::Component::SafePointer<PatternPanel> safe (this);
+    static constexpr const char* items[] = { "Step: one value for the whole step", "Note: each ratchet and repeat takes the next value" };
+    menu.addSectionHeader (juce::String (laneName (lane)) + " moves on per");
+    for (const auto mode : { LaneMode::step, LaneMode::note })
+        menu.addItem (items[static_cast<int> (mode)], true, pattern.laneMode[static_cast<size_t> (lane)] == mode, [safe, lane, mode] {
+            if (safe != nullptr)
+            {
+                safe->pattern.laneMode[static_cast<size_t> (lane)] = mode;
+                safe->changed();
+            }
+        });
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (
+        localAreaToGlobal (tabs[static_cast<size_t> (lane)])));
 }
 
 void PatternPanel::showCcField()
@@ -532,7 +599,8 @@ void PatternPanel::mouseMove (const juce::MouseEvent& e)
 {
     // Closed tabs open their lane; values open their list or field.
     const int over = tabAt (e.getPosition());
-    const bool onValue = over >= 0 && tabValues[static_cast<size_t> (over)].contains (e.getPosition());
+    const bool onValue = over >= 0
+                      && (tabValues[static_cast<size_t> (over)].contains (e.getPosition()) || tabModes[static_cast<size_t> (over)].contains (e.getPosition()));
     const bool closedTab = over >= 0 && over != static_cast<int> (graph.getLane());
     const bool clickable = onValue || closedTab || playButton.contains (e.getPosition());
     setMouseCursor (clickable ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);

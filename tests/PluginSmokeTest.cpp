@@ -299,6 +299,8 @@ TEST_CASE ("plugin state round-trips")
         a.patterns[0].steps[1].cc = 20;
         a.patterns[0].steps[2].repeat = 5;
         a.patterns[1].laneLength[static_cast<size_t> (patternarp::Lane::repeat)] = 3;
+        a.patterns[1].laneMode[static_cast<size_t> (patternarp::Lane::octave)] = patternarp::LaneMode::note;
+        a.patterns[1].laneMode[static_cast<size_t> (patternarp::Lane::cc)] = patternarp::LaneMode::note;
         arp.setArrangement (a);
     }
 
@@ -327,6 +329,15 @@ TEST_CASE ("plugin state round-trips")
     CHECK (a.patterns[0].steps[2].repeat == 5);
     CHECK (a.patterns[0].steps[1].repeat == 1);
     CHECK (plainValue (*restored, "p2_repeatlength") == 3);
+
+    // Lanes in Note mode stay so; every other lane (and every lane of a save from before
+    // Note mode) moves on per step.
+    using patternarp::Lane, patternarp::LaneMode;
+    CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::octave)] == LaneMode::note);
+    CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::cc)] == LaneMode::note);
+    CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::velocity)] == LaneMode::step);
+    for (const auto mode : a.patterns[0].laneMode)
+        CHECK (mode == LaneMode::step);
 }
 
 TEST_CASE ("saves from before the CC lane keep their slot settings")
@@ -916,6 +927,48 @@ TEST_CASE ("the Chance tab opens its list from its value, and the CC tab a field
     field->setText ({});
     field->onReturnKey();
     CHECK (ccNumber() == -1);
+}
+
+TEST_CASE ("the Velocity, Gate, Octave and CC tabs show how their lane moves on, and open a list for it")
+{
+    using patternarp::Lane;
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panel = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern A"));
+    REQUIRE (panel != nullptr);
+    auto* graph = dynamic_cast<patternarp::LaneGraph*> (panel->findChildWithID ("graph"));
+    REQUIRE (graph != nullptr);
+
+    for (const auto lane : { Lane::velocity, Lane::gate, Lane::octave })
+        CHECK_FALSE (panel->getTabModeBounds (lane).isEmpty());
+    for (const auto lane : { Lane::notes, Lane::ratchet, Lane::repeat, Lane::chance })
+        CHECK (panel->getTabModeBounds (lane).isEmpty());
+
+    // "Velocity: Step" opens its list from the mode.
+    w.click (w.editor->getLocalPoint (panel, panel->getTabModeBounds (Lane::velocity).getCentre().toFloat()));
+    CHECK (graph->getLane() == Lane::velocity);
+    CHECK (juce::PopupMenu::dismissAllActiveMenus());
+
+    // CC shows its mode only once it sends something, after the number, which still opens
+    // its field.
+    CHECK (panel->getTabModeBounds (Lane::cc).isEmpty());
+    auto* field = dynamic_cast<juce::TextEditor*> (panel->findChildWithID ("ccField"));
+    REQUIRE (field != nullptr);
+    w.click (w.editor->getLocalPoint (panel, panel->getTabValueBounds (Lane::cc).getCentre().toFloat()));
+    REQUIRE (field->isVisible());
+    field->setText ("74");
+    field->onReturnKey();
+
+    const auto value = panel->getTabValueBounds (Lane::cc), mode = panel->getTabModeBounds (Lane::cc);
+    REQUIRE_FALSE (mode.isEmpty());
+    CHECK (value.getRight() <= mode.getX());
+    CHECK (mode.getRight() == panel->getTabBounds (Lane::cc).getRight());
+    w.click (w.editor->getLocalPoint (panel, mode.getCentre().toFloat()));
+    CHECK_FALSE (field->isVisible());
+    CHECK (juce::PopupMenu::dismissAllActiveMenus());
+    w.click (w.editor->getLocalPoint (panel, value.getCentre().toFloat()));
+    CHECK (field->isVisible());
+    field->onEscapeKey();
 }
 
 TEST_CASE ("right-clicking a step opens its menu")

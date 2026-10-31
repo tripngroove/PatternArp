@@ -316,6 +316,11 @@ void sanitise (Pattern& p)
     p.letter = std::clamp (p.letter, 0, numLetters - 1);
     for (auto& l : p.laneLength)
         l = std::clamp (l, 0, maxSteps);
+    for (int lane = 0; lane < numLanes; ++lane)
+    {
+        auto& mode = p.laneMode[static_cast<size_t> (lane)];
+        mode = mode == LaneMode::note && hasLaneMode (static_cast<Lane> (lane)) ? LaneMode::note : LaneMode::step;
+    }
 
     for (auto& s : p.steps)
     {
