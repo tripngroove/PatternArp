@@ -52,14 +52,15 @@ std::bitset<128> enabledNotesFromString (const juce::String& text)
     return notes;
 }
 
-// Steps as "note velocity gate octave ratchet chance cc" groups separated by ';' (saves
-// from before the CC lane have no cc).
+// Steps as "note velocity gate octave ratchet chance cc repeat" groups separated by ';'
+// (saves from before the CC or Repeat lanes stop short; those steps keep their defaults).
 juce::String stepsToString (const Pattern& p)
 {
     juce::StringArray list;
     for (const auto& s : p.steps)
         list.add (juce::String (s.note, 4) + " " + juce::String (s.velocity) + " " + juce::String (s.gate) + " "
-                  + juce::String (s.octave) + " " + juce::String (s.ratchet) + " " + juce::String (s.chance) + " " + juce::String (s.cc));
+                  + juce::String (s.octave) + " " + juce::String (s.ratchet) + " " + juce::String (s.chance) + " " + juce::String (s.cc) + " "
+                  + juce::String (s.repeat));
     return list.joinIntoString (";");
 }
 
@@ -81,6 +82,8 @@ void stepsFromString (const juce::String& text, Pattern& p)
         s.chance = values[5].getIntValue();
         if (values.size() > 6)
             s.cc = values[6].getIntValue();
+        if (values.size() > 7)
+            s.repeat = values[7].getIntValue();
     }
 }
 } // namespace

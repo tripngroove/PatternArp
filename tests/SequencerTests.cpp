@@ -7,6 +7,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace patternarp;
@@ -1250,4 +1251,142 @@ TEST_CASE ("the Order lane remembers turns hidden by shortening it")
     a.setOrderLength (16);
     CHECK (a.order[0] == 0);
     CHECK (a.order[2] == 0);
+}
+
+TEST_CASE ("a repeated step plays on its pattern's own turns, so the Rotation never stretches")
+{
+    // A's first step repeats 3 times while A and B keep taking turns.
+    auto a = patternOf ({ C, E });
+    a.steps[0].repeat = 3;
+    const auto arrangement = arrangementOf ({ a, patternOf ({ 72, 74 }) });
+    CHECK (firstNotes (arrangement, 10) == std::vector<int> { C, 72, C, 74, C, 72, E, 74, C, 72 });
+    CHECK (owners (arrangement, 6) == std::vector<int> { 0, 1, 0, 1, 0, 1 });
+
+    const auto loop = findLoop (arrangement);
+    CHECK (loop.repeats);
+    CHECK (loop.lengthSlots == 8);
+}
+
+TEST_CASE ("the Repeat lane loops over its own length like the other lanes")
+{
+    // Notes C D E against a 2-step Repeat lane of 2, 1.
+    auto p = patternOf ({ C, 62, E });
+    p.steps[0].repeat = 2;
+    p.steps[1].repeat = 1;
+    p.steps[2].repeat = 8; // past the lane's length, so never used
+    p.laneLength[static_cast<size_t> (Lane::repeat)] = 2;
+    const auto arrangement = arrangementOf ({ p });
+    CHECK (firstNotes (arrangement, 12) == std::vector<int> { C, C, 62, E, E, C, 62, 62, E, C, C, 62 });
+    CHECK (findLoop (arrangement).lengthSlots == 9);
+
+    // Every step playing once changes nothing, so the loop is as short as before.
+    auto once = patternOf ({ C, 62, E });
+    once.laneLength[static_cast<size_t> (Lane::repeat)] = 2;
+    CHECK (findLoop (arrangementOf ({ once })).lengthSlots == 3);
+}
+
+TEST_CASE ("a repeated step holds every lane, ratchets included")
+{
+    auto p = patternOf ({ C, E });
+    p.steps[0].repeat = 2;
+    p.steps[0].ratchet = 2;
+    p.steps[0].velocity = 90;
+    p.steps[1].velocity = 40;
+    p.laneLength[static_cast<size_t> (Lane::velocity)] = 2;
+
+    Sequencer sequencer (arrangementOf ({ p }));
+    Slot slot;
+    for (const auto& [notes, velocity] : std::vector<std::pair<int, int>> { { 2, 90 }, { 2, 90 }, { 1, 40 }, { 2, 90 } })
+    {
+        REQUIRE (sequencer.next (slot));
+        CHECK (slot.numNotes == notes);
+        CHECK (slot.notes[0].velocity == velocity);
+    }
+}
+
+TEST_CASE ("chance is rolled once for all of a step's repeats")
+{
+    // 1:4 with 4 repeats: the whole group plays the first of every 4 times the step comes up.
+    auto p = patternOf ({ C });
+    p.steps[0].repeat = 4;
+    p.steps[0].ratchet = 4;
+    p.steps[0].chance = ratioChance ({ 1, 4 });
+    {
+        Sequencer sequencer (arrangementOf ({ p }));
+        Slot slot;
+        for (int i = 0; i < 40; ++i)
+        {
+            REQUIRE (sequencer.next (slot));
+            CHECK (slot.numNotes == (i % 16 < 4 ? 4 : 0));
+        }
+    }
+
+    // A percent chance: every repeat follows the roll of the first.
+    p.steps[0].chance = 50;
+    p.steps[0].ratchet = 1;
+    Sequencer sequencer (arrangementOf ({ p }));
+    Slot slot;
+    int played = 0;
+    for (int group = 0; group < 32; ++group)
+    {
+        REQUIRE (sequencer.next (slot));
+        const int first = slot.numNotes;
+        played += first;
+        for (int i = 1; i < 4; ++i)
+        {
+            REQUIRE (sequencer.next (slot));
+            CHECK (slot.numNotes == first);
+        }
+    }
+    CHECK (played > 0);
+    CHECK (played < 32);
+}
+
+TEST_CASE ("a skipped step skips all its repeats")
+{
+    auto p = patternOf ({ C, E });
+    p.steps[0].repeat = 2;
+    p.steps[0].chance = ratioChance ({ 1, 2 });
+    p.chanceMode = ChanceMode::skip;
+    CHECK (firstNotes (arrangementOf ({ p }), 7) == std::vector<int> { C, C, E, E, C, C, E });
+}
+
+TEST_CASE ("random directions repeat the step they picked")
+{
+    auto p = patternOf ({ C, 62, E, F });
+    for (auto& s : p.steps)
+        s.repeat = 2;
+
+    for (const auto direction : { Direction::random, Direction::randomWalk })
+    {
+        p.direction = direction;
+        const auto notes = firstNotes (arrangementOf ({ p }), 32);
+        for (size_t i = 0; i < notes.size(); i += 2)
+            CHECK (notes[i] == notes[i + 1]);
+    }
+}
+
+TEST_CASE ("repeats are drawn, reset and copied like the other lanes")
+{
+    auto p = patternOf ({ C, E });
+    p.length = 16;
+    randomizeLane (p, Lane::repeat, 3);
+    bool varied = false;
+    for (const auto& s : p.steps)
+    {
+        CHECK (s.repeat >= 1);
+        CHECK (s.repeat <= 8);
+        varied = varied || s.repeat != p.steps[0].repeat;
+    }
+    CHECK (varied);
+
+    Step to;
+    copyLaneValue (p.steps[0], to, Lane::repeat);
+    CHECK (to.repeat == p.steps[0].repeat);
+    resetStep (p.steps[0], Lane::repeat, p);
+    CHECK (p.steps[0].repeat == 1);
+
+    p.steps[1].repeat = 12;
+    sanitise (p);
+    CHECK (p.steps[1].repeat == 8);
 }

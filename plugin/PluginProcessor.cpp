@@ -146,9 +146,10 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
                                                                            juce::StringArray { "Rest", "Skip", "Extend" }, 0));
         pp.play = add (std::make_unique<juce::AudioParameterBool> (id ("play"), label ("Play"), true));
 
-        for (int lane = 0; lane < numLanes; ++lane)
+        // In the order the tabs show them.
+        for (const auto lane : laneOrder)
         {
-            const juce::String name = laneName (static_cast<Lane> (lane));
+            const juce::String name = laneName (lane);
             pp.laneLength[static_cast<size_t> (lane)] = add (std::make_unique<juce::AudioParameterInt> (
                 id (name.toLowerCase() + "length"), label (name + " Length"), 0, maxSteps, 0,
                 juce::AudioParameterIntAttributes()
@@ -176,8 +177,8 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
 
 std::array<juce::RangedAudioParameter*, 6 + numLanes + 1> PatternArpProcessor::PatternParameters::all() const
 {
-    return { timing,        length,        direction,     noteSource,    chanceMode,    play,          laneLength[0],
-             laneLength[1], laneLength[2], laneLength[3], laneLength[4], laneLength[5], laneLength[6], ccNumber };
+    return { timing,        length,        direction,     noteSource,    chanceMode,    play,     laneLength[0], laneLength[1],
+             laneLength[2], laneLength[3], laneLength[4], laneLength[5], laneLength[6], ccNumber, laneLength[7] };
 }
 
 PatternArpProcessor::ParameterSnapshot PatternArpProcessor::readParameters() const
@@ -204,9 +205,10 @@ void PatternArpProcessor::applyParameters (const ParameterSnapshot& values, Arra
         p.noteSource = static_cast<NoteSource> (v[3]);
         p.chanceMode = static_cast<ChanceMode> (v[4]);
         p.playing = v[5] != 0;
-        for (int lane = 0; lane < numLanes; ++lane)
+        for (int lane = 0; lane < static_cast<int> (Lane::repeat); ++lane)
             p.laneLength[static_cast<size_t> (lane)] = v[6 + lane];
-        p.ccNumber = v[6 + numLanes];
+        p.ccNumber = v[6 + static_cast<int> (Lane::repeat)];
+        p.laneLength[static_cast<size_t> (Lane::repeat)] = v[7 + static_cast<int> (Lane::repeat)];
         sanitise (p);
     }
 
@@ -531,7 +533,7 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
     // the ones they lack come from the arrangement just loaded.
     const auto slotValues = juce::StringArray::fromTokens (state.getProperty ("slots").toString(), ",", {});
     int stride = 0;
-    for (const int perSlot : { parametersPerPattern, preCcParametersPerPattern, oldParametersPerPattern })
+    for (const int perSlot : { parametersPerPattern, preRepeatParametersPerPattern, preCcParametersPerPattern, oldParametersPerPattern })
         if (slotValues.size() == maxPatterns * perSlot + (perSlot == oldParametersPerPattern ? 0 : 2))
             stride = perSlot;
     const bool hasGlobals = stride != oldParametersPerPattern;

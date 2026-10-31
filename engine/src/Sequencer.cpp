@@ -36,6 +36,15 @@ double shortestStep (const Arrangement& a)
     return shortest;
 }
 
+// Whether every step the Repeat lane plays is set to play once.
+bool repeatsNothing (const Pattern& p)
+{
+    for (int s = 0; s < laneLength (p, Lane::repeat); ++s)
+        if (p.steps[static_cast<size_t> (s)].repeat > 1)
+            return false;
+    return true;
+}
+
 // Plays until a lane of `length` steps is back at its start (0 = never, for random).
 std::int64_t directionCycle (Direction direction, std::int64_t length)
 {
@@ -152,15 +161,21 @@ void Sequencer::startCycle (double beat)
             cursors[static_cast<size_t> (i)].visits[s] = static_cast<std::int64_t> (pass % 840) * visitsPerPass[static_cast<size_t> (i)][s];
 }
 
-std::array<int, numLanes> Sequencer::advanceCursor (int patternIndex)
+bool Sequencer::advanceCursor (int patternIndex)
 {
-    // Every lane walks the pattern's direction over its own length, so lanes of the same
-    // length always stay on the same step.
     const auto& p = arrangement.patterns[static_cast<size_t> (patternIndex)];
     auto& c = cursors[static_cast<size_t> (patternIndex)];
-    const auto n = c.played;
-    std::array<int, numLanes> steps {};
 
+    // A repeating step uses up this turn as it is.
+    if (c.repeatsLeft > 0)
+    {
+        --c.repeatsLeft;
+        return false;
+    }
+
+    // Every lane walks the pattern's direction over its own length, so lanes of the same
+    // length always stay on the same step.
+    const auto n = c.moves;
     for (int lane = 0; lane < numLanes; ++lane)
     {
         const std::int64_t length = laneLength (p, static_cast<Lane> (lane));
@@ -202,12 +217,13 @@ std::array<int, numLanes> Sequencer::advanceCursor (int patternIndex)
             }
         }
 
-        steps[static_cast<size_t> (lane)] = static_cast<int> (step);
+        c.at[static_cast<size_t> (lane)] = static_cast<int> (step);
     }
 
-    ++c.played;
-    ++c.visits[static_cast<size_t> (steps[static_cast<size_t> (Lane::chance)])];
-    return steps;
+    ++c.moves;
+    ++c.visits[static_cast<size_t> (c.at[static_cast<size_t> (Lane::chance)])];
+    c.repeatsLeft = p.steps[static_cast<size_t> (c.at[static_cast<size_t> (Lane::repeat)])].repeat - 1;
+    return true;
 }
 
 bool Sequencer::passesChance (int patternIndex, int step)
@@ -220,7 +236,7 @@ bool Sequencer::passesChance (int patternIndex, int step)
         return true;
 
     if (chance >= 0)
-        return static_cast<int> (hash (p.seed + 0x9e37u + pass * passSalt, static_cast<std::uint64_t> (c.played)) % 100u) < chance;
+        return static_cast<int> (hash (p.seed + 0x9e37u + pass * passSalt, static_cast<std::uint64_t> (c.moves)) % 100u) < chance;
 
     // A:B plays on the A-th of every B times this step comes up.
     const auto ratio = chanceRatio (chance);
@@ -247,12 +263,18 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
 
     const auto& p = arrangement.patterns[static_cast<size_t> (owner)];
     const double length = beatsPerStep (p.timing);
-    const auto steps = advanceCursor (owner);
+    auto& cursor = cursors[static_cast<size_t> (owner)];
+    const auto& steps = cursor.at;
     const auto stepOf = [&] (Lane lane) -> const Step& { return p.steps[static_cast<size_t> (steps[static_cast<size_t> (lane)])]; };
+
+    // Chance is rolled when the pattern moves on to a step, and stands for all its repeats.
+    if (advanceCursor (owner))
+        cursor.passes = passesChance (owner, steps[static_cast<size_t> (Lane::chance)]);
+
     slot.step = steps[static_cast<size_t> (Lane::notes)];
     slot.length = length;
 
-    if (! passesChance (owner, steps[static_cast<size_t> (Lane::chance)]))
+    if (! cursor.passes)
     {
         if (p.chanceMode == ChanceMode::skip)
             return Outcome::skipped;
@@ -365,8 +387,9 @@ void Sequencer::produce (Slot& slot)
 bool Sequencer::nextInCycle (Slot& slot)
 {
     // Skipped steps take no time, so keep going until a slot takes some (with a guard in
-    // case every step is set to skip).
-    for (int attempt = 0; attempt < 256; ++attempt)
+    // case every step is set to skip). The longest legitimate run is every step of a pattern,
+    // repeated 8 times, losing to an 8:8 chance seven times over.
+    for (int attempt = 0; attempt < maxSteps * 8 * 8; ++attempt)
         if (playSlot (slot) != Outcome::skipped)
             return true;
 
@@ -469,8 +492,9 @@ LoopInfo findLoop (const Arrangement& arrangement, const std::vector<int>& input
         return info;
 
     // Every part of the sequencer is a counter that wraps: the Order lane and each pattern's
-    // step cycle (times any A:B chance). The whole thing repeats the first time they are all
-    // back at zero together.
+    // step cycle (times any A:B chance), counted in steps moved on rather than turns, since a
+    // step can repeat. The whole thing repeats the first time they are all back at zero
+    // together, with no step part-way through its repeats.
     std::array<std::int64_t, maxPatterns> patternCycle {};
 
     for (int i = 0; i < a.numPatterns; ++i)
@@ -483,6 +507,9 @@ LoopInfo findLoop (const Arrangement& arrangement, const std::vector<int>& input
         {
             if (static_cast<Lane> (lane) == Lane::cc && p.ccNumber < 0)
                 continue; // sends nothing, so it cannot change what repeats
+
+            if (static_cast<Lane> (lane) == Lane::repeat && repeatsNothing (p))
+                continue; // every step plays once, so it cannot either
 
             const int length = laneLength (p, static_cast<Lane> (lane));
             auto laneCycle = directionCycle (p.direction, length);
@@ -506,7 +533,10 @@ LoopInfo findLoop (const Arrangement& arrangement, const std::vector<int>& input
 
         bool aligned = sequencer.slotIndex % sequencer.numTurns == 0;
         for (int i = 0; i < a.numPatterns && aligned; ++i)
-            aligned = sequencer.cursors[static_cast<size_t> (i)].played % patternCycle[static_cast<size_t> (i)] == 0;
+        {
+            const auto& c = sequencer.cursors[static_cast<size_t> (i)];
+            aligned = c.repeatsLeft == 0 && c.moves % patternCycle[static_cast<size_t> (i)] == 0;
+        }
 
         if (aligned)
         {

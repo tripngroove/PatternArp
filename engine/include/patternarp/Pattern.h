@@ -99,7 +99,8 @@ enum class NoteSource
     midiIn  // the notes being held on the incoming MIDI (rests when none are held)
 };
 
-// The per-step lanes of a pattern.
+// The per-step lanes of a pattern. Saves and host parameters list them in this order, so new
+// lanes go at the end; laneOrder is the order the tabs show them in.
 enum class Lane
 {
     notes,
@@ -108,10 +109,14 @@ enum class Lane
     octave,
     ratchet,
     chance,
-    cc
+    cc,
+    repeat
 };
 
-constexpr int numLanes = 7;
+constexpr int numLanes = 8;
+
+constexpr std::array<Lane, numLanes> laneOrder { Lane::notes,   Lane::velocity, Lane::gate,   Lane::octave,
+                                                 Lane::ratchet, Lane::repeat,   Lane::chance, Lane::cc };
 
 struct Step
 {
@@ -122,12 +127,13 @@ struct Step
     int ratchet = 1;    // 1..8 notes in the step
     int chance = 100;   // 0..100 = percent chance; below 0 = an A:B ratio (see ChanceRatio)
     int cc = 64;        // 0..127, sent as the pattern's CC number with the step's notes
+    int repeat = 1;     // 1..8 of the pattern's turns the step plays before it moves on
 
     bool operator== (const Step& other) const
     {
         // Bitwise on the float, so "unchanged" means exactly unchanged.
         return std::bit_cast<std::uint32_t> (note) == std::bit_cast<std::uint32_t> (other.note) && velocity == other.velocity
-            && gate == other.gate && octave == other.octave && ratchet == other.ratchet && chance == other.chance && cc == other.cc;
+            && gate == other.gate && octave == other.octave && ratchet == other.ratchet && chance == other.chance && cc == other.cc && repeat == other.repeat;
     }
 };
 
@@ -177,7 +183,7 @@ const char* laneName (Lane lane);
 int laneLength (const Pattern& pattern, Lane lane);
 
 // Puts one lane of a step back to its default: the lowest note, the pattern's default velocity
-// and gate, no octave shift, no ratchet, always plays.
+// and gate, no octave shift, no ratchet, plays once, always plays.
 void resetStep (Step& step, Lane lane, const Pattern& pattern);
 
 // Copies one lane's value from a step to another, leaving the other lanes alone.
@@ -185,7 +191,7 @@ void copyLaneValue (const Step& from, Step& to, Lane lane);
 
 // Gives each step a lane plays (up to its length) a random value, one that could have been
 // drawn: an enabled note (any height, to the percent, for MIDI Thru), velocity 1..127, gate
-// 1..100%, octave -3..+3, ratchet 1..8, chance in 5% steps or a ratio, CC 0..127. Other lanes
+// 1..100%, octave -3..+3, ratchet and repeat 1..8, chance in 5% steps or a ratio, CC 0..127. Other lanes
 // and steps are left alone. The same seed gives the same values.
 void randomizeLane (Pattern& pattern, Lane lane, std::uint64_t seed);
 

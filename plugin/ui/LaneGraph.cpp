@@ -102,6 +102,7 @@ float LaneGraph::valueToY (const Step& s) const
         case Lane::cc:       return bottom - static_cast<float> (s.cc) / 127.0f * h;
         case Lane::gate:     return bottom - static_cast<float> (s.gate) / 100.0f * h;
         case Lane::ratchet:  return bottom - static_cast<float> (s.ratchet) / 8.0f * h;
+        case Lane::repeat:   return bottom - static_cast<float> (s.repeat) / 8.0f * h;
         case Lane::octave:   return centre - static_cast<float> (s.octave) / 3.5f * (h / 2.0f);
         case Lane::chance:
             if (s.chance >= 0)
@@ -140,6 +141,7 @@ void LaneGraph::setFromY (Step& s, float y) const
         case Lane::cc:       s.cc = juce::jlimit (0, 127, juce::roundToInt (fromBottom * 127.0f)); break;
         case Lane::gate:     s.gate = juce::jlimit (1, 100, juce::roundToInt (fromBottom * 100.0f)); break;
         case Lane::ratchet:  s.ratchet = juce::jlimit (1, 8, static_cast<int> (fromBottom * 8.0f) + 1); break;
+        case Lane::repeat:   s.repeat = juce::jlimit (1, 8, static_cast<int> (fromBottom * 8.0f) + 1); break;
 
         case Lane::octave:
             s.octave = juce::jlimit (-3, 3, juce::roundToInt ((centre - y) / (h / 2.0f) * 3.5f));
@@ -176,6 +178,7 @@ juce::String LaneGraph::valueText (const Step& s) const
         case Lane::gate:     return juce::String (s.gate) + "%";
         case Lane::octave:   return s.octave > 0 ? "+" + juce::String (s.octave) : juce::String (s.octave);
         case Lane::ratchet:  return "x" + juce::String (s.ratchet);
+        case Lane::repeat:   return "x" + juce::String (s.repeat);
         case Lane::chance:
         {
             if (s.chance >= 0)

@@ -243,12 +243,12 @@ TEST_CASE ("parameters are grouped by pattern slot")
 {
     juce::ScopedJuceInitialiser_GUI juce;
     std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
-    CHECK (plugin->getParameters().size() == 115); // under Ableton's 128, so it lists them all
+    CHECK (plugin->getParameters().size() == 123); // under Ableton's 128, so it lists them all
 
     const auto groups = plugin->getParameterTree().getSubgroups (false);
     REQUIRE (groups.size() == 8);
     CHECK (groups[0]->getName() == "Pattern Slot 1");
-    CHECK (groups[0]->getParameters (false).size() == 14);
+    CHECK (groups[0]->getParameters (false).size() == 15);
 }
 
 TEST_CASE ("every parameter starts at its default value")
@@ -297,6 +297,8 @@ TEST_CASE ("plugin state round-trips")
         a.setQuiet (2, true);
         a.patterns[0].ccNumber = 74;
         a.patterns[0].steps[1].cc = 20;
+        a.patterns[0].steps[2].repeat = 5;
+        a.patterns[1].laneLength[static_cast<size_t> (patternarp::Lane::repeat)] = 3;
         arp.setArrangement (a);
     }
 
@@ -322,6 +324,9 @@ TEST_CASE ("plugin state round-trips")
     CHECK (a.patterns[0].steps[1].cc == 20);
     CHECK (a.patterns[1].ccNumber == -1);
     CHECK (plainValue (*restored, "p1_ccnumber") == 74);
+    CHECK (a.patterns[0].steps[2].repeat == 5);
+    CHECK (a.patterns[0].steps[1].repeat == 1);
+    CHECK (plainValue (*restored, "p2_repeatlength") == 3);
 }
 
 TEST_CASE ("saves from before the CC lane keep their slot settings")
@@ -338,9 +343,9 @@ TEST_CASE ("saves from before the CC lane keep their slot settings")
     auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), static_cast<int> (state.getSize()));
     REQUIRE (xml != nullptr);
     auto values = juce::StringArray::fromTokens (xml->getStringAttribute ("slots"), ",", {});
-    REQUIRE (values.size() == 8 * 14 + 2);
+    REQUIRE (values.size() == 8 * 15 + 2);
     for (int slot = 7; slot >= 0; --slot)
-        values.removeRange (slot * 14 + 12, 2);
+        values.removeRange (slot * 15 + 12, 3);
     xml->setAttribute ("slots", values.joinIntoString (","));
     state.reset();
     juce::AudioProcessor::copyXmlToBinary (*xml, state);
@@ -351,6 +356,50 @@ TEST_CASE ("saves from before the CC lane keep their slot settings")
     CHECK (plainValue (*restored, "p2_ratchetlength") == 3);
     CHECK (plainValue (*restored, "rotationlength") == 1);
     CHECK (plainValue (*restored, "p1_ccnumber") == -1);
+}
+
+TEST_CASE ("saves from before the Repeat lane keep their CC settings and play every step once")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> original (createPluginFilter());
+    setParameter (*original, "p2_cclength", 2.0f);
+    setParameter (*original, "p2_ccnumber", 74.0f);
+    juce::MemoryBlock state;
+    original->getStateInformation (state);
+
+    // Those saves had no Repeat Length at the end of each slot, and no repeat in each step.
+    auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), static_cast<int> (state.getSize()));
+    REQUIRE (xml != nullptr);
+    auto values = juce::StringArray::fromTokens (xml->getStringAttribute ("slots"), ",", {});
+    REQUIRE (values.size() == 8 * 15 + 2);
+    for (int slot = 7; slot >= 0; --slot)
+        values.remove (slot * 15 + 14);
+    xml->setAttribute ("slots", values.joinIntoString (","));
+
+    auto* arrangement = xml->getChildByName ("Arrangement");
+    REQUIRE (arrangement != nullptr);
+    for (auto* pattern : arrangement->getChildIterator())
+    {
+        juce::StringArray steps;
+        for (const auto& step : juce::StringArray::fromTokens (pattern->getStringAttribute ("steps"), ";", {}))
+        {
+            auto stepValues = juce::StringArray::fromTokens (step, " ", {});
+            REQUIRE (stepValues.size() == 8);
+            stepValues.remove (7);
+            steps.add (stepValues.joinIntoString (" "));
+        }
+        pattern->setAttribute ("steps", steps.joinIntoString (";"));
+    }
+    state.reset();
+    juce::AudioProcessor::copyXmlToBinary (*xml, state);
+
+    std::unique_ptr<juce::AudioProcessor> restored (createPluginFilter());
+    restored->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+    CHECK (plainValue (*restored, "p2_cclength") == 2);
+    CHECK (plainValue (*restored, "p2_ccnumber") == 74);
+    CHECK (plainValue (*restored, "p2_repeatlength") == 0);
+    for (const auto& step : dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement().patterns[1].steps)
+        CHECK (step.repeat == 1);
 }
 
 TEST_CASE ("saves from before 1/64 keep their timings and loop length")
