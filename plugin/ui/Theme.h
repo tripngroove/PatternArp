@@ -83,12 +83,13 @@ inline void drawCaret (juce::Graphics& g, juce::Point<float> centre)
 
 // The length handles of the preview, the lanes and the Rotation lane all look alike: a 1px
 // line through what they shorten, with a grip tab centred on it.
-inline constexpr float handleWidth = 14.0f;
+inline constexpr float handleWidth = 15.0f; // odd, so a line on a whole pixel has as much tab either side
 inline constexpr float handleHeight = 28.0f;
 
+// The tab sits on whole pixels: x is the middle of the line, at a pixel's centre when it is crisp.
 inline juce::Rectangle<float> lengthHandleTab (float x, juce::Range<float> line)
 {
-    return juce::Rectangle<float> (handleWidth, handleHeight).withCentre ({ x, (line.getStart() + line.getEnd()) / 2.0f });
+    return { std::round (x - handleWidth / 2.0f), std::round ((line.getStart() + line.getEnd() - handleHeight) / 2.0f), handleWidth, handleHeight };
 }
 
 inline void drawLengthHandle (juce::Graphics& g, float x, juce::Range<float> line)

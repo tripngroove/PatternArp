@@ -41,6 +41,8 @@ public:
     static constexpr int nameX = 40; // where an open row's "Pattern A" starts, after its play/pause button
     static constexpr int nameWidth = labelWidth - nameX - 2; // its room, up to just before the steps
     static constexpr float nameMinScale = 0.9f; // fonts differ by platform: a name too wide is narrowed this far at most
+    static constexpr int stepPitch = 38; // a step's cell, line to line: the grid's size is fixed
+    static constexpr int rowPitch = 29; // a row of the open grid: a line, 2px, a 24px step, 2px
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -65,14 +67,13 @@ private:
     juce::Rectangle<float> gridArea() const; // collapsed: the row of steps
     float handleX() const;
     bool isOnHandle (juce::Point<float> p) const; // expanded only
-    float stepWidth() const;
     int stepAt (float x) const;
     int rowAt (float y) const;
     int playToggleAt (juce::Point<float> p) const; // the row whose play/pause button or name is at p, or -1
 
     void paintCollapsed (juce::Graphics& g);
     void paintExpanded (juce::Graphics& g);
-    juce::Rectangle<float> stepBox (int step, float y) const; // a step's box, its top at y
+    juce::Rectangle<float> stepBox (int step, float rowTop) const; // a step's box, in the row whose top line is at rowTop
     void paintStep (juce::Graphics& g, juce::Rectangle<float> r, int turn) const;
     void paintHandle (juce::Graphics& g); // the length handle
 

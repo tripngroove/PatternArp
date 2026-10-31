@@ -576,9 +576,11 @@ TEST_CASE ("the Rotation lane opens on a click and paints steps")
     CHECK (lane->getHeight() > closedHeight);
 
     // Give the first step to pattern B: the grid starts right of the row labels, below the
-    // header (40) and an 8-pixel margin, with a 28-pixel row per pattern (see OrderLane.cpp).
+    // header (40) and an 8-pixel margin, with a row per pattern (see OrderLane.cpp).
     constexpr auto gridX = static_cast<float> (patternarp::OrderLane::labelWidth);
-    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + 10.0f, 40.0f + 8.0f + 28.0f * 1.5f)));
+    constexpr auto stepWidth = static_cast<float> (patternarp::OrderLane::stepPitch);
+    const float rowB = 40.0f + 8.0f + static_cast<float> (patternarp::OrderLane::rowPitch) * 1.5f;
+    w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + 10.0f, rowB)));
 
     const auto xml = w.state();
     REQUIRE (xml != nullptr);
@@ -589,8 +591,6 @@ TEST_CASE ("the Rotation lane opens on a click and paints steps")
     // Clicking B's lit steps quiets them; once both are quiet, B is paused.
     auto* play = w.parameter<juce::AudioParameterBool> ("p2_play");
     REQUIRE (play != nullptr);
-    const float stepWidth = std::min (40.0f, (static_cast<float> (lane->getWidth()) - gridX - 12.0f) / 16.0f);
-    const float rowB = 40.0f + 8.0f + 28.0f * 1.5f;
     w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + stepWidth * 0.5f, rowB)));
     CHECK (play->get());
     w.click (w.editor->getLocalPoint (lane, juce::Point<float> (gridX + stepWidth * 1.5f, rowB)));
@@ -612,9 +612,9 @@ TEST_CASE ("each row of the open Rotation lane has a play button, and its name w
     REQUIRE (play != nullptr);
     lane->setExpanded (true);
 
-    // Pattern B's row: below the header (40) and an 8-pixel margin, 28 pixels per row, with a
-    // 24-pixel button at the left padding and the name after it (see OrderLane.cpp).
-    const float rowB = 40.0f + 8.0f + 28.0f * 1.5f;
+    // Pattern B's row: below the header (40) and an 8-pixel margin, with a 24-pixel button at
+    // the left padding and the name after it (see OrderLane.cpp).
+    const float rowB = 40.0f + 8.0f + static_cast<float> (patternarp::OrderLane::rowPitch) * 1.5f;
     const auto button = w.editor->getLocalPoint (lane, juce::Point<float> (8.0f + 12.0f, rowB));
     const auto name = w.editor->getLocalPoint (lane, juce::Point<float> (patternarp::OrderLane::nameX + 10.0f, rowB));
 
