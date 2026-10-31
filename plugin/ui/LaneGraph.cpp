@@ -264,9 +264,9 @@ void LaneGraph::paint (juce::Graphics& g)
         if (lane == Lane::notes && numEnabled == 0 && ! relativeNotes)
             continue;
 
-        // Steps past this lane's own length are kept but do not play, and ratios sit below the
-        // Chance line: both in the pattern's tint.
-        const bool faded = i >= currentLaneLength() || ccOff || (lane == Lane::chance && s.chance < 0);
+        // Ratios sit below the Chance line in the pattern's tint, as does a lane that sends
+        // nothing. (Steps past the lane's own length are greyed over below, like the preview.)
+        const bool faded = ccOff || (lane == Lane::chance && s.chance < 0);
         const auto colour = theme::patternColour (pattern.colour);
         g.setColour (faded ? theme::tint (colour) : colour);
         g.fillRect (bar);
@@ -312,6 +312,14 @@ void LaneGraph::paint (juce::Graphics& g)
             g.drawText ("1:2", gutter.withY (area.getCentreY() + 1.0f).withHeight (16.0f), juce::Justification::centredLeft);
             g.drawText ("8:8", gutter.withY (area.getBottom() - 16.0f).withHeight (16.0f), juce::Justification::centredLeft);
         }
+    }
+
+    // Steps past this lane's own length are kept but never play: grey them over, the way the
+    // preview does past a shortened loop.
+    if (const float end = handleX(); currentLaneLength() < pattern.length)
+    {
+        g.setColour (theme::background.withAlpha (0.75f));
+        g.fillRect (area.withLeft (end));
     }
 
     if (ccOff)

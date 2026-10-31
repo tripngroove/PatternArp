@@ -1390,3 +1390,137 @@ TEST_CASE ("repeats are drawn, reset and copied like the other lanes")
     sanitise (p);
     CHECK (p.steps[1].repeat == 8);
 }
+
+namespace
+{
+std::vector<int> velocities (const Arrangement& a, int count)
+{
+    Sequencer sequencer (a);
+    std::vector<int> result;
+    Slot slot;
+    while (static_cast<int> (result.size()) < count && sequencer.next (slot))
+        for (int i = 0; i < slot.numNotes; ++i)
+            result.push_back (slot.notes[static_cast<size_t> (i)].velocity);
+    return result;
+}
+
+Pattern withNoteMode (Pattern p, Lane lane)
+{
+    p.laneMode[static_cast<size_t> (lane)] = LaneMode::note;
+    return p;
+}
+} // namespace
+
+TEST_CASE ("a lane in Note mode moves on for each ratchet")
+{
+    auto p = patternOf ({ C, 62, E });
+    p.steps[0].ratchet = 2;
+    p.steps[0].velocity = 100;
+    p.steps[1].velocity = 70;
+    p.steps[2].velocity = 40;
+
+    // Step mode, as before: both of the ratchet's notes share step 1's velocity.
+    CHECK (velocities (arrangementOf ({ p }), 8) == std::vector<int> { 100, 100, 70, 40, 100, 100, 70, 40 });
+
+    // Note mode: each note takes the next value, so the lane drifts against the steps.
+    const auto perNote = arrangementOf ({ withNoteMode (p, Lane::velocity) });
+    CHECK (velocities (perNote, 8) == std::vector<int> { 100, 70, 40, 100, 70, 40, 100, 70 });
+    CHECK (firstNotes (perNote, 8) == std::vector<int> { C, C, 62, E, C, C, 62, E }); // the pitches still follow the steps
+
+    // Four notes a pass against three velocities: it takes three passes to come round again.
+    CHECK (findLoop (arrangementOf ({ p })).lengthSlots == 3);
+    CHECK (findLoop (perNote).lengthSlots == 9);
+}
+
+TEST_CASE ("a lane in Note mode moves on for each repeat")
+{
+    auto p = patternOf ({ C, E });
+    p.steps[0].repeat = 3;
+    p.steps[1].octave = 1;
+    p = withNoteMode (p, Lane::octave);
+    CHECK (firstNotes (arrangementOf ({ p }), 6) == std::vector<int> { C, C + 12, C, E + 12, C, C + 12 });
+}
+
+TEST_CASE ("gate in Note mode shortens each ratchet on its own")
+{
+    auto p = withNoteMode (patternOf ({ C }), Lane::gate);
+    p.length = 2;
+    p.steps[1] = p.steps[0];
+    p.steps[0].ratchet = 2;
+    p.steps[0].gate = 100;
+    p.steps[1].gate = 50;
+
+    Sequencer sequencer (arrangementOf ({ p }));
+    Slot slot;
+    REQUIRE (sequencer.next (slot));
+    REQUIRE (slot.numNotes == 2);
+    CHECK (slot.notes[0].length == Catch::Approx (0.125));
+    CHECK (slot.notes[1].length == Catch::Approx (0.0625));
+}
+
+TEST_CASE ("a step that loses its chance still uses up its notes in Note mode")
+{
+    // Velocities 100, 50 against C and a never-playing E: C always lands on 100, so chance
+    // only silences notes and never shifts the accents.
+    auto p = withNoteMode (patternOf ({ C, E }), Lane::velocity);
+    p.steps[0].velocity = 100;
+    p.steps[1].velocity = 50;
+    p.steps[1].chance = 0;
+
+    for (const auto mode : { ChanceMode::rest, ChanceMode::skip, ChanceMode::extend })
+    {
+        p.chanceMode = mode;
+        CHECK (velocities (arrangementOf ({ p }), 4) == std::vector<int> { 100, 100, 100, 100 });
+    }
+}
+
+TEST_CASE ("the CC lane in Note mode sends with every note")
+{
+    auto p = withNoteMode (patternOf ({ A, C, E, F }), Lane::cc);
+    p.ccNumber = 74;
+    p.steps[0].ratchet = 3;
+    p.steps[2].chance = 0; // silent, but still uses up a value
+    for (int i = 0; i < 4; ++i)
+        p.steps[static_cast<size_t> (i)].cc = 10 + i;
+
+    Sequencer sequencer (arrangementOf ({ p }));
+    std::vector<int> values;
+    Slot slot;
+    for (int i = 0; i < 4 && sequencer.next (slot); ++i)
+        for (int n = 0; n < slot.numNotes; ++n)
+        {
+            CHECK (slot.notes[static_cast<size_t> (n)].controller == 74);
+            values.push_back (slot.notes[static_cast<size_t> (n)].controllerValue);
+        }
+    CHECK (values == std::vector<int> { 10, 11, 12, 13, 11 });
+}
+
+TEST_CASE ("random directions in Note mode stay inside the lane")
+{
+    auto p = patternOf ({ C, 62, E });
+    for (auto& s : p.steps)
+        s.ratchet = 3;
+    p.steps[0].velocity = 30;
+    p.steps[1].velocity = 60;
+    p.steps[2].velocity = 90;
+    p.laneLength[static_cast<size_t> (Lane::velocity)] = 3;
+    p = withNoteMode (p, Lane::velocity);
+
+    for (const auto direction : { Direction::random, Direction::randomWalk })
+    {
+        p.direction = direction;
+        const auto v = velocities (arrangementOf ({ p }), 60);
+        for (const int velocity : v)
+            CHECK ((velocity == 30 || velocity == 60 || velocity == 90));
+        CHECK (v == velocities (arrangementOf ({ p }), 60)); // and the same every time
+    }
+}
+
+TEST_CASE ("only Velocity, Gate, Octave and CC can move on per note")
+{
+    auto p = patternOf ({ C, E });
+    p.laneMode.fill (LaneMode::note);
+    sanitise (p);
+    for (int lane = 0; lane < numLanes; ++lane)
+        CHECK ((p.laneMode[static_cast<size_t> (lane)] == LaneMode::note) == hasLaneMode (static_cast<Lane> (lane)));
+}

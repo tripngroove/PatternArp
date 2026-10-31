@@ -35,6 +35,7 @@ public:
     juce::Rectangle<int> getPlayButtonBounds() const { return playButton; }
     juce::Rectangle<int> getTabBounds (Lane lane) const { return tabs[static_cast<size_t> (lane)]; }
     juce::Rectangle<int> getTabValueBounds (Lane lane) const { return tabValues[static_cast<size_t> (lane)]; }
+    juce::Rectangle<int> getTabModeBounds (Lane lane) const { return tabModes[static_cast<size_t> (lane)]; }
 
     void paint (juce::Graphics& g) override;
     void paintOverChildren (juce::Graphics& g) override;
@@ -53,10 +54,15 @@ private:
     void layoutTabs();
     int tabAt (juce::Point<int> p) const; // -1 if none
     juce::String tabName (Lane lane) const;  // "Chance: "
-    juce::String tabValue (Lane lane) const; // "Rest", or empty for lanes with no value
+    juce::String tabValue (Lane lane) const; // "Rest", "Off", or empty for lanes with no value
+    juce::String tabMode (Lane lane) const;  // "Step" or "Note" for lanes that can move on per note, else empty
+    int tabDividerWidth (Lane lane) const;   // the line between a value and a mode, when a tab shows both
+    bool tabHasCaret (Lane lane) const;      // ends in a list's caret
     juce::String tabSteps (Lane lane) const; // "2 Steps" under the name, or empty when the lane runs the pattern's length
     int tabWidth (Lane lane) const;
+    int tabContentWidth (Lane lane, const juce::Font& nameFont) const; // name, values and caret
     void showChanceMenu();
+    void showModeMenu (Lane lane);
     void showCcField();
     void closeCcField (bool apply);
 
@@ -70,7 +76,8 @@ private:
     NoteEntry entry;     // notes clicked into an empty Piano Roll
 
     std::array<juce::Rectangle<int>, numLanes> tabs {}; // fitted to their text, sharing dividing lines
-    std::array<juce::Rectangle<int>, numLanes> tabValues {}; // the dropdown part of the Chance and CC tabs
+    std::array<juce::Rectangle<int>, numLanes> tabValues {}; // the clickable value of the Chance and CC tabs
+    std::array<juce::Rectangle<int>, numLanes> tabModes {};  // the clickable "Step" / "Note" of lanes that have one
     int hoveredTab = -1;
     // Opened from the CC tab's value. Its hint shows while it is empty, even with the cursor
     // in it (a plain TextEditor hides it once focused).

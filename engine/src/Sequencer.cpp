@@ -175,55 +175,70 @@ bool Sequencer::advanceCursor (int patternIndex)
 
     // Every lane walks the pattern's direction over its own length, so lanes of the same
     // length always stay on the same step.
-    const auto n = c.moves;
     for (int lane = 0; lane < numLanes; ++lane)
-    {
-        const std::int64_t length = laneLength (p, static_cast<Lane> (lane));
-        std::int64_t step = 0;
-
-        switch (p.direction)
-        {
-            case Direction::forward:
-                step = floorMod (n, length);
-                break;
-
-            case Direction::backward:
-                step = length - 1 - floorMod (n, length);
-                break;
-
-            case Direction::pingPong:
-                if (length > 1)
-                {
-                    const auto cycle = 2 * length - 2;
-                    const auto pos = floorMod (n, cycle);
-                    step = pos < length ? pos : cycle - pos;
-                }
-                break;
-
-            case Direction::random:
-                step = static_cast<std::int64_t> (hash (p.seed + pass * passSalt, static_cast<std::uint64_t> (n)) % static_cast<std::uint64_t> (length));
-                break;
-
-            case Direction::randomWalk:
-            {
-                auto& walk = c.walk[static_cast<size_t> (lane)];
-                if (n > 0 && length > 1)
-                {
-                    const bool up = (hash ((p.seed ^ 0x5bd1e995u) + pass * passSalt, static_cast<std::uint64_t> (n)) & 1u) != 0;
-                    walk = static_cast<int> (floorMod (walk + (up ? 1 : -1), length));
-                }
-                step = walk;
-                break;
-            }
-        }
-
-        c.at[static_cast<size_t> (lane)] = static_cast<int> (step);
-    }
+        if (! movesPerNote (p, static_cast<Lane> (lane)))
+            moveLane (patternIndex, static_cast<Lane> (lane), c.moves);
 
     ++c.moves;
     ++c.visits[static_cast<size_t> (c.at[static_cast<size_t> (Lane::chance)])];
     c.repeatsLeft = p.steps[static_cast<size_t> (c.at[static_cast<size_t> (Lane::repeat)])].repeat - 1;
     return true;
+}
+
+void Sequencer::advanceNoteLanes (int patternIndex)
+{
+    const auto& p = arrangement.patterns[static_cast<size_t> (patternIndex)];
+    auto& c = cursors[static_cast<size_t> (patternIndex)];
+    for (int lane = 0; lane < numLanes; ++lane)
+        if (movesPerNote (p, static_cast<Lane> (lane)))
+            moveLane (patternIndex, static_cast<Lane> (lane), c.notes);
+    ++c.notes;
+}
+
+void Sequencer::moveLane (int patternIndex, Lane lane, std::int64_t n)
+{
+    const auto& p = arrangement.patterns[static_cast<size_t> (patternIndex)];
+    auto& c = cursors[static_cast<size_t> (patternIndex)];
+    const std::int64_t length = laneLength (p, lane);
+    std::int64_t step = 0;
+
+    switch (p.direction)
+    {
+        case Direction::forward:
+            step = floorMod (n, length);
+            break;
+
+        case Direction::backward:
+            step = length - 1 - floorMod (n, length);
+            break;
+
+        case Direction::pingPong:
+            if (length > 1)
+            {
+                const auto cycle = 2 * length - 2;
+                const auto pos = floorMod (n, cycle);
+                step = pos < length ? pos : cycle - pos;
+            }
+            break;
+
+        case Direction::random:
+            step = static_cast<std::int64_t> (hash (p.seed + pass * passSalt, static_cast<std::uint64_t> (n)) % static_cast<std::uint64_t> (length));
+            break;
+
+        case Direction::randomWalk:
+        {
+            auto& walk = c.walk[static_cast<size_t> (lane)];
+            if (n > 0 && length > 1)
+            {
+                const bool up = (hash ((p.seed ^ 0x5bd1e995u) + pass * passSalt, static_cast<std::uint64_t> (n)) & 1u) != 0;
+                walk = static_cast<int> (floorMod (walk + (up ? 1 : -1), length));
+            }
+            step = walk;
+            break;
+        }
+    }
+
+    c.at[static_cast<size_t> (lane)] = static_cast<int> (step);
 }
 
 bool Sequencer::passesChance (int patternIndex, int step)
@@ -274,16 +289,22 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
     slot.step = steps[static_cast<size_t> (Lane::notes)];
     slot.length = length;
 
+    // Lanes in Note mode move on for every note the step would play, heard or not, so a
+    // failed chance only silences notes and never shifts what the ones after it get.
+    const int ratchet = stepOf (Lane::ratchet).ratchet;
+    const double sub = length / ratchet;
+
     if (! cursor.passes)
     {
+        for (int r = 0; r < ratchet; ++r)
+            advanceNoteLanes (owner);
+
         if (p.chanceMode == ChanceMode::skip)
             return Outcome::skipped;
 
+        // Held until the step's last note would have ended.
         if (p.chanceMode == ChanceMode::extend)
-        {
-            const double sub = length / stepOf (Lane::ratchet).ratchet;
             slot.tieEnd = nextStart + length - sub + sub * stepOf (Lane::gate).gate / 100.0;
-        }
 
         nextStart += length;
         return Outcome::rest;
@@ -293,28 +314,29 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
     const bool fromInput = p.noteSource == NoteSource::midiIn;
     const auto& enabled = fromInput ? inputNotes : enabledNotes[static_cast<size_t> (owner)];
     const int numEnabled = fromInput ? numInputNotes : numEnabledNotes[static_cast<size_t> (owner)];
+    const int pitch = numEnabled > 0
+        ? enabled[static_cast<size_t> (std::lround (stepOf (Lane::notes).note * static_cast<float> (numEnabled - 1)))]
+        : -1;
+    const bool ccPerNote = movesPerNote (p, Lane::cc);
 
-    if (numEnabled > 0)
+    for (int r = 0; r < ratchet; ++r)
     {
-        const auto index = static_cast<size_t> (std::lround (stepOf (Lane::notes).note * static_cast<float> (numEnabled - 1)));
-        const int note = enabled[index] + 12 * stepOf (Lane::octave).octave;
-        const int ratchet = stepOf (Lane::ratchet).ratchet;
-        const int gate = stepOf (Lane::gate).gate;
-        const int velocity = stepOf (Lane::velocity).velocity;
+        advanceNoteLanes (owner);
+        if (pitch < 0)
+            continue;
 
-        if (note >= 0 && note <= 127)
+        const int note = pitch + 12 * stepOf (Lane::octave).octave;
+        if (note < 0 || note > 127)
+            continue;
+
+        auto& n = slot.notes[static_cast<size_t> (slot.numNotes++)];
+        n = { nextStart + sub * r, std::max (sub * stepOf (Lane::gate).gate / 100.0, 0.001), note, stepOf (Lane::velocity).velocity, slot.pattern };
+
+        // The CC lane goes out with the step's first note, or with every note in Note mode.
+        if (slot.numNotes == 1 || ccPerNote)
         {
-            const double sub = length / ratchet;
-            for (int r = 0; r < ratchet; ++r)
-            {
-                slot.notes[static_cast<size_t> (slot.numNotes++)] = {
-                    nextStart + sub * r, std::max (sub * gate / 100.0, 0.001), note, velocity, slot.pattern
-                };
-            }
-
-            // The CC lane goes out once per step, with its first note.
-            slot.notes[0].controller = p.ccNumber;
-            slot.notes[0].controllerValue = stepOf (Lane::cc).cc;
+            n.controller = p.ccNumber;
+            n.controllerValue = stepOf (Lane::cc).cc;
         }
     }
 
@@ -493,16 +515,18 @@ LoopInfo findLoop (const Arrangement& arrangement, const std::vector<int>& input
 
     // Every part of the sequencer is a counter that wraps: the Order lane and each pattern's
     // step cycle (times any A:B chance), counted in steps moved on rather than turns, since a
-    // step can repeat. The whole thing repeats the first time they are all back at zero
-    // together, with no step part-way through its repeats.
+    // step can repeat, and the cycle of its lanes in Note mode, counted in notes. The whole
+    // thing repeats the first time they are all back at zero together, with no step part-way
+    // through its repeats.
     std::array<std::int64_t, maxPatterns> patternCycle {};
+    std::array<std::int64_t, maxPatterns> noteCycle {};
 
     for (int i = 0; i < a.numPatterns; ++i)
     {
         const auto& p = a.patterns[static_cast<size_t> (i)];
 
         // Each lane has its own cycle; the Chance lane's also waits for every A:B count.
-        std::int64_t cycle = 1;
+        std::int64_t cycle = 1, notesCycle = 1;
         for (int lane = 0; lane < numLanes; ++lane)
         {
             if (static_cast<Lane> (lane) == Lane::cc && p.ccNumber < 0)
@@ -521,9 +545,11 @@ LoopInfo findLoop (const Arrangement& arrangement, const std::vector<int>& input
                     if (const int chance = p.steps[static_cast<size_t> (s)].chance; chance < 0)
                         laneCycle = std::lcm (laneCycle, directionCycle (p.direction, length) * chanceRatio (chance).b);
 
-            cycle = std::lcm (cycle, laneCycle);
+            auto& counted = movesPerNote (p, static_cast<Lane> (lane)) ? notesCycle : cycle;
+            counted = std::lcm (counted, laneCycle);
         }
         patternCycle[static_cast<size_t> (i)] = cycle;
+        noteCycle[static_cast<size_t> (i)] = notesCycle;
     }
 
     Slot slot;
@@ -535,7 +561,8 @@ LoopInfo findLoop (const Arrangement& arrangement, const std::vector<int>& input
         for (int i = 0; i < a.numPatterns && aligned; ++i)
         {
             const auto& c = sequencer.cursors[static_cast<size_t> (i)];
-            aligned = c.repeatsLeft == 0 && c.moves % patternCycle[static_cast<size_t> (i)] == 0;
+            aligned = c.repeatsLeft == 0 && c.moves % patternCycle[static_cast<size_t> (i)] == 0
+                   && c.notes % noteCycle[static_cast<size_t> (i)] == 0;
         }
 
         if (aligned)
