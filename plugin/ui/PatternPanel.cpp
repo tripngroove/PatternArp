@@ -282,15 +282,15 @@ void PatternPanel::layoutTabs()
     const auto g = graph.getBounds();
     auto row = juce::Rectangle<int> (g.getX() + 1, g.getY() - tabHeight, g.getWidth() - 2, tabHeight);
 
-    for (int i = 0; i < numLanes; ++i)
+    for (const auto lane : laneOrder)
     {
-        const auto lane = static_cast<Lane> (i);
+        const auto i = static_cast<size_t> (lane);
         const auto tab = row.removeFromLeft (tabWidth (lane));
-        tabs[static_cast<size_t> (i)] = tab;
+        tabs[i] = tab;
         row.setLeft (tab.getRight() - 1); // neighbours share a dividing line
 
         // Clicking the value part ("Rest", "Off") opens its list.
-        tabValues[static_cast<size_t> (i)] = hasValue (lane)
+        tabValues[i] = hasValue (lane)
             ? tab.withTrimmedLeft (theme::padding + theme::textWidth (tabFont (true), juce::String (laneName (lane)) + ":"))
             : juce::Rectangle<int>();
     }

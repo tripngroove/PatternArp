@@ -83,7 +83,8 @@ private:
         std::array<juce::AudioParameterInt*, numLanes> laneLength {}; // 0 = the pattern's length
         juce::AudioParameterInt* ccNumber = nullptr; // -1 = off
 
-        // In the order of a ParameterSnapshot.
+        // In the order of a ParameterSnapshot: the settings, the lane lengths up to CC, the
+        // CC number, then the Repeat lane's length (it came later).
         std::array<juce::RangedAudioParameter*, 6 + numLanes + 1> all() const;
     };
 
@@ -92,9 +93,12 @@ private:
     using ParameterSnapshot = std::array<int, globalsAt + 2>;
 
     // Saved parameter lists from earlier versions: per slot, the six settings, then (once
-    // they were parameters) the six lane lengths before the CC lane, then the two globals.
+    // they were parameters) the six lane lengths before the CC lane, then the CC lane's
+    // length and number before the Repeat lane, then the two globals. Each newer list adds
+    // to the end of a slot, so the values an older one has stay in place.
     static constexpr int oldParametersPerPattern = 6;
     static constexpr int preCcParametersPerPattern = 12;
+    static constexpr int preRepeatParametersPerPattern = 14;
 
     ParameterSnapshot readParameters() const;
     static void applyParameters (const ParameterSnapshot& values, Arrangement& a);

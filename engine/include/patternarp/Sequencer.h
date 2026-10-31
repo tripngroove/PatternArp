@@ -53,7 +53,8 @@ struct LoopInfo
 //
 // For every slot it asks the Order lane whose turn it is, advances that pattern's own step
 // cursor (Direction), and turns the step's lanes into notes. Each pattern only moves on
-// when it plays, so patterns and an Order lane of different lengths drift against each other.
+// when it plays, and a step with a Repeat above 1 holds it for that many of its turns, so
+// patterns and an Order lane of different lengths drift against each other.
 // The result depends only on the arrangement and the number of slots played, so any song
 // position can be reproduced exactly.
 class Sequencer
@@ -102,13 +103,17 @@ private:
 
     struct Cursor
     {
-        std::int64_t played = 0;                  // notes this pattern has contributed so far
+        std::int64_t moves = 0;                   // steps this pattern has moved on to so far
+        int repeatsLeft = 0;                      // turns the current step still plays (Repeat lane)
+        std::array<int, numLanes> at {};          // the step each lane is on
+        bool passes = true;                       // the current step's chance, rolled once for all its repeats
         std::array<int, numLanes> walk {};        // position of each lane for random walk
         std::array<std::int64_t, maxSteps> visits {}; // per Chance-lane step, for A:B ratios
     };
 
-    // Moves the pattern on one step; returns the step each lane is on.
-    std::array<int, numLanes> advanceCursor (int patternIndex);
+    // Uses up one of the pattern's turns: plays its current step again while the Repeat lane
+    // says so, otherwise moves every lane on to its next step. Returns true when it moved on.
+    bool advanceCursor (int patternIndex);
     bool passesChance (int patternIndex, int chanceStep);
 
     Arrangement arrangement; // only the playing patterns

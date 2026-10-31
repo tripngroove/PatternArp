@@ -86,6 +86,7 @@ const char* laneName (Lane lane)
         case Lane::ratchet:  return "Ratchet";
         case Lane::chance:   return "Chance";
         case Lane::cc:       return "CC";
+        case Lane::repeat:   return "Repeat";
     }
     return "";
 }
@@ -101,6 +102,7 @@ void resetStep (Step& s, Lane lane, const Pattern& p)
         case Lane::ratchet:  s.ratchet = 1; break;
         case Lane::chance:   s.chance = 100; break;
         case Lane::cc:       s.cc = 64; break;
+        case Lane::repeat:   s.repeat = 1; break;
     }
 }
 
@@ -159,6 +161,7 @@ void randomizeLane (Pattern& p, Lane lane, std::uint64_t seed)
             case Lane::octave:   s.octave = random.below (7) - 3; break;
             case Lane::ratchet:  s.ratchet = 1 + random.below (8); break;
             case Lane::cc:       s.cc = random.below (128); break;
+            case Lane::repeat:   s.repeat = 1 + random.below (8); break;
             case Lane::chance:
             {
                 const int pick = random.below (numPercents + numChanceRatios);
@@ -256,6 +259,7 @@ void copyLaneValue (const Step& from, Step& to, Lane lane)
         case Lane::ratchet:  to.ratchet = from.ratchet; break;
         case Lane::chance:   to.chance = from.chance; break;
         case Lane::cc:       to.cc = from.cc; break;
+        case Lane::repeat:   to.repeat = from.repeat; break;
     }
 }
 
@@ -320,6 +324,7 @@ void sanitise (Pattern& p)
         s.gate = std::clamp (s.gate, 1, 100);
         s.octave = std::clamp (s.octave, -3, 3);
         s.ratchet = std::clamp (s.ratchet, 1, 8);
+        s.repeat = std::clamp (s.repeat, 1, 8);
         if (s.chance < 0)
         {
             auto r = chanceRatio (s.chance);
