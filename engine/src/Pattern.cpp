@@ -393,6 +393,17 @@ bool Arrangement::addPattern (const Pattern& pattern)
     added.colour = unusedColour();
     added.letter = letter;
 
+    if (numPatterns == 0)
+    {
+        // Nothing had a turn (every pattern was deleted): the new one takes every step, and
+        // the lane keeps its length.
+        numPatterns = 1;
+        order.fill (0);
+        quiet.fill (false);
+        storedTurns = 0;
+        return true;
+    }
+
     if (orderLength < maxOrderSteps)
         ++orderLength;
     order[static_cast<size_t> (orderLength - 1)] = numPatterns++;

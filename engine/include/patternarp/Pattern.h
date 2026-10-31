@@ -274,8 +274,8 @@ struct Arrangement
     int nextLetter() const;
 
     // Adds a pattern at the end, with a new colour and letter, and gives it the next step of
-    // the Order lane (the last step, if the lane is already full). Returns false when there is
-    // no room.
+    // the Order lane (the last step, if the lane is already full). The first pattern after
+    // every other was deleted takes every step instead. Returns false when there is no room.
     bool addPattern (const Pattern& pattern);
 
     // The default velocity and gate: what new and reset steps get. They are set for every

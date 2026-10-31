@@ -519,6 +519,24 @@ TEST_CASE ("editing patterns keeps the Order lane in step")
         CHECK (a.order[1] == 1);
     }
 
+    SECTION ("a pattern added after deleting them all takes the first step, without lengthening")
+    {
+        a.removePattern (1);
+        a.removePattern (0);
+        REQUIRE (a.numPatterns == 0);
+        REQUIRE (a.orderLength == 1);
+
+        REQUIRE (a.addPattern (patternOf ({ C })));
+        CHECK (a.orderLength == 1);
+        CHECK (a.order[0] == 0);
+        CHECK (a.isHeard (0));
+        CHECK (firstNotes (a, 3) == std::vector<int> { C, C, C });
+
+        REQUIRE (a.addPattern (patternOf ({ E })));
+        CHECK (a.orderLength == 2);
+        CHECK (a.order[1] == 1);
+    }
+
     SECTION ("letters stay with their pattern; new ones follow the highest")
     {
         a.patterns[0].letter = 0;
