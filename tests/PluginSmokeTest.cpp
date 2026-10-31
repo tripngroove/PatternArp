@@ -378,8 +378,55 @@ TEST_CASE ("saves from before 1/64 keep their timings and loop length")
     REQUIRE (arrangement != nullptr);
     CHECK (arrangement->getIntAttribute ("loopLength") == 48);
     REQUIRE (arrangement->getChildByName ("Pattern") != nullptr);
-    CHECK (arrangement->getChildByName ("Pattern")->getIntAttribute ("timing") == 5);
-    CHECK (reloaded->getStringAttribute ("slots").startsWith ("5,4,"));
+    CHECK (arrangement->getChildByName ("Pattern")->getIntAttribute ("timing") == static_cast<int> (patternarp::Timing::eighth));
+    CHECK (reloaded->getStringAttribute ("slots").startsWith (juce::String (static_cast<int> (patternarp::Timing::eighth)) + ",4,"));
+}
+
+TEST_CASE ("saves from before dotted timings keep their timings")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+
+    // Version 5 listed 1/64, 1/32, 1/16T, 1/16, 1/8T, 1/8, 1/4T, 1/4, 1/2, 1/1. The two
+    // patterns (slots 1 and 2) are 1/8T and 1/1, and the empty slots have most of the rest.
+    const std::array<patternarp::Timing, 10> was { patternarp::Timing::sixtyFourth, patternarp::Timing::thirtySecond,
+                                                   patternarp::Timing::sixteenthTriplet, patternarp::Timing::sixteenth,
+                                                   patternarp::Timing::eighthTriplet, patternarp::Timing::eighth,
+                                                   patternarp::Timing::quarterTriplet, patternarp::Timing::quarter,
+                                                   patternarp::Timing::half, patternarp::Timing::whole };
+    const int oldTimings[] = { 4, 9, 0, 2, 3, 5, 7, 8 };
+    juce::String slots;
+    for (int slot = 0; slot < 8; ++slot)
+        slots << (slot == 0 ? "" : ",") << oldTimings[slot] << ",4,0,0,0,1";
+    const auto xml = juce::parseXML ("<PatternArpState version=\"5\" latch=\"0\" slots=\"" + slots + "\">"
+                                     "<Arrangement loopLength=\"0\" order=\"0,1\" orderLength=\"2\">"
+                                     "<Pattern timing=\"4\" length=\"4\" notes=\"60\"/><Pattern timing=\"9\" length=\"2\" notes=\"64\"/>"
+                                     "</Arrangement></PatternArpState>");
+    REQUIRE (xml != nullptr);
+    juce::MemoryBlock state;
+    juce::AudioProcessor::copyXmlToBinary (*xml, state);
+    plugin->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+
+    for (int slot = 0; slot < 8; ++slot)
+    {
+        juce::AudioParameterChoice* timing = nullptr;
+        for (auto* p : plugin->getParameters())
+            if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (p); choice != nullptr
+                                                                             && choice->getParameterID() == "p" + juce::String (slot + 1) + "_timing")
+                timing = choice;
+        REQUIRE (timing != nullptr);
+        CHECK (timing->getCurrentChoiceName() == patternarp::timingName (was[static_cast<size_t> (oldTimings[slot])]));
+    }
+
+    juce::MemoryBlock saved;
+    plugin->getStateInformation (saved);
+    const auto reloaded = juce::AudioProcessor::getXmlFromBinary (saved.getData(), static_cast<int> (saved.getSize()));
+    REQUIRE (reloaded != nullptr);
+    const auto* first = reloaded->getChildByName ("Arrangement")->getChildByName ("Pattern");
+    REQUIRE (first != nullptr);
+    CHECK (first->getIntAttribute ("timing") == static_cast<int> (patternarp::Timing::eighthTriplet));
+    REQUIRE (first->getNextElement() != nullptr);
+    CHECK (first->getNextElement()->getIntAttribute ("timing") == static_cast<int> (patternarp::Timing::whole));
 }
 
 TEST_CASE ("plugin editor opens")

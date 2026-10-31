@@ -4,7 +4,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <initializer_list>
+#include <string>
 #include <vector>
 
 using namespace patternarp;
@@ -90,6 +92,41 @@ TEST_CASE ("the design doc example: two patterns alternate by default")
     CHECK (loop.repeats);
     CHECK (loop.lengthSlots == 12);
     CHECK (loop.lengthBeats == Catch::Approx (3.0));
+}
+
+TEST_CASE ("step timings run shortest first, dotted ones half again as long as their note")
+{
+    for (int i = 0; i < numTimings; ++i)
+    {
+        const auto t = static_cast<Timing> (i);
+        const double ticks = beatsPerStep (t) * ticksPerBeat;
+        INFO (timingName (t));
+        CHECK (ticks == Catch::Approx (std::round (ticks))); // loop lengths stay whole ticks
+        if (i > 0)
+            CHECK (beatsPerStep (t) > beatsPerStep (static_cast<Timing> (i - 1)));
+    }
+
+    CHECK (beatsPerStep (Timing::thirtySecondDotted) == Catch::Approx (1.5 * beatsPerStep (Timing::thirtySecond)));
+    CHECK (beatsPerStep (Timing::sixteenthDotted) == Catch::Approx (1.5 * beatsPerStep (Timing::sixteenth)));
+    CHECK (beatsPerStep (Timing::eighthDotted) == Catch::Approx (1.5 * beatsPerStep (Timing::eighth)));
+    CHECK (beatsPerStep (Timing::quarterDotted) == Catch::Approx (1.5 * beatsPerStep (Timing::quarter)));
+    CHECK (beatsPerStep (Timing::halfDotted) == Catch::Approx (1.5 * beatsPerStep (Timing::half)));
+    CHECK (std::string (timingName (Timing::eighthDotted)) == "1/8D");
+}
+
+TEST_CASE ("a dotted pattern against a straight one loops when both line up")
+{
+    // Three dotted eighths against two sixteenths, taking turns: A's notes last 0.75 beats and
+    // B's 0.25, so each A-B pair takes a beat, and both are back at their start after 12 turns.
+    auto a = arrangementOf ({ patternOf ({ A, B, C }), patternOf ({ E, F }) });
+    a.patterns[0].timing = Timing::eighthDotted;
+    CHECK (firstNotes (a, 6) == std::vector<int> { A, E, B, F, C, E });
+
+    const auto loop = findLoop (a);
+    CHECK (loop.repeats);
+    CHECK (loop.lengthSlots == 12);
+    CHECK (loop.lengthBeats == Catch::Approx (6.0));
+    CHECK (describeLength (0.375 * 3.0) == "9 thirty-seconds");
 }
 
 TEST_CASE ("a loop length set by hand starts everything over")

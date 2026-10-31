@@ -11,7 +11,22 @@ namespace
 const juce::Identifier stateType { "PatternArpState" };
 // 5: 1/64 joined the timings (every timing index moved up one) and loop lengths went
 //    from 24 to 48 ticks a beat.
-constexpr int stateVersion = 5;
+// 6: dotted timings joined, in order of length (see upgradeTiming).
+constexpr int stateVersion = 6;
+
+// A timing index from a save of the given version, as it is now.
+int upgradeTiming (int timing, int version)
+{
+    if (version < 5)
+        ++timing;
+    if (version < 6)
+    {
+        // 1/64, 1/32, 1/16T, 1/16, 1/8T, 1/8, 1/4T, 1/4, 1/2, 1/1 before the dotted ones.
+        static constexpr std::array<int, 10> withDotted { 0, 1, 2, 4, 5, 7, 8, 10, 12, 14 };
+        timing = withDotted[static_cast<size_t> (std::clamp (timing, 0, 9))];
+    }
+    return timing;
+}
 
 const juce::ParameterID latchId { "latch", 1 };
 
@@ -483,17 +498,17 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
     *latch = static_cast<bool> (state.getProperty ("latch", false));
 
     const int version = state.getProperty ("version", 0);
-    const bool before64ths = version < 5;
 
     // Older saves (before patterns existed) have no arrangement; keep the default one.
     Arrangement loaded;
     if (fromValueTree (state.getChildWithName ("Arrangement"), loaded))
     {
-        if (before64ths)
-        {
+        if (version < 5)
             loaded.loopLength *= 2;
-            for (auto& p : loaded.patterns)
-                p.timing = static_cast<Timing> (static_cast<int> (p.timing) + 1);
+        for (int i = 0; i < loaded.numPatterns; ++i)
+        {
+            auto& p = loaded.patterns[static_cast<size_t> (i)];
+            p.timing = static_cast<Timing> (upgradeTiming (static_cast<int> (p.timing), version));
         }
         setArrangement (loaded);
     }
@@ -516,9 +531,8 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
         if (hasGlobals)
             for (int i = 0; i < 2; ++i)
                 values[static_cast<size_t> (globalsAt + i)] = slotValues[maxPatterns * stride + i].getIntValue();
-        if (before64ths)
-            for (size_t i = 0; i < globalsAt; i += parametersPerPattern)
-                ++values[i]; // timing
+        for (size_t i = 0; i < globalsAt; i += parametersPerPattern)
+            values[i] = upgradeTiming (values[i], version); // each slot's timing
         setParameters (values);
     }
 

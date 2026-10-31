@@ -16,7 +16,7 @@ Each pattern has these settings, with their values in bold in the pattern's colo
 
 | Setting | What it does |
 | --- | --- |
-| Step (Timing) | How long each of its notes lasts, 1/64 to a whole note (triplets included). Automated as "P1 Timing"... |
+| Step (Timing) | How long each of its notes lasts, 1/64 to a whole note, with triplets (1/16T...) and dotted notes (1/32D to 1/2D), listed shortest first. Automated as "P1 Timing"... |
 | Length | Number of steps, 1 to 16. Steps come off or on at the end, from the editor or automation alike. Steps hidden by shortening are remembered and come back when it grows again; steps never used before repeat the pattern from its first step. |
 | Dir (Direction) | Forward, Backward, Ping-pong, Random, Walk (random step up or down) |
 | Play / Pause | The button by the pattern name. It shows playing while any of the pattern's Rotation steps are lit; pausing quiets them all (they keep their time, so nothing else moves) and playing lights them all again. Automatable as "P1 Play"... |
