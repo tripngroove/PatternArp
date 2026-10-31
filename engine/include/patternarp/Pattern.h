@@ -118,6 +118,19 @@ constexpr int numLanes = 8;
 constexpr std::array<Lane, numLanes> laneOrder { Lane::notes,   Lane::velocity, Lane::gate,   Lane::octave,
                                                  Lane::ratchet, Lane::repeat,   Lane::chance, Lane::cc };
 
+// How often a lane moves on to its next step.
+enum class LaneMode
+{
+    step, // once per step: all of a step's ratchets and repeats share its value
+    note  // once per note: each ratchet and each repeat takes the lane's next value
+};
+
+// Velocity, Gate, Octave and CC can move on per note; the rest shape the step as a whole.
+constexpr bool hasLaneMode (Lane lane)
+{
+    return lane == Lane::velocity || lane == Lane::gate || lane == Lane::octave || lane == Lane::cc;
+}
+
 struct Step
 {
     float note = 0.0f; // 0..1: position within the pattern's enabled notes, bottom to top
@@ -167,6 +180,9 @@ struct Pattern
     // 4-step pattern). 0 follows the pattern's length.
     std::array<int, numLanes> laneLength {};
 
+    // Whether each lane moves on per step or per note (see LaneMode, hasLaneMode).
+    std::array<LaneMode, numLanes> laneMode {};
+
     std::uint32_t seed = 1; // for random direction and percent chance
 
     bool playing = true; // a paused pattern's turns stay in the Order lane, quiet
@@ -181,6 +197,12 @@ const char* laneName (Lane lane);
 
 // Steps a lane loops over: its own length if set and shorter, else the pattern's.
 int laneLength (const Pattern& pattern, Lane lane);
+
+// Whether a lane moves on once per note rather than once per step.
+inline bool movesPerNote (const Pattern& pattern, Lane lane)
+{
+    return pattern.laneMode[static_cast<size_t> (lane)] == LaneMode::note;
+}
 
 // Puts one lane of a step back to its default: the lowest note, the pattern's default velocity
 // and gate, no octave shift, no ratchet, plays once, always plays.

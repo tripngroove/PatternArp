@@ -29,6 +29,7 @@ const juce::Identifier letter { "letter" };
 const juce::Identifier notes { "notes" };
 const juce::Identifier steps { "steps" };
 const juce::Identifier laneLengths { "laneLengths" };
+const juce::Identifier noteLanes { "noteLanes" }; // lanes in Note mode, by number
 } // namespace ids
 
 juce::String enabledNotesToString (const std::bitset<128>& notes)
@@ -135,6 +136,13 @@ juce::ValueTree toValueTree (const Arrangement& a)
         for (const int l : p.laneLength)
             lengths.add (juce::String (l));
         child.setProperty (ids::laneLengths, lengths.joinIntoString (","), nullptr);
+
+        juce::StringArray noteLanes;
+        for (int l = 0; l < numLanes; ++l)
+            if (movesPerNote (p, static_cast<Lane> (l)))
+                noteLanes.add (juce::String (l));
+        if (! noteLanes.isEmpty())
+            child.setProperty (ids::noteLanes, noteLanes.joinIntoString (","), nullptr);
         tree.appendChild (child, nullptr);
     }
     return tree;
@@ -174,6 +182,11 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
         const auto lengths = juce::StringArray::fromTokens (child.getProperty (ids::laneLengths).toString(), ",", {});
         for (int l = 0; l < juce::jmin (lengths.size(), numLanes); ++l)
             p.laneLength[static_cast<size_t> (l)] = lengths[l].getIntValue();
+
+        // Saves from before Note mode have none: every lane moves on per step, as it did.
+        for (const auto& lane : juce::StringArray::fromTokens (child.getProperty (ids::noteLanes).toString(), ",", {}))
+            if (const int l = lane.getIntValue(); lane.isNotEmpty() && l >= 0 && l < numLanes)
+                p.laneMode[static_cast<size_t> (l)] = LaneMode::note;
         sanitise (p);
 
         loaded.patterns[static_cast<size_t> (loaded.numPatterns++)] = p;

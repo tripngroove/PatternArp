@@ -54,7 +54,9 @@ struct LoopInfo
 // For every slot it asks the Order lane whose turn it is, advances that pattern's own step
 // cursor (Direction), and turns the step's lanes into notes. Each pattern only moves on
 // when it plays, and a step with a Repeat above 1 holds it for that many of its turns, so
-// patterns and an Order lane of different lengths drift against each other.
+// patterns and an Order lane of different lengths drift against each other. Lanes in Note
+// mode move on for every note instead (each ratchet, each repeat), so they drift inside
+// the steps too.
 // The result depends only on the arrangement and the number of slots played, so any song
 // position can be reproduced exactly.
 class Sequencer
@@ -104,6 +106,7 @@ private:
     struct Cursor
     {
         std::int64_t moves = 0;                   // steps this pattern has moved on to so far
+        std::int64_t notes = 0;                   // notes its steps have played, or would have (lanes in Note mode)
         int repeatsLeft = 0;                      // turns the current step still plays (Repeat lane)
         std::array<int, numLanes> at {};          // the step each lane is on
         bool passes = true;                       // the current step's chance, rolled once for all its repeats
@@ -112,8 +115,16 @@ private:
     };
 
     // Uses up one of the pattern's turns: plays its current step again while the Repeat lane
-    // says so, otherwise moves every lane on to its next step. Returns true when it moved on.
+    // says so, otherwise moves every lane in Step mode on to its next step. Returns true when
+    // it moved on.
     bool advanceCursor (int patternIndex);
+
+    // Moves every lane in Note mode on to its next step, for the next note of the step.
+    void advanceNoteLanes (int patternIndex);
+
+    // Puts a lane on the step it reaches after `n` moves, walking the pattern's direction over
+    // the lane's length. Random walks take one step per call, so call it for each n in turn.
+    void moveLane (int patternIndex, Lane lane, std::int64_t n);
     bool passesChance (int patternIndex, int chanceStep);
 
     Arrangement arrangement; // only the playing patterns
