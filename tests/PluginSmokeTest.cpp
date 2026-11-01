@@ -988,42 +988,6 @@ TEST_CASE ("right-clicking a step opens its menu")
                               juce::MouseInputSource::defaultPressure, 0.0f, w.time += 100);
     CHECK (juce::PopupMenu::dismissAllActiveMenus());
 }
-#endif
-
-TEST_CASE ("sub-patterns are saved and play along with their parent")
-{
-    juce::ScopedJuceInitialiser_GUI juce;
-    std::unique_ptr<juce::AudioProcessor> original (createPluginFilter());
-    {
-        auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*original);
-        auto a = arp.getArrangement();
-        REQUIRE (a.addSubPattern (0, patternarp::makeSubPattern (a.patterns[0])) == 1);
-        arp.setArrangement (a);
-    }
-
-    juce::MemoryBlock state;
-    original->getStateInformation (state);
-    std::unique_ptr<juce::AudioProcessor> restored (createPluginFilter());
-    restored->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
-
-    const auto a = dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement();
-    REQUIRE (a.numPatterns == 3);
-    CHECK (a.patterns[1].parent == 0);
-    CHECK (a.patterns[2].parent == -1);
-    CHECK (a.orderLength == 2);
-    CHECK (a.order[0] == 0);
-    CHECK (a.order[1] == 2); // B, which moved down a place
-
-    // The default A (C3 D3 E3) with the new sub-pattern's C4 E4 G4 E4 over it, B between.
-    FakePlayHead playHead;
-    playHead.playing = true;
-    restored->setPlayHead (&playHead);
-    restored->prepareToPlay (48000.0, 512);
-    const auto out = render (*restored, playHead, {}, 64); // a little over a beat
-    REQUIRE (out.noteOns.size() >= 6);
-    CHECK (std::vector<int> (out.noteOns.begin(), out.noteOns.begin() + 6) == std::vector<int> { 60, 72, 77, 62, 76, 79 });
-    restored->releaseResources();
-}
 
 TEST_CASE ("Make polyphonic adds a sub-pattern under its pattern, with no row in the Rotation lane")
 {
@@ -1059,4 +1023,41 @@ TEST_CASE ("Make polyphonic adds a sub-pattern under its pattern, with no row in
     REQUIRE (b.numPatterns == 4);
     CHECK (b.patterns[2].parent == 0);
     CHECK (b.patterns[3].parent == -1);
+}
+
+#endif
+
+TEST_CASE ("sub-patterns are saved and play along with their parent")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> original (createPluginFilter());
+    {
+        auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*original);
+        auto a = arp.getArrangement();
+        REQUIRE (a.addSubPattern (0, patternarp::makeSubPattern (a.patterns[0])) == 1);
+        arp.setArrangement (a);
+    }
+
+    juce::MemoryBlock state;
+    original->getStateInformation (state);
+    std::unique_ptr<juce::AudioProcessor> restored (createPluginFilter());
+    restored->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+
+    const auto a = dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement();
+    REQUIRE (a.numPatterns == 3);
+    CHECK (a.patterns[1].parent == 0);
+    CHECK (a.patterns[2].parent == -1);
+    CHECK (a.orderLength == 2);
+    CHECK (a.order[0] == 0);
+    CHECK (a.order[1] == 2); // B, which moved down a place
+
+    // The default A (C3 D3 E3) with the new sub-pattern's C4 E4 G4 E4 over it, B between.
+    FakePlayHead playHead;
+    playHead.playing = true;
+    restored->setPlayHead (&playHead);
+    restored->prepareToPlay (48000.0, 512);
+    const auto out = render (*restored, playHead, {}, 64); // a little over a beat
+    REQUIRE (out.noteOns.size() >= 6);
+    CHECK (std::vector<int> (out.noteOns.begin(), out.noteOns.begin() + 6) == std::vector<int> { 60, 72, 77, 62, 76, 79 });
+    restored->releaseResources();
 }
