@@ -30,6 +30,14 @@ void PreviewComponent::setNotes (std::vector<SequencedNote> newNotes, double new
     beats = juce::jmax (0.25, newBeats);
     exportNotes = std::move (newExportNotes);
     exportBeats = juce::jmax (0.25, newExportBeats);
+
+    // The passes shown while playing came from the old notes, so drop them; the editor sends
+    // fresh ones on its next tick if the transport is still running (and none once every
+    // pattern is deleted).
+    currentPass.clear();
+    nextPass.clear();
+    passBeats = 0.0;
+
     setTooltip (description + "\nDrag the notes into your DAW to get them as a MIDI clip. Drag the handle to shorten the loop.");
     repaint();
 }
