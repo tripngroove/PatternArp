@@ -280,6 +280,11 @@ Pattern makeDefaultPattern (int defaultVelocity, int defaultGate)
         s.velocity = p.defaultVelocity;
         s.gate = p.defaultGate;
     }
+
+    // Velocity, Gate and Octave start in Note mode, so ratchets and repeats vary straight away.
+    // CC starts per step: one value for the whole step.
+    for (const auto lane : { Lane::velocity, Lane::gate, Lane::octave })
+        p.laneMode[static_cast<size_t> (lane)] = LaneMode::note;
     return p;
 }
 
