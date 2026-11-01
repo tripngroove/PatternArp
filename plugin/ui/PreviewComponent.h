@@ -22,7 +22,7 @@ public:
     PreviewComponent();
 
     // `notes` covers `beats` beats (the natural loop, or as much of it as fits); `exportNotes`
-    // is what dragging out produces.
+    // is what dragging out produces. Clears the passes from setPass, which no longer match.
     void setNotes (std::vector<SequencedNote> notes, double beats, std::vector<SequencedNote> exportNotes, double exportBeats,
                    const juce::String& description);
 

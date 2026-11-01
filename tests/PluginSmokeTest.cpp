@@ -5,6 +5,7 @@
 #include "ui/LaneGraph.h"
 #include "ui/OrderLane.h"
 #include "ui/PatternPanel.h"
+#include "ui/PreviewComponent.h"
 #include "ui/Theme.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -547,6 +548,29 @@ TEST_CASE ("plugin editor opens")
     }
 
     plugin->editorBeingDeleted (editor.get());
+}
+
+TEST_CASE ("new preview notes replace the passes drawn while playing")
+{
+    // Deleting every pattern while the transport runs once left the last pattern's notes on
+    // screen until a new pattern was added.
+    juce::ScopedJuceInitialiser_GUI juce;
+    patternarp::PreviewComponent preview;
+    preview.setBounds (0, 0, 400, 120);
+    const std::vector<patternarp::SequencedNote> played { { 0.0, 2.0, 60, 100, 0 } };
+    preview.setNotes (played, 4.0, played, 4.0, {});
+    preview.setPass (played, played, 4.0);
+    preview.setPlayhead (1.0);
+
+    const auto drawsANote = [&preview] {
+        const auto image = preview.createComponentSnapshot (preview.getLocalBounds());
+        return image.getPixelAt (60, 60) != patternarp::theme::panel; // inside the note
+    };
+    REQUIRE (drawsANote());
+
+    preview.setNotes ({}, 4.0, {}, 4.0, {});
+    preview.setPlayhead (-1.0);
+    CHECK_FALSE (drawsANote());
 }
 
 TEST_CASE ("every name in the open Rotation lane fits between its play button and the steps")
