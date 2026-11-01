@@ -13,7 +13,8 @@ namespace patternarp
 {
 
 // One pattern: its settings row, the lane tabs and graph, and the Notes Enabled keyboard.
-// Clone and Delete appear while the mouse is over the panel.
+// Make polyphonic, Clone and Delete appear while the mouse is over the panel. A sub-pattern's
+// panel says whose notes it follows in place of its step length, and has no Make polyphonic.
 class PatternPanel final : public juce::Component, private juce::Timer
 {
 public:
@@ -21,13 +22,17 @@ public:
     ~PatternPanel() override;
 
     void setPattern (const Pattern& pattern, bool canAdd);
+
+    // For a sub-pattern: its parent's name ("A"), shown as what its steps follow. Empty for
+    // an ordinary pattern, with whether it has sub-patterns (Delete takes them too).
+    void setFamily (const juce::String& parentName, bool hasSubs);
     void setInputNotes (const std::bitset<128>& notes) { keyboard.setInputNotes (notes); }
 
     // A note just played into the plugin: added to the pattern while MIDI Learn is armed.
     void learnNote (int note);
 
     std::function<void (const Pattern&)> onChange;
-    std::function<void()> onClone, onDelete;
+    std::function<void()> onClone, onDelete, onMakePolyphonic;
 
     static constexpr int preferredHeight = 376;
 
@@ -36,6 +41,8 @@ public:
     juce::Rectangle<int> getTabBounds (Lane lane) const { return tabs[static_cast<size_t> (lane)]; }
     juce::Rectangle<int> getTabValueBounds (Lane lane) const { return tabValues[static_cast<size_t> (lane)]; }
     juce::Rectangle<int> getTabModeBounds (Lane lane) const { return tabModes[static_cast<size_t> (lane)]; }
+    juce::Button& getMakePolyphonicButton() { return polyphonicButton; }
+    juce::Button& getCloneButton() { return cloneButton; }
 
     void paint (juce::Graphics& g) override;
     void paintOverChildren (juce::Graphics& g) override;
@@ -49,6 +56,7 @@ private:
     void timerCallback() override;
     void changed();
     void updateHoverButtons();
+    void updateButtons(); // tooltips, enabled and shown, for the pattern and its family
     void updatePausedLook();
     void layoutHeader();
     void layoutTabs();
@@ -67,6 +75,9 @@ private:
     void closeCcField (bool apply);
 
     Pattern pattern;
+    juce::String parentName; // empty unless a sub-pattern
+    bool hasSubs = false;
+    bool canAddPatterns = true;
 
     ValueBox timing { "Step" }, length { "Length" }, direction { "Dir" };
     LaneGraph graph;
@@ -89,7 +100,7 @@ private:
     juce::Rectangle<int> headerRow, playButton, titleArea;
     std::array<int, 3> dividers {}; // x of the lines between the title, Step, Length and Dir
 
-    juce::TextButton cloneButton { "Clone" }, deleteButton { "Delete" };
+    juce::TextButton polyphonicButton { "Make polyphonic" }, cloneButton { "Clone" }, deleteButton { "Delete" };
     bool confirmingDelete = false;
 
     // Shows the hover buttons while the mouse is anywhere over the panel, children included.

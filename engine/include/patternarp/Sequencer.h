@@ -25,7 +25,12 @@ struct SequencedNote
     int controllerValue = 0;
 };
 
-// One slot of the arp: a step from one pattern, or a rest. Ratchets give several notes.
+// The most notes one slot can hold: a step's 8 ratchets, each with every other pattern as a
+// sub-pattern playing 8 ratchets of its own.
+constexpr int maxSlotNotes = 8 * (1 + (maxPatterns - 1) * 8);
+
+// One slot of the arp: a step from one pattern, or a rest. Ratchets give several notes, and
+// sub-patterns add theirs to each of the step's notes. The notes are in time order.
 struct Slot
 {
     double start = 0.0;
@@ -33,11 +38,16 @@ struct Slot
     int pattern = -1; // -1 for a rest
     int step = -1;
     int numNotes = 0;
-    std::array<SequencedNote, 8> notes {};
+    std::array<SequencedNote, maxSlotNotes> notes {};
 
     // Set when the step lost its chance in extend mode: where its note would have ended. The
     // note before it is held until then.
     double tieEnd = 0.0;
+
+    // The same for each sub-pattern (by position in the arrangement) whose step lost its
+    // chance in extend mode before it played anything in this slot: its last note before
+    // this slot is held until then.
+    std::array<double, maxPatterns> subTieEnd {};
 };
 
 // How long until the whole arrangement repeats exactly.
@@ -56,7 +66,8 @@ struct LoopInfo
 // when it plays, and a step with a Repeat above 1 holds it for that many of its turns, so
 // patterns and an Order lane of different lengths drift against each other. Lanes in Note
 // mode move on for every note instead (each ratchet, each repeat), so they drift inside
-// the steps too.
+// the steps too. Sub-patterns have no turns: each note their parent plays (and is heard)
+// moves them on a step, which plays over the length of that note.
 // The result depends only on the arrangement and the number of slots played, so any song
 // position can be reproduced exactly.
 class Sequencer
@@ -77,9 +88,10 @@ public:
     // Beat position where the next slot will start.
     double position() const { return nextStart; }
 
-    // Skips ahead until the next slot starts at or after `beat`. Returns the slot under way
-    // at `beat` (empty if none): its later notes, a ratchet's, can still be to come.
-    Slot fastForwardTo (double beat);
+    // Skips ahead until the next slot starts at or after `beat`. Fills `underWay` with the
+    // slot under way at `beat` (no notes if none): its later notes, a ratchet's, can still
+    // be to come.
+    void fastForwardTo (double beat, Slot& underWay);
 
 private:
     friend LoopInfo findLoop (const Arrangement&, const std::vector<int>&, std::int64_t);
@@ -93,6 +105,17 @@ private:
 
     // Plays exactly one step of the Order lane (a skipped step still uses up its turn).
     Outcome playSlot (Slot& slot);
+
+    // Moves a sub-pattern on one step for a note its parent plays at `start` (lasting up to
+    // `length`, the parent's note's share of its step) and adds the step's notes to the slot.
+    // `lastNote` is where each sub-pattern's latest note in the slot is (-1 for none yet).
+    void playSubStep (int subIndex, double start, double length, Slot& slot, std::array<int, maxPatterns>& lastNote);
+
+    // The pitch a pattern's Notes lane picks for a step, or -1 when it has nothing to pick from.
+    int pitchOf (int patternIndex, const Step& step) const;
+
+    // Lengthens notes at the end of the slot that steps coming up hold (extend mode).
+    void holdNotes (Slot& slot);
     bool nextInCycle (Slot& slot);
 
     // The next slot, cut at the end of a hand-set loop. next() also runs this on a copy to
@@ -144,7 +167,8 @@ private:
     // keep counting from pass to pass.
     std::array<std::array<std::int64_t, maxSteps>, maxPatterns> visitsPerPass {};
 
-    bool holdsNotes = false; // some playing pattern uses ChanceMode::extend
+    bool holdsNotes = false;    // some playing pattern uses ChanceMode::extend
+    bool mainHoldsNotes = false; // some playing pattern that takes turns does
     std::array<int, 128> inputNotes {}; // ascending
     int numInputNotes = 0;
 };

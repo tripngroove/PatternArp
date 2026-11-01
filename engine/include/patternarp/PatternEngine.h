@@ -74,9 +74,10 @@ private:
     bool needsResync = true;
     double expectedNextPpq = -1.0;
 
-    std::array<SequencedNote, 8> queue {};
+    // The notes of the slot under way still to start: queue.notes[queueHead] onwards. A
+    // member, not on the audio thread's stack, as a slot is large.
+    Slot queue;
     int queueHead = 0;
-    int queueSize = 0;
 
     std::array<int, 128> held {}; // keys down right now
     int numHeld = 0;

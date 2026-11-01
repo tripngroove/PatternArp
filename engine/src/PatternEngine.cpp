@@ -76,11 +76,10 @@ void PatternEngine::resync (double ppq)
     // notes (a ratchet's) are still to come. Edits arrive every few milliseconds while a lane
     // is dragged, so dropping them would silence ratchets for as long as the drag lasts.
     sequencer.restart();
-    const auto current = sequencer.fastForwardTo (ppq);
-    queueHead = queueSize = 0;
-    for (int i = 0; i < current.numNotes; ++i)
-        if (const auto& n = current.notes[static_cast<size_t> (i)]; n.start >= ppq - epsilon)
-            queue[static_cast<size_t> (queueSize++)] = n;
+    sequencer.fastForwardTo (ppq, queue);
+    queueHead = 0;
+    while (queueHead < queue.numNotes && queue.notes[static_cast<size_t> (queueHead)].start < ppq - epsilon)
+        ++queueHead; // its notes are in time order
     needsResync = false;
 }
 
@@ -151,22 +150,21 @@ void PatternEngine::process (double ppqStart, double ppqEnd, std::vector<NoteEve
 
     for (;;)
     {
-        while (queueHead < queueSize && queue[static_cast<size_t> (queueHead)].start < ppqEnd - epsilon)
+        while (queueHead < queue.numNotes && queue.notes[static_cast<size_t> (queueHead)].start < ppqEnd - epsilon)
         {
-            startNote (queue[static_cast<size_t> (queueHead)], ppqStart, out);
+            startNote (queue.notes[static_cast<size_t> (queueHead)], ppqStart, out);
             ++queueHead;
         }
 
-        if (queueHead < queueSize || sequencer.position() >= ppqEnd - epsilon)
-            break;
-
-        Slot slot;
-        if (! sequencer.next (slot))
+        if (queueHead < queue.numNotes || sequencer.position() >= ppqEnd - epsilon)
             break;
 
         queueHead = 0;
-        queueSize = slot.numNotes;
-        std::copy (slot.notes.begin(), slot.notes.begin() + slot.numNotes, queue.begin());
+        if (! sequencer.next (queue))
+        {
+            queue.numNotes = 0;
+            break;
+        }
     }
 
     emitNoteOffsUpTo (ppqEnd, false, out);

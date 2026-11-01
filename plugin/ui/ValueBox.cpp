@@ -59,6 +59,20 @@ void ValueBox::change (int newValue)
         onChange (value);
 }
 
+void ValueBox::setFixedText (const juce::String& text)
+{
+    if (text == fixedText)
+        return;
+    fixedText = text;
+    setInterceptsMouseClicks (fixedText.isEmpty(), false);
+    repaint();
+}
+
+juce::String ValueBox::shownText() const
+{
+    return fixedText.isNotEmpty() ? fixedText : toText (value);
+}
+
 int ValueBox::captionWidth() const
 {
     return theme::textWidth (captionFont(), caption + ":");
@@ -66,12 +80,12 @@ int ValueBox::captionWidth() const
 
 int ValueBox::getPreferredWidth() const
 {
-    return captionWidth() + captionGap + valueInset * 2 + theme::textWidth (valueFont(), toText (value));
+    return captionWidth() + captionGap + valueInset * 2 + theme::textWidth (valueFont(), shownText());
 }
 
 juce::Rectangle<int> ValueBox::valueArea() const
 {
-    const int width = theme::textWidth (valueFont(), toText (value)) + valueInset * 2;
+    const int width = theme::textWidth (valueFont(), shownText()) + valueInset * 2;
     return getLocalBounds().withTrimmedLeft (captionWidth() + captionGap).withWidth (width).withSizeKeepingCentre (width, 24);
 }
 
@@ -82,6 +96,15 @@ void ValueBox::paint (juce::Graphics& g)
     g.drawText (caption + ":", getLocalBounds(), juce::Justification::centredLeft);
 
     const auto area = valueArea();
+    if (fixedText.isNotEmpty())
+    {
+        // Bold like a value, but muted: it says where the value comes from.
+        g.setColour (theme::inkMuted);
+        g.setFont (valueFont());
+        g.drawText (fixedText, area.reduced (valueInset, 0), juce::Justification::centredLeft);
+        return;
+    }
+
     if (isMouseOver() && area.contains (getMouseXYRelative()))
     {
         g.setColour (theme::tint (accent));

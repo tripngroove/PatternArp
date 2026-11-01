@@ -24,6 +24,10 @@ public:
 
     void setAccent (juce::Colour colour); // the value's colour
 
+    // Shows this, muted, in place of the value, which then cannot be changed ("follows A").
+    // Empty shows the value again.
+    void setFixedText (const juce::String& text);
+
     // Just wide enough for the caption and the value shown.
     int getPreferredWidth() const;
 
@@ -38,11 +42,13 @@ public:
 
 private:
     juce::Rectangle<int> valueArea() const; // the value's text, padded a little
+    juce::String shownText() const;
     int captionWidth() const;
     void change (int newValue);
     void showList();
 
     juce::String caption;
+    juce::String fixedText;
     juce::Colour accent;
     int value = 0, minValue = 0, maxValue = 1;
     int dragStartValue = 0;

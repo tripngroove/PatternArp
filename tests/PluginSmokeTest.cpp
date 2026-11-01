@@ -409,7 +409,8 @@ TEST_CASE ("saves from before the Repeat lane keep their CC settings and play ev
     CHECK (plainValue (*restored, "p2_cclength") == 2);
     CHECK (plainValue (*restored, "p2_ccnumber") == 74);
     CHECK (plainValue (*restored, "p2_repeatlength") == 0);
-    for (const auto& step : dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement().patterns[1].steps)
+    const auto loaded = dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement(); // kept: looping over a temporary's member would dangle
+    for (const auto& step : loaded.patterns[1].steps)
         CHECK (step.repeat == 1);
 }
 
@@ -988,3 +989,74 @@ TEST_CASE ("right-clicking a step opens its menu")
     CHECK (juce::PopupMenu::dismissAllActiveMenus());
 }
 #endif
+
+TEST_CASE ("sub-patterns are saved and play along with their parent")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> original (createPluginFilter());
+    {
+        auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*original);
+        auto a = arp.getArrangement();
+        REQUIRE (a.addSubPattern (0, patternarp::makeSubPattern (a.patterns[0])) == 1);
+        arp.setArrangement (a);
+    }
+
+    juce::MemoryBlock state;
+    original->getStateInformation (state);
+    std::unique_ptr<juce::AudioProcessor> restored (createPluginFilter());
+    restored->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+
+    const auto a = dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement();
+    REQUIRE (a.numPatterns == 3);
+    CHECK (a.patterns[1].parent == 0);
+    CHECK (a.patterns[2].parent == -1);
+    CHECK (a.orderLength == 2);
+    CHECK (a.order[0] == 0);
+    CHECK (a.order[1] == 2); // B, which moved down a place
+
+    // The default A (C3 D3 E3) with the new sub-pattern's C4 E4 G4 E4 over it, B between.
+    FakePlayHead playHead;
+    playHead.playing = true;
+    restored->setPlayHead (&playHead);
+    restored->prepareToPlay (48000.0, 512);
+    const auto out = render (*restored, playHead, {}, 64); // a little over a beat
+    REQUIRE (out.noteOns.size() >= 6);
+    CHECK (std::vector<int> (out.noteOns.begin(), out.noteOns.begin() + 6) == std::vector<int> { 60, 72, 77, 62, 76, 79 });
+    restored->releaseResources();
+}
+
+TEST_CASE ("Make polyphonic adds a sub-pattern under its pattern, with no row in the Rotation lane")
+{
+    WindowedEditor w;
+    REQUIRE (w.peer != nullptr);
+    auto* panelA = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern A"));
+    auto* lane = dynamic_cast<patternarp::OrderLane*> (w.find ("Rotation"));
+    REQUIRE (panelA != nullptr);
+    REQUIRE (lane != nullptr);
+    lane->setExpanded (true);
+    const int laneHeight = lane->getPreferredHeight();
+
+    REQUIRE (panelA->getMakePolyphonicButton().onClick != nullptr);
+    panelA->getMakePolyphonicButton().onClick();
+
+    auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*w.plugin);
+    const auto a = arp.getArrangement();
+    REQUIRE (a.numPatterns == 3);
+    CHECK (a.patterns[1].parent == 0);
+    CHECK (lane->getPreferredHeight() == laneHeight);
+
+    auto* sub = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern C"));
+    auto* panelB = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern B"));
+    REQUIRE (sub != nullptr);
+    REQUIRE (panelB != nullptr);
+    CHECK (sub->getY() > panelA->getY());
+    CHECK (sub->getY() < panelB->getY()); // between A and B
+    CHECK (sub->getX() > panelA->getX()); // set in
+
+    // Cloning the sub-pattern puts the copy under A too.
+    sub->getCloneButton().onClick();
+    const auto b = arp.getArrangement();
+    REQUIRE (b.numPatterns == 4);
+    CHECK (b.patterns[2].parent == 0);
+    CHECK (b.patterns[3].parent == -1);
+}

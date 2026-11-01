@@ -4,6 +4,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <initializer_list>
 #include <string>
@@ -217,10 +218,10 @@ TEST_CASE ("a loop length set by hand starts everything over")
     {
         const auto all = render (a, 12.0);
         Sequencer sequencer (a);
-        sequencer.fastForwardTo (7.5);
+        Slot slot;
+        sequencer.fastForwardTo (7.5, slot);
 
         std::vector<SequencedNote> after;
-        Slot slot;
         while (sequencer.position() < 12.0 - 1.0e-9 && sequencer.next (slot))
             for (int i = 0; i < slot.numNotes; ++i)
                 after.push_back (slot.notes[static_cast<size_t> (i)]);
@@ -1523,4 +1524,292 @@ TEST_CASE ("only Velocity, Gate, Octave and CC can move on per note")
     sanitise (p);
     for (int lane = 0; lane < numLanes; ++lane)
         CHECK ((p.laneMode[static_cast<size_t> (lane)] == LaneMode::note) == hasLaneMode (static_cast<Lane> (lane)));
+}
+
+// --- Sub-patterns -------------------------------------------------------------------------
+
+namespace
+{
+// `parent` alone, taking every turn, with `subs` added under it.
+Arrangement withSubs (const Pattern& parent, std::initializer_list<Pattern> subs)
+{
+    auto a = arrangementOf ({ parent });
+    for (const auto& s : subs)
+        REQUIRE (a.addSubPattern (0, s) >= 0);
+    return a;
+}
+
+// The pitches that start at each beat position, lowest first, in time order.
+std::vector<std::vector<int>> chords (const std::vector<SequencedNote>& notes)
+{
+    std::vector<std::vector<int>> result;
+    double at = -1.0;
+    for (const auto& n : notes)
+    {
+        if (result.empty() || std::abs (n.start - at) > 1.0e-6)
+        {
+            result.emplace_back();
+            at = n.start;
+        }
+        result.back().push_back (n.note);
+    }
+    for (auto& chord : result)
+        std::sort (chord.begin(), chord.end());
+    return result;
+}
+
+using Chords = std::vector<std::vector<int>>;
+
+std::vector<int> pitches (const std::vector<SequencedNote>& notes)
+{
+    std::vector<int> result;
+    for (const auto& n : notes)
+        result.push_back (n.note);
+    return result;
+}
+} // namespace
+
+TEST_CASE ("a sub-pattern plays a step with each note its parent plays")
+{
+    // A parent of 4 steps against a sub-pattern of 3: they line up again every 12 notes.
+    const auto a = withSubs (patternOf ({ 48, 50, 52, 53 }), { patternOf ({ 67, 69, 71 }) });
+    CHECK (chords (render (a, 1.5)) == Chords { { 48, 67 }, { 50, 69 }, { 52, 71 }, { 53, 67 }, { 48, 69 }, { 50, 71 } });
+
+    const auto loop = findLoop (a);
+    CHECK (loop.repeats);
+    CHECK (loop.lengthBeats == Catch::Approx (3.0));
+}
+
+TEST_CASE ("a sub-pattern's notes start with its parent's and last a share of its note")
+{
+    auto parent = patternOf ({ 48 });
+    parent.timing = Timing::quarter;
+    parent.steps[0].ratchet = 2;
+    auto sub = patternOf ({ 67 });
+    sub.timing = Timing::whole; // ignored: the parent's notes are the grid
+    sub.steps[0].gate = 50;
+
+    const auto notes = render (withSubs (parent, { sub }), 1.0);
+    REQUIRE (notes.size() == 4);
+    for (const auto& n : notes)
+        if (n.note == 67)
+            CHECK (n.length == Catch::Approx (0.25)); // half of the parent's half-beat ratchet note
+    CHECK (notes[1].start == Catch::Approx (0.0));
+    CHECK (notes[3].start == Catch::Approx (0.5));
+}
+
+TEST_CASE ("a 1:2 chance on a one-step sub-pattern plays with every other parent note")
+{
+    auto sub = patternOf ({ 72 });
+    sub.steps[0].chance = ratioChance ({ 1, 2 });
+    const auto a = withSubs (patternOf ({ 48, 50 }), { sub });
+    CHECK (chords (render (a, 1.0)) == Chords { { 48, 72 }, { 50 }, { 48, 72 }, { 50 } });
+}
+
+TEST_CASE ("a parent note that is not heard does not move its sub-patterns on")
+{
+    auto parent = patternOf ({ 48 });
+    parent.steps[0].chance = ratioChance ({ 1, 2 }); // rests every other step
+    const auto a = withSubs (parent, { patternOf ({ 67, 69 }) });
+    CHECK (pitches (render (a, 1.0)) == std::vector<int> { 48, 67, 48, 69 });
+}
+
+TEST_CASE ("each ratchet and repeat of the parent moves its sub-patterns on")
+{
+    auto parent = patternOf ({ 48 });
+    parent.steps[0].ratchet = 2;
+    parent.steps[0].repeat = 2;
+    const auto a = withSubs (parent, { patternOf ({ 67, 69, 71 }) });
+    CHECK (chords (render (a, 0.5)) == Chords { { 48, 67 }, { 48, 69 }, { 48, 71 }, { 48, 67 } });
+}
+
+TEST_CASE ("a sub-pattern's own ratchets and repeats work inside its parent's notes")
+{
+    auto sub = patternOf ({ 67, 69 });
+    sub.steps[0].ratchet = 2;
+    sub.steps[0].repeat = 2;
+    auto parent = patternOf ({ 48 });
+    parent.timing = Timing::quarter;
+    const auto notes = render (withSubs (parent, { sub }), 3.0);
+
+    std::vector<std::pair<double, int>> heard;
+    for (const auto& n : notes)
+        heard.emplace_back (n.start, n.note);
+    CHECK (heard == std::vector<std::pair<double, int>> { { 0.0, 48 }, { 0.0, 67 }, { 0.5, 67 },  // step 1 ratchets...
+                                                          { 1.0, 48 }, { 1.0, 67 }, { 1.5, 67 },  // ...and repeats
+                                                          { 2.0, 48 }, { 2.0, 69 } });
+}
+
+TEST_CASE ("a sub-pattern does not double a key that already starts there")
+{
+    const auto a = withSubs (patternOf ({ 48, 50 }), { patternOf ({ 48 }), patternOf ({ 48, 67 }) });
+    CHECK (chords (render (a, 0.5)) == Chords { { 48 }, { 48, 50, 67 } });
+}
+
+TEST_CASE ("sub-patterns sound only while their parent plays")
+{
+    auto a = withSubs (patternOf ({ 48 }), { patternOf ({ 67 }) });
+    a.patterns[1].playing = false;
+    CHECK (pitches (render (a, 0.5)) == std::vector<int> { 48, 48 });
+
+    a.patterns[1].playing = true;
+    a.setPlaying (0, false);
+    CHECK (render (a, 0.5).empty());
+
+    a.setPlaying (0, true);
+    a.setOrderLength (2);
+    a.setQuiet (1, true); // the parent's second turn
+    CHECK (pitches (render (a, 0.5)) == std::vector<int> { 48, 67 });
+}
+
+TEST_CASE ("CC goes out with a sub-pattern's notes")
+{
+    auto sub = patternOf ({ 67 });
+    sub.ccNumber = 74;
+    sub.steps[0].cc = 20;
+    sub.steps[0].ratchet = 2;
+    const auto notes = render (withSubs (patternOf ({ 48 }), { sub }), 0.25);
+    REQUIRE (notes.size() == 3);
+    CHECK (notes[1].controller == 74);
+    CHECK (notes[1].controllerValue == 20);
+    CHECK (notes[2].controller == -1); // Step mode: with the step's first note only
+}
+
+TEST_CASE ("a sub-pattern's step that loses its chance in extend mode holds its note before")
+{
+    auto sub = patternOf ({ 67, 69 });
+    sub.chanceMode = ChanceMode::extend;
+    sub.steps[1].chance = 0;
+
+    SECTION ("from an earlier slot, however long the parent sits out")
+    {
+        auto a = withSubs (patternOf ({ 48 }), { sub });
+        REQUIRE (a.addPattern (patternOf ({ 60 })));
+        a = withOrder (a, { 0, 2, 2 });
+        const auto notes = render (a, 1.5);
+        REQUIRE (notes.size() >= 2);
+        CHECK (notes[1].note == 67);
+        CHECK (notes[1].length == Catch::Approx (0.75 + 0.25 * 0.9)); // to where its next note would have ended
+    }
+
+    SECTION ("within one slot")
+    {
+        auto parent = patternOf ({ 48 });
+        parent.steps[0].ratchet = 2;
+        const auto notes = render (withSubs (parent, { sub }), 0.25);
+        REQUIRE (notes.size() == 3);
+        CHECK (notes[1].note == 67);
+        CHECK (notes[1].length == Catch::Approx (0.125 + 0.125 * 0.9));
+    }
+
+    SECTION ("skip rests, as there is no time to skip")
+    {
+        sub.chanceMode = ChanceMode::skip;
+        CHECK (chords (render (withSubs (patternOf ({ 48 }), { sub }), 0.75)) == Chords { { 48, 67 }, { 48 }, { 48, 67 } });
+    }
+}
+
+TEST_CASE ("the engine plays sub-patterns' notes with their parent's")
+{
+    PatternEngine engine;
+    engine.setArrangement (withSubs (patternOf ({ 48, 50 }), { patternOf ({ 67 }) }));
+
+    std::vector<NoteEvent> events;
+    engine.process (0.0, 0.5, events);
+    CHECK (onPitches (events) == std::vector<int> { 48, 67, 50, 67 });
+
+    // Jumping in mid-step picks up the sub-pattern's later ratchets.
+    auto withRatchets = withSubs (patternOf ({ 48 }), { patternOf ({ 67 }) });
+    withRatchets.patterns[0].timing = Timing::quarter;
+    withRatchets.patterns[1].steps[0].ratchet = 4;
+    engine.setArrangement (withRatchets);
+    events.clear();
+    engine.process (0.5, 1.0, events);
+    CHECK (onPitches (events) == std::vector<int> { 67, 67 });
+}
+
+TEST_CASE ("sub-patterns sit under their parent and take no turns")
+{
+    Arrangement a = arrangementOf ({ patternOf ({ 48 }), patternOf ({ 60 }) });
+    a = withOrder (a, { 0, 1, 1 });
+
+    const int first = a.addSubPattern (0, makeSubPattern (a.patterns[0]));
+    CHECK (first == 1);
+    CHECK (a.addSubPattern (0, patternOf ({ 72 })) == 2); // under the first
+    CHECK (a.addSubPattern (1, patternOf ({ 72 })) == -1); // not under a sub-pattern
+    REQUIRE (a.numPatterns == 4);
+    CHECK (a.patterns[1].parent == 0);
+    CHECK (a.patterns[2].parent == 0);
+    CHECK (a.patterns[1].colour == a.patterns[0].colour);
+    CHECK (a.patterns[3].enabledNotes.test (60));
+
+    // The Order lane follows the pattern that moved down.
+    CHECK (a.order[0] == 0);
+    CHECK (a.order[1] == 3);
+    CHECK (a.order[2] == 3);
+
+    // A sub-pattern added as a whole pattern becomes an ordinary one, with a turn.
+    auto copy = a.patterns[1];
+    REQUIRE (a.addPattern (copy));
+    CHECK_FALSE (a.patterns[4].isSub());
+    CHECK (a.order[3] == 4);
+
+    a.alternate();
+    CHECK (a.orderLength == 3);
+    CHECK (a.order[0] == 0);
+    CHECK (a.order[1] == 3);
+    CHECK (a.order[2] == 4);
+
+    a.setTurn (0, 1);
+    CHECK (a.order[0] == 0); // a sub-pattern cannot be given a turn
+}
+
+TEST_CASE ("deleting a pattern deletes its sub-patterns")
+{
+    Arrangement a = arrangementOf ({ patternOf ({ 48 }), patternOf ({ 60 }) });
+    a.addSubPattern (1, patternOf ({ 72 }));
+    a.addSubPattern (0, patternOf ({ 67 }));
+    REQUIRE (a.numPatterns == 4); // A, its sub, B, its sub
+
+    a.removePattern (3); // B's sub-pattern alone
+    REQUIRE (a.numPatterns == 3);
+    CHECK (a.patterns[2].enabledNotes.test (60));
+
+    a.addSubPattern (2, patternOf ({ 72 }));
+    a.removePattern (0); // A and its sub-pattern
+    REQUIRE (a.numPatterns == 2);
+    CHECK (a.patterns[0].enabledNotes.test (60));
+    CHECK (a.patterns[1].parent == 0);
+    CHECK (a.order[0] == 0);
+    CHECK (a.orderLength == 1);
+}
+
+TEST_CASE ("sanitising an arrangement keeps sub-patterns one level deep and out of the order")
+{
+    Arrangement a = arrangementOf ({ patternOf ({ 48 }), patternOf ({ 60 }), patternOf ({ 72 }) });
+    a.patterns[1].parent = 0;
+    a.patterns[2].parent = 1; // a sub-pattern of a sub-pattern
+    a.order[1] = 1;
+    sanitise (a);
+    CHECK (a.patterns[1].parent == 0);
+    CHECK (a.patterns[2].parent == -1);
+    CHECK (a.order[1] == -1);
+
+    a.patterns[2].parent = 7; // no such pattern
+    sanitise (a);
+    CHECK (a.patterns[2].parent == -1);
+}
+
+TEST_CASE ("a new sub-pattern is the default triad an octave up, in its parent's colour")
+{
+    auto parent = makeDefaultPattern (80, 60);
+    parent.colour = 5;
+    const auto sub = makeSubPattern (parent);
+    CHECK (sub.enabledNotes.count() == 3);
+    CHECK (sub.enabledNotes.test (72));
+    CHECK (sub.enabledNotes.test (76));
+    CHECK (sub.enabledNotes.test (79));
+    CHECK (sub.colour == 5);
+    CHECK (sub.steps[0].velocity == 80);
+    CHECK (sub.steps[0].gate == 60);
 }

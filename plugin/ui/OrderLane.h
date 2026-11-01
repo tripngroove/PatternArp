@@ -13,7 +13,7 @@ namespace patternarp
 //
 // Collapsed, it shows the order as a row of lettered steps in each pattern's colour; click it
 // to open the grid, which has a row per pattern and keeps every step where and as it was.
-// Click or drag in the grid to give steps to a pattern. Clicking a step a pattern already has
+// Sub-patterns take no turns, so they get no row. Click or drag in the grid to give steps to a pattern. Clicking a step a pattern already has
 // quiets it (dimmed, silent, keeping its time) or lights it again; a pattern with every step
 // quiet is paused, and pausing a pattern dims all its steps. Drag the handle on the grid to
 // change how many steps the lane loops over. Each row starts with its pattern's play/pause
@@ -68,7 +68,8 @@ private:
     float handleX() const;
     bool isOnHandle (juce::Point<float> p) const; // expanded only
     int stepAt (float x) const;
-    int rowAt (float y) const;
+    int rowAt (float y) const; // may be past the rows
+    int patternOfRow (int row) const { return rowPatterns[static_cast<size_t> (row)]; }
     int playToggleAt (juce::Point<float> p) const; // the row whose play/pause button or name is at p, or -1
 
     void paintCollapsed (juce::Graphics& g);
@@ -82,6 +83,8 @@ private:
     void edited();
 
     Arrangement arrangement;
+    std::array<int, maxPatterns> rowPatterns {}; // the pattern of each row: the ones that take turns
+    int numRows = 0;
     Arrangement dragStart; // the length handle works from the lane as it was when grabbed
     bool expanded = false;
     Drag drag = Drag::none;

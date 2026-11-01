@@ -16,6 +16,7 @@ constexpr int topBarHeight = 48;
 constexpr int previewHeight = 120;
 constexpr int gap = 8; // between the boxes
 constexpr double scrollMs = 280.0;
+constexpr int subIndent = 32; // a sub-pattern's panel sits in from its parent's
 
 constexpr double maxPreviewBeats = 64.0; // 16 bars on screen
 constexpr double maxExportBeats = 256.0; // 64 bars when dragged out
@@ -224,7 +225,10 @@ void PatternArpEditor::layoutContent()
     constexpr int pitch = PatternPanel::preferredHeight + gap;
 
     for (int i = 0; i < panels.size(); ++i)
-        panels[i]->setBounds (0, i * pitch, width, PatternPanel::preferredHeight);
+    {
+        const int indent = shown.patterns[static_cast<size_t> (i)].isSub() ? subIndent : 0;
+        panels[i]->setBounds (indent, i * pitch, width - indent, PatternPanel::preferredHeight);
+    }
 
     addButton.setEnabled (shown.numPatterns < maxPatterns);
     content.setSize (width, juce::jmax (0, panels.size() * pitch - gap));
@@ -240,14 +244,25 @@ void PatternArpEditor::syncPanels()
         auto* panel = panels.add (new PatternPanel());
         const int index = panels.size() - 1;
         panel->onChange = [this, index] (const Pattern& p) { edit (index, p); };
-        panel->onClone = [this, index] { addPattern (shown.patterns[static_cast<size_t> (index)]); };
+        panel->onClone = [this, index] {
+            const auto& p = shown.patterns[static_cast<size_t> (index)];
+            if (p.isSub())
+                addSubPattern (p.parent, p); // under the same pattern
+            else
+                addPattern (p);
+        };
+        panel->onMakePolyphonic = [this, index] { addSubPattern (index, makeSubPattern (shown.patterns[static_cast<size_t> (index)])); };
         panel->onDelete = [this, index] { deletePattern (index); };
         content.addAndMakeVisible (panel);
     }
 
     for (int i = 0; i < panels.size(); ++i)
     {
-        panels[i]->setPattern (shown.patterns[static_cast<size_t> (i)], shown.numPatterns < maxPatterns);
+        const auto& p = shown.patterns[static_cast<size_t> (i)];
+        const bool hasSubs = std::any_of (shown.patterns.begin(), shown.patterns.begin() + shown.numPatterns,
+                                          [i] (const Pattern& other) { return other.parent == i; });
+        panels[i]->setFamily (p.isSub() ? theme::patternName (shown.patterns[static_cast<size_t> (p.parent)]) : juce::String(), hasSubs);
+        panels[i]->setPattern (p, shown.numPatterns < maxPatterns);
         panels[i]->setInputNotes (shownInput);
     }
 
@@ -302,6 +317,17 @@ void PatternArpEditor::addPattern (const Pattern& pattern)
     arp.setArrangement (shown);
     syncPanels();
     scrollToPattern (shown.numPatterns - 1);
+}
+
+void PatternArpEditor::addSubPattern (int parent, const Pattern& pattern)
+{
+    const int added = shown.addSubPattern (parent, pattern);
+    if (added < 0)
+        return;
+
+    arp.setArrangement (shown);
+    syncPanels();
+    scrollToPattern (added);
 }
 
 void PatternArpEditor::scrollToPattern (int index)
@@ -400,7 +426,7 @@ void PatternArpEditor::updatePreview()
         exportBeats = loop.lengthBeats * repeatsToFillBars (loop.lengthBeats, maxExportBeats);
 
     const bool anyPlaying = std::any_of (shown.patterns.begin(), shown.patterns.begin() + shown.numPatterns,
-                                         [] (const Pattern& pt) { return pt.playing; });
+                                         [] (const Pattern& pt) { return pt.playing && ! pt.isSub(); });
     const bool anyTurns = std::any_of (shown.order.begin(), shown.order.begin() + shown.orderLength, [this] (int owner) {
         return owner < 0 || owner >= shown.numPatterns || shown.patterns[static_cast<size_t> (owner)].playing;
     });
@@ -457,7 +483,7 @@ void PatternArpEditor::updatePreview()
     {
         snap = 1.0;
         for (int i = 0; i < shown.numPatterns; ++i)
-            if (const auto& pt = shown.patterns[static_cast<size_t> (i)]; pt.playing)
+            if (const auto& pt = shown.patterns[static_cast<size_t> (i)]; pt.playing && ! pt.isSub()) // sub-patterns follow their parent's notes
                 snap = juce::jmin (snap, beatsPerStep (pt.timing));
     }
 

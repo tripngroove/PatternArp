@@ -30,9 +30,11 @@ std::int64_t floorMod (std::int64_t value, std::int64_t divisor)
 
 double shortestStep (const Arrangement& a)
 {
+    // Sub-patterns follow their parent's notes, so their own timing plays no part.
     double shortest = 4.0;
     for (int i = 0; i < a.numPatterns; ++i)
-        shortest = std::min (shortest, beatsPerStep (a.patterns[static_cast<size_t> (i)].timing));
+        if (const auto& p = a.patterns[static_cast<size_t> (i)]; ! p.isSub())
+            shortest = std::min (shortest, beatsPerStep (p.timing));
     return shortest;
 }
 
@@ -70,12 +72,28 @@ Sequencer::Sequencer (const Arrangement& a)
 
 void Sequencer::setArrangement (const Arrangement& a)
 {
-    // Only playing patterns get a place here; turns of paused ones are quiet (see below).
+    // Only playing patterns get a place here; turns of paused ones are quiet (see below). A
+    // sub-pattern plays only while its parent (an ordinary pattern) does.
+    const int numSource = std::clamp (a.numPatterns, 0, maxPatterns);
+    const auto isSubOf = [&] (int i) {
+        const int parent = a.patterns[static_cast<size_t> (i)].parent;
+        return parent >= 0 && parent < numSource && parent != i && ! a.patterns[static_cast<size_t> (parent)].isSub() ? parent : -1;
+    };
+    const auto plays = [&] (int i) {
+        const auto& p = a.patterns[static_cast<size_t> (i)];
+        if (! p.playing)
+            return false;
+        if (! p.isSub())
+            return true;
+        const int parent = isSubOf (i);
+        return parent >= 0 && a.patterns[static_cast<size_t> (parent)].playing;
+    };
+
     arrangement.loopLength = std::max (0, a.loopLength);
     arrangement.numPatterns = 0;
-    for (int i = 0; i < std::clamp (a.numPatterns, 0, maxPatterns); ++i)
+    for (int i = 0; i < numSource; ++i)
     {
-        if (! a.patterns[static_cast<size_t> (i)].playing)
+        if (! plays (i))
             continue;
         sourceIndex[static_cast<size_t> (arrangement.numPatterns)] = i;
         auto& p = arrangement.patterns[static_cast<size_t> (arrangement.numPatterns++)];
@@ -83,19 +101,24 @@ void Sequencer::setArrangement (const Arrangement& a)
         sanitise (p);
     }
 
-    // The Order lane, renumbered to the playing patterns. Quiet turns (all of a paused
-    // pattern's) stay, as rests as long as their pattern's steps, so nothing else moves.
     std::array<int, maxPatterns> playingIndex {};
     playingIndex.fill (-1);
     for (int i = 0; i < arrangement.numPatterns; ++i)
         playingIndex[static_cast<size_t> (sourceIndex[static_cast<size_t> (i)])] = i;
 
+    // Parents renumbered to the playing patterns too.
+    for (int i = 0; i < arrangement.numPatterns; ++i)
+        if (auto& p = arrangement.patterns[static_cast<size_t> (i)]; p.isSub())
+            p.parent = playingIndex[static_cast<size_t> (isSubOf (sourceIndex[static_cast<size_t> (i)]))];
+
+    // The Order lane, renumbered to the playing patterns. Quiet turns (all of a paused
+    // pattern's) stay, as rests as long as their pattern's steps, so nothing else moves.
+    // Sub-patterns take no turns: a turn given to one is a rest.
     numTurns = 0;
-    const int numSource = std::clamp (a.numPatterns, 0, maxPatterns);
     for (int i = 0; i < std::clamp (a.orderLength, 0, maxOrderSteps); ++i)
     {
         const int owner = a.order[static_cast<size_t> (i)];
-        const bool known = owner >= 0 && owner < numSource;
+        const bool known = owner >= 0 && owner < numSource && ! a.patterns[static_cast<size_t> (owner)].isSub();
         const bool heard = known && a.isHeard (i);
         turns[static_cast<size_t> (numTurns)] = heard ? playingIndex[static_cast<size_t> (owner)] : -1;
         restBeats[static_cast<size_t> (numTurns)] = known && ! heard ? beatsPerStep (a.patterns[static_cast<size_t> (owner)].timing) : 0.0;
@@ -112,9 +135,13 @@ void Sequencer::setArrangement (const Arrangement& a)
                 enabledNotes[static_cast<size_t> (i)][static_cast<size_t> (count++)] = note;
     }
 
-    holdsNotes = false;
+    holdsNotes = mainHoldsNotes = false;
     for (int i = 0; i < arrangement.numPatterns; ++i)
-        holdsNotes = holdsNotes || arrangement.patterns[static_cast<size_t> (i)].chanceMode == ChanceMode::extend;
+    {
+        const auto& p = arrangement.patterns[static_cast<size_t> (i)];
+        holdsNotes = holdsNotes || p.chanceMode == ChanceMode::extend;
+        mainHoldsNotes = mainHoldsNotes || (p.chanceMode == ChanceMode::extend && ! p.isSub());
+    }
 
     // A hand-set loop starts over every pass, so measure how often each Chance-lane step
     // comes up in one pass; A:B ratios carry their count on from there.
@@ -268,6 +295,7 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
     slot.step = -1;
     slot.numNotes = 0;
     slot.tieEnd = 0.0;
+    slot.subTieEnd = {};
 
     if (owner < 0)
     {
@@ -310,14 +338,12 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
         return Outcome::rest;
     }
 
-    // Notes lane: pick from the enabled (or held) notes, bottom to top.
-    const bool fromInput = p.noteSource == NoteSource::midiIn;
-    const auto& enabled = fromInput ? inputNotes : enabledNotes[static_cast<size_t> (owner)];
-    const int numEnabled = fromInput ? numInputNotes : numEnabledNotes[static_cast<size_t> (owner)];
-    const int pitch = numEnabled > 0
-        ? enabled[static_cast<size_t> (std::lround (stepOf (Lane::notes).note * static_cast<float> (numEnabled - 1)))]
-        : -1;
+    const int pitch = pitchOf (owner, stepOf (Lane::notes));
     const bool ccPerNote = movesPerNote (p, Lane::cc);
+
+    std::array<int, maxPatterns> lastSubNote {};
+    lastSubNote.fill (-1);
+    bool anySubNotes = false;
 
     for (int r = 0; r < ratchet; ++r)
     {
@@ -329,19 +355,118 @@ Sequencer::Outcome Sequencer::playSlot (Slot& slot)
         if (note < 0 || note > 127)
             continue;
 
-        auto& n = slot.notes[static_cast<size_t> (slot.numNotes++)];
+        const int index = slot.numNotes++;
+        auto& n = slot.notes[static_cast<size_t> (index)];
         n = { nextStart + sub * r, std::max (sub * stepOf (Lane::gate).gate / 100.0, 0.001), note, stepOf (Lane::velocity).velocity, slot.pattern };
 
         // The CC lane goes out with the step's first note, or with every note in Note mode.
-        if (slot.numNotes == 1 || ccPerNote)
+        if (index == 0 || ccPerNote)
         {
             n.controller = p.ccNumber;
             n.controllerValue = stepOf (Lane::cc).cc;
         }
+
+        // Every note heard moves the pattern's sub-patterns on a step, over this note's share
+        // of the step.
+        for (int s = 0; s < arrangement.numPatterns; ++s)
+            if (arrangement.patterns[static_cast<size_t> (s)].parent == owner)
+            {
+                playSubStep (s, nextStart + sub * r, sub, slot, lastSubNote);
+                anySubNotes = true;
+            }
     }
+
+    // Sub-patterns' ratchets fall between the parent's notes: put everything in time order.
+    if (anySubNotes)
+        std::stable_sort (slot.notes.begin(), slot.notes.begin() + slot.numNotes,
+                          [] (const SequencedNote& x, const SequencedNote& y) { return x.start < y.start; });
 
     nextStart += length;
     return Outcome::played;
+}
+
+int Sequencer::pitchOf (int patternIndex, const Step& step) const
+{
+    // Notes lane: pick from the enabled (or held) notes, bottom to top.
+    const bool fromInput = arrangement.patterns[static_cast<size_t> (patternIndex)].noteSource == NoteSource::midiIn;
+    const auto& enabled = fromInput ? inputNotes : enabledNotes[static_cast<size_t> (patternIndex)];
+    const int numEnabled = fromInput ? numInputNotes : numEnabledNotes[static_cast<size_t> (patternIndex)];
+    return numEnabled > 0 ? enabled[static_cast<size_t> (std::lround (step.note * static_cast<float> (numEnabled - 1)))] : -1;
+}
+
+void Sequencer::playSubStep (int subIndex, double start, double length, Slot& slot, std::array<int, maxPatterns>& lastNote)
+{
+    const auto& p = arrangement.patterns[static_cast<size_t> (subIndex)];
+    auto& cursor = cursors[static_cast<size_t> (subIndex)];
+    const auto& steps = cursor.at;
+    const auto stepOf = [&] (Lane lane) -> const Step& { return p.steps[static_cast<size_t> (steps[static_cast<size_t> (lane)])]; };
+    const auto source = sourceIndex[static_cast<size_t> (subIndex)];
+    auto& last = lastNote[static_cast<size_t> (subIndex)];
+
+    // The same as a pattern's turn, with the parent's note for the step.
+    if (advanceCursor (subIndex))
+        cursor.passes = passesChance (subIndex, steps[static_cast<size_t> (Lane::chance)]);
+
+    const int ratchet = stepOf (Lane::ratchet).ratchet;
+    const double hit = length / ratchet;
+
+    if (! cursor.passes)
+    {
+        for (int r = 0; r < ratchet; ++r)
+            advanceNoteLanes (subIndex);
+
+        // There is no time to skip, so skip rests too. Extend holds the sub-pattern's own
+        // note before this one: here if it is in this slot, else from an earlier slot.
+        if (p.chanceMode == ChanceMode::extend)
+        {
+            const double tieEnd = start + length - hit + hit * stepOf (Lane::gate).gate / 100.0;
+            if (last >= 0)
+            {
+                auto& held = slot.notes[static_cast<size_t> (last)];
+                held.length = std::max (held.length, tieEnd - held.start);
+            }
+            else
+            {
+                auto& tie = slot.subTieEnd[static_cast<size_t> (source)];
+                tie = std::max (tie, tieEnd);
+            }
+        }
+        return;
+    }
+
+    const int pitch = pitchOf (subIndex, stepOf (Lane::notes));
+    const bool ccPerNote = movesPerNote (p, Lane::cc);
+    bool sentCc = false;
+
+    for (int r = 0; r < ratchet; ++r)
+    {
+        advanceNoteLanes (subIndex);
+        if (pitch < 0)
+            continue;
+
+        const int note = pitch + 12 * stepOf (Lane::octave).octave;
+        const double at = start + hit * r;
+        if (note < 0 || note > 127 || slot.numNotes >= maxSlotNotes)
+            continue;
+
+        // A key that already starts here (the parent's, or another sub-pattern's) is not
+        // played twice: the two would cut each other short.
+        const auto begin = slot.notes.begin(), end = begin + slot.numNotes;
+        if (std::any_of (begin, end, [&] (const SequencedNote& n) { return n.note == note && std::abs (n.start - at) < 1.0e-6; }))
+            continue;
+
+        last = slot.numNotes++;
+        auto& n = slot.notes[static_cast<size_t> (last)];
+        n = { at, std::max (hit * stepOf (Lane::gate).gate / 100.0, 0.001), note, stepOf (Lane::velocity).velocity, source };
+
+        // The CC lane goes out with the step's first note, or with every note in Note mode.
+        if (! sentCc || ccPerNote)
+        {
+            n.controller = p.ccNumber;
+            n.controllerValue = stepOf (Lane::cc).cc;
+            sentCc = true;
+        }
+    }
 }
 
 bool Sequencer::next (Slot& slot)
@@ -350,23 +475,79 @@ bool Sequencer::next (Slot& slot)
         return false;
 
     produce (slot);
-
-    // Steps coming up that lose their chance in extend mode hold this slot's last note: look
-    // ahead on a copy (so held MIDI In notes are still read live) and lengthen the note.
     if (holdsNotes && slot.numNotes > 0)
-    {
-        auto& held = slot.notes[static_cast<size_t> (slot.numNotes - 1)];
-        Sequencer ahead = *this;
-        Slot tied;
-        for (int i = 0; i < maxHeldSteps; ++i)
+        holdNotes (slot);
+    return true;
+}
+
+void Sequencer::holdNotes (Slot& slot)
+{
+    // Steps coming up that lose their chance in extend mode hold the note before them: look
+    // ahead on a copy (so held MIDI In notes are still read live) and lengthen it. The
+    // patterns taking turns hold the slot's last note of its own pattern while the slots
+    // straight after it are tied. Each sub-pattern in extend mode holds its own last note
+    // until a slot plays a note of it, however many slots its parent sits out.
+    const auto lastOf = [&slot] (int source) {
+        for (int i = slot.numNotes; --i >= 0;)
+            if (slot.notes[static_cast<size_t> (i)].pattern == source)
+                return i;
+        return -1;
+    };
+
+    const int mainHeld = mainHoldsNotes && slot.pattern >= 0 ? lastOf (slot.pattern) : -1;
+    std::array<int, maxPatterns> subHeld {};
+    subHeld.fill (-1);
+    bool open = mainHeld >= 0;
+    for (int s = 0; s < arrangement.numPatterns; ++s)
+        if (const auto& p = arrangement.patterns[static_cast<size_t> (s)]; p.isSub() && p.chanceMode == ChanceMode::extend)
         {
-            ahead.produce (tied);
-            if (tied.tieEnd <= 0.0)
-                break;
-            held.length = std::max (held.length, tied.tieEnd - held.start);
+            subHeld[static_cast<size_t> (s)] = lastOf (sourceIndex[static_cast<size_t> (s)]);
+            open = open || subHeld[static_cast<size_t> (s)] >= 0;
+        }
+    if (! open)
+        return;
+
+    const auto hold = [&slot] (int index, double tieEnd) {
+        auto& held = slot.notes[static_cast<size_t> (index)];
+        held.length = std::max (held.length, tieEnd - held.start);
+    };
+
+    bool mainOpen = mainHeld >= 0;
+    Sequencer ahead = *this;
+    Slot tied;
+    for (int i = 0; i < maxHeldSteps && open; ++i)
+    {
+        ahead.produce (tied);
+        const bool samePass = ahead.cycleStart == cycleStart; // a new pass of a hand-set loop starts afresh
+        open = false;
+
+        if (mainOpen)
+        {
+            mainOpen = samePass && tied.tieEnd > 0.0;
+            if (mainOpen)
+                hold (mainHeld, tied.tieEnd);
+            open = mainOpen;
+        }
+
+        for (int s = 0; s < arrangement.numPatterns; ++s)
+        {
+            auto& held = subHeld[static_cast<size_t> (s)];
+            if (held < 0)
+                continue;
+            const int source = sourceIndex[static_cast<size_t> (s)];
+            if (! samePass)
+            {
+                held = -1;
+                continue;
+            }
+            if (const double tieEnd = tied.subTieEnd[static_cast<size_t> (source)]; tieEnd > 0.0)
+                hold (held, tieEnd);
+            const auto end = tied.notes.begin() + tied.numNotes;
+            if (std::any_of (tied.notes.begin(), end, [source] (const SequencedNote& n) { return n.pattern == source; }))
+                held = -1;
+            open = open || held >= 0;
         }
     }
-    return true;
 }
 
 void Sequencer::produce (Slot& slot)
@@ -387,12 +568,17 @@ void Sequencer::produce (Slot& slot)
 
     // A pass starts afresh, so its first step has no note before it to hold.
     if (newPass)
+    {
         slot.tieEnd = 0.0;
+        slot.subTieEnd = {};
+    }
 
     // Nothing may sound past the end of the loop: cut the slot (and its ratchets) there.
     const double end = cycleStart + loop;
     slot.length = std::min (slot.length, end - slot.start);
     slot.tieEnd = std::min (slot.tieEnd, end);
+    for (auto& tie : slot.subTieEnd)
+        tie = std::min (tie, end);
     int kept = 0;
     for (int i = 0; i < slot.numNotes; ++i)
     {
@@ -421,22 +607,22 @@ bool Sequencer::nextInCycle (Slot& slot)
     slot.pattern = -1;
     slot.numNotes = 0;
     slot.tieEnd = 0.0;
+    slot.subTieEnd = {};
     nextStart += slot.length;
     return true;
 }
 
-Slot Sequencer::fastForwardTo (double beat)
+void Sequencer::fastForwardTo (double beat, Slot& underWay)
 {
     // With a set loop length, jump straight to the loop pass that contains `beat`.
     if (const double loop = loopBeats(); loop > 0.0)
         if (const double passStart = std::floor ((beat + epsilon) / loop) * loop; passStart > cycleStart + epsilon)
             startCycle (passStart);
 
-    Slot slot;
-    while (nextStart < beat - epsilon && next (slot))
+    underWay.numNotes = 0;
+    while (nextStart < beat - epsilon && next (underWay))
     {
     }
-    return slot;
 }
 
 namespace
@@ -603,9 +789,10 @@ std::vector<SequencedNote> render (const Arrangement& arrangement, double fromBe
                 notes.push_back (n);
     };
 
-    keep (sequencer.fastForwardTo (fromBeat));
-
     Slot slot;
+    sequencer.fastForwardTo (fromBeat, slot);
+    keep (slot);
+
     while (sequencer.position() < toBeat - epsilon && sequencer.next (slot))
         keep (slot);
 

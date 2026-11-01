@@ -47,8 +47,13 @@ OrderLane::OrderLane()
 
 void OrderLane::setArrangement (const Arrangement& a)
 {
-    const bool rowsChanged = a.numPatterns != arrangement.numPatterns;
+    const int oldRows = numRows;
     arrangement = a;
+    numRows = 0;
+    for (int i = 0; i < arrangement.numPatterns; ++i)
+        if (! arrangement.patterns[static_cast<size_t> (i)].isSub())
+            rowPatterns[static_cast<size_t> (numRows++)] = i;
+    const bool rowsChanged = numRows != oldRows;
     repaint();
 
     if (rowsChanged && expanded && onHeightChange)
@@ -60,7 +65,7 @@ int OrderLane::getPreferredHeight() const
     if (! expanded)
         return collapsedHeight;
 
-    const auto rows = static_cast<float> (juce::jmax (1, arrangement.numPatterns));
+    const auto rows = static_cast<float> (juce::jmax (1, numRows));
     return juce::roundToInt (headerHeight + gridMargin + rows * rowHeight + 1.0f + gridMargin); // + the grid's bottom line
 }
 
@@ -97,7 +102,7 @@ juce::Rectangle<float> OrderLane::gridArea() const
     if (! expanded)
         return { gridX, (headerHeight - stepHeight) / 2.0f - stepInset, width, rowHeight }; // one row, its lines not drawn
 
-    const auto rows = static_cast<float> (juce::jmax (1, arrangement.numPatterns));
+    const auto rows = static_cast<float> (juce::jmax (1, numRows));
     return { gridX, headerHeight + gridMargin, width, rows * rowHeight + 1.0f };
 }
 
@@ -116,9 +121,9 @@ int OrderLane::playToggleAt (juce::Point<float> p) const
     if (! expanded || p.x < labelX)
         return -1;
     const int row = rowAt (p.y);
-    if (row < 0 || row >= arrangement.numPatterns)
+    if (row < 0 || row >= numRows)
         return -1;
-    const auto name = nameOf (arrangement.patterns[static_cast<size_t> (row)]);
+    const auto name = nameOf (arrangement.patterns[static_cast<size_t> (patternOfRow (row))]);
     return p.x < static_cast<float> (nameX + juce::jmin (nameWidth, theme::textWidth (nameFont(), name))) ? row : -1;
 }
 
@@ -210,9 +215,10 @@ void OrderLane::paintExpanded (juce::Graphics& g)
 
     // A row per pattern, labelled, with its steps drawn just as they are when the lane is closed.
     // The button, the name and the steps share one top and height, so their text lines up.
-    for (int row = 0; row < arrangement.numPatterns; ++row)
+    for (int row = 0; row < numRows; ++row)
     {
-        const auto& p = arrangement.patterns[static_cast<size_t> (row)];
+        const int pattern = patternOfRow (row);
+        const auto& p = arrangement.patterns[static_cast<size_t> (pattern)];
         const float top = grid.getY() + rowHeight * static_cast<float> (row);
         const auto button = juce::Rectangle<float> (labelX, top + stepInset, playSize, playSize);
         theme::drawPlayButton (g, button, theme::patternColour (p.colour), p.playing);
@@ -222,7 +228,7 @@ void OrderLane::paintExpanded (juce::Graphics& g)
                           juce::Justification::centredLeft, 1, nameMinScale);
 
         for (int i = 0; i < arrangement.orderLength; ++i)
-            if (arrangement.order[static_cast<size_t> (i)] == row)
+            if (arrangement.order[static_cast<size_t> (i)] == pattern)
                 paintStep (g, stepBox (i, top), i);
     }
 
@@ -230,7 +236,7 @@ void OrderLane::paintExpanded (juce::Graphics& g)
     // one list, which draws each pixel once, so they don't darken where they cross.
     const auto gridInt = grid.toNearestInt();
     juce::RectangleList<int> lines;
-    for (int row = 1; row < arrangement.numPatterns; ++row)
+    for (int row = 1; row < numRows; ++row)
         lines.add (gridInt.withY (gridInt.getY() + OrderLane::rowPitch * row).withHeight (1));
     for (int i = 1; i < maxOrderSteps; ++i)
         if (i % 4 != 0)
@@ -269,7 +275,7 @@ void OrderLane::mouseMove (const juce::MouseEvent& e)
     else if (headerArea().contains (e.position) || playToggleAt (e.position) >= 0)
         shape = juce::MouseCursor::PointingHandCursor;
     else if (const int step = stepAt (e.position.x), row = rowAt (e.position.y);
-             step >= 0 && step < arrangement.orderLength && row >= 0 && row < arrangement.numPatterns)
+             step >= 0 && step < arrangement.orderLength && row >= 0 && row < numRows)
         shape = juce::MouseCursor::PointingHandCursor; // a turn to give, quiet or light
     setMouseCursor (shape);
     repaint();
@@ -306,16 +312,17 @@ void OrderLane::mouseDown (const juce::MouseEvent& e)
 
     if (const int row = playToggleAt (e.position); row >= 0)
     {
-        arrangement.setPlaying (row, ! arrangement.patterns[static_cast<size_t> (row)].playing);
+        const int pattern = patternOfRow (row);
+        arrangement.setPlaying (pattern, ! arrangement.patterns[static_cast<size_t> (pattern)].playing);
         edited();
         return;
     }
 
     const int step = stepAt (e.position.x), row = rowAt (e.position.y);
-    if (step < 0 || step >= arrangement.orderLength || row < 0 || row >= arrangement.numPatterns)
+    if (step < 0 || step >= arrangement.orderLength || row < 0 || row >= numRows)
         return;
 
-    if (arrangement.order[static_cast<size_t> (step)] != row)
+    if (arrangement.order[static_cast<size_t> (step)] != patternOfRow (row))
         drag = Drag::paint;
     else
         drag = arrangement.isHeard (step) ? Drag::quiet : Drag::light;
@@ -338,8 +345,10 @@ void OrderLane::mouseUp (const juce::MouseEvent&)
 
 void OrderLane::applyAt (juce::Point<float> position)
 {
+    if (numRows == 0)
+        return;
     const int step = juce::jlimit (0, arrangement.orderLength - 1, stepAt (position.x));
-    const int row = juce::jlimit (0, arrangement.numPatterns - 1, rowAt (position.y));
+    const int pattern = patternOfRow (juce::jlimit (0, numRows - 1, rowAt (position.y)));
 
     // Fill in every step between the last position and this one, so fast drags leave no gaps.
     const int from = lastStep < 0 ? step : juce::jmin (lastStep, step);
@@ -349,10 +358,10 @@ void OrderLane::applyAt (juce::Point<float> position)
     bool changed = false;
     for (int i = from; i <= to; ++i)
     {
-        const bool mine = arrangement.order[static_cast<size_t> (i)] == row;
+        const bool mine = arrangement.order[static_cast<size_t> (i)] == pattern;
         const bool heard = arrangement.isHeard (i);
         if (drag == Drag::paint && ! mine)
-            arrangement.setTurn (i, row);
+            arrangement.setTurn (i, pattern);
         else if (drag == Drag::quiet && mine && heard)
             arrangement.setQuiet (i, true);
         else if (drag == Drag::light && mine && ! heard)
