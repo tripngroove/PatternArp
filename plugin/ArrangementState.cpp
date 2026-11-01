@@ -183,7 +183,9 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
         for (int l = 0; l < juce::jmin (lengths.size(), numLanes); ++l)
             p.laneLength[static_cast<size_t> (l)] = lengths[l].getIntValue();
 
-        // Saves from before Note mode have none: every lane moves on per step, as it did.
+        // Only the lanes listed are in Note mode, whatever a new pattern starts with. Saves from
+        // before Note mode list none: every lane moves on per step, as it did.
+        p.laneMode.fill (LaneMode::step);
         for (const auto& lane : juce::StringArray::fromTokens (child.getProperty (ids::noteLanes).toString(), ",", {}))
             if (const int l = lane.getIntValue(); lane.isNotEmpty() && l >= 0 && l < numLanes)
                 p.laneMode[static_cast<size_t> (l)] = LaneMode::note;

@@ -299,7 +299,8 @@ TEST_CASE ("plugin state round-trips")
         a.patterns[0].steps[1].cc = 20;
         a.patterns[0].steps[2].repeat = 5;
         a.patterns[1].laneLength[static_cast<size_t> (patternarp::Lane::repeat)] = 3;
-        a.patterns[1].laneMode[static_cast<size_t> (patternarp::Lane::octave)] = patternarp::LaneMode::note;
+        a.patterns[0].laneMode.fill (patternarp::LaneMode::step);
+        a.patterns[1].laneMode[static_cast<size_t> (patternarp::Lane::velocity)] = patternarp::LaneMode::step;
         a.patterns[1].laneMode[static_cast<size_t> (patternarp::Lane::cc)] = patternarp::LaneMode::note;
         arp.setArrangement (a);
     }
@@ -330,10 +331,10 @@ TEST_CASE ("plugin state round-trips")
     CHECK (a.patterns[0].steps[1].repeat == 1);
     CHECK (plainValue (*restored, "p2_repeatlength") == 3);
 
-    // Lanes in Note mode stay so; every other lane (and every lane of a save from before
-    // Note mode) moves on per step.
+    // Every lane keeps the mode it was saved with, even where a new pattern starts otherwise.
     using patternarp::Lane, patternarp::LaneMode;
     CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::octave)] == LaneMode::note);
+    CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::gate)] == LaneMode::note);
     CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::cc)] == LaneMode::note);
     CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::velocity)] == LaneMode::step);
     for (const auto mode : a.patterns[0].laneMode)
@@ -400,6 +401,7 @@ TEST_CASE ("saves from before the Repeat lane keep their CC settings and play ev
             steps.add (stepValues.joinIntoString (" "));
         }
         pattern->setAttribute ("steps", steps.joinIntoString (";"));
+        pattern->removeAttribute ("noteLanes"); // nor Note mode
     }
     state.reset();
     juce::AudioProcessor::copyXmlToBinary (*xml, state);
@@ -409,8 +411,14 @@ TEST_CASE ("saves from before the Repeat lane keep their CC settings and play ev
     CHECK (plainValue (*restored, "p2_cclength") == 2);
     CHECK (plainValue (*restored, "p2_ccnumber") == 74);
     CHECK (plainValue (*restored, "p2_repeatlength") == 0);
-    for (const auto& step : dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement().patterns[1].steps)
+    const auto restoredArrangement = dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement();
+    for (const auto& step : restoredArrangement.patterns[1].steps)
         CHECK (step.repeat == 1);
+
+    // They play as they did: every lane moves on per step.
+    for (int p = 0; p < restoredArrangement.numPatterns; ++p)
+        for (const auto mode : restoredArrangement.patterns[static_cast<size_t> (p)].laneMode)
+            CHECK (mode == patternarp::LaneMode::step);
 }
 
 TEST_CASE ("saves from before 1/64 keep their timings and loop length")

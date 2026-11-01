@@ -218,7 +218,7 @@ void copyLaneValue (const Step& from, Step& to, Lane lane);
 void randomizeLane (Pattern& pattern, Lane lane, std::uint64_t seed);
 
 // A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away,
-// with every step at the default velocity and gate.
+// with every step at the default velocity and gate, and Velocity, Gate and Octave in Note mode.
 Pattern makeDefaultPattern (int defaultVelocity = 100, int defaultGate = 90);
 
 // Changes the number of steps at the end, like the lane handles. Shortening hides steps and
