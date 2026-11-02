@@ -1824,3 +1824,55 @@ TEST_CASE ("a new sub-pattern is the default triad an octave up, in its parent's
     CHECK (sub.steps[0].velocity == 80);
     CHECK (sub.steps[0].gate == 60);
 }
+
+TEST_CASE ("sub-patterns are named after their parent: A.1, A.2...")
+{
+    Arrangement a = arrangementOf ({ patternOf ({ 48 }), patternOf ({ 60 }) });
+    a.patterns[1].letter = 1;
+    REQUIRE (a.addSubPattern (0, patternOf ({ 67 })) == 1);
+    REQUIRE (a.addSubPattern (0, patternOf ({ 69 })) == 2);
+    REQUIRE (a.addSubPattern (3, patternOf ({ 72 })) == 4); // B's
+
+    CHECK (a.patterns[1].letter == 0);
+    CHECK (a.patterns[1].subNumber == 1);
+    CHECK (a.patterns[2].subNumber == 2);
+    CHECK (a.patterns[4].letter == 1);
+    CHECK (a.patterns[4].subNumber == 1);
+
+    // Sub-patterns take no letters: the next pattern is C.
+    CHECK (a.nextLetter() == 2);
+
+    // Like letters, numbers stay when a sibling is deleted; a new one takes the next.
+    a.removePattern (1);
+    CHECK (a.patterns[1].subNumber == 2);
+    REQUIRE (a.addSubPattern (0, patternOf ({ 71 })) == 2);
+    CHECK (a.patterns[2].subNumber == 3);
+
+    // A sub-pattern added as a whole pattern is an ordinary one, with a letter of its own.
+    REQUIRE (a.addPattern (a.patterns[1]));
+    CHECK (a.patterns[5].subNumber == 0);
+    CHECK (a.patterns[5].letter == 2);
+}
+
+TEST_CASE ("sanitising numbers sub-patterns saved without numbers and gives them their parent's letter")
+{
+    Arrangement a = arrangementOf ({ patternOf ({ 48 }), patternOf ({ 60 }), patternOf ({ 72 }), patternOf ({ 50 }) });
+    a.patterns[0].letter = 3;
+    for (int i = 1; i < 4; ++i)
+    {
+        a.patterns[static_cast<size_t> (i)].parent = 0;
+        a.patterns[static_cast<size_t> (i)].letter = 10 + i; // from saves where sub-patterns had letters
+    }
+    a.patterns[2].subNumber = 1; // already taken by the first, which was given 1
+    a.patterns[3].subNumber = 1; // a repeat
+    sanitise (a);
+    CHECK (a.patterns[1].subNumber == 1);
+    CHECK (a.patterns[2].subNumber == 2);
+    CHECK (a.patterns[3].subNumber == 3);
+    for (int i = 1; i < 4; ++i)
+        CHECK (a.patterns[static_cast<size_t> (i)].letter == 3);
+
+    a.patterns[2].parent = -1;
+    sanitise (a);
+    CHECK (a.patterns[2].subNumber == 0);
+}

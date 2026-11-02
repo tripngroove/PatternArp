@@ -1040,7 +1040,7 @@ TEST_CASE ("Make polyphonic adds a sub-pattern under its pattern, with no row in
     CHECK (a.patterns[1].parent == 0);
     CHECK (lane->getPreferredHeight() == laneHeight);
 
-    auto* sub = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern C"));
+    auto* sub = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern A.1")); // named after A
     auto* panelB = dynamic_cast<patternarp::PatternPanel*> (w.find ("Pattern B"));
     REQUIRE (sub != nullptr);
     REQUIRE (panelB != nullptr);
@@ -1054,6 +1054,7 @@ TEST_CASE ("Make polyphonic adds a sub-pattern under its pattern, with no row in
     REQUIRE (b.numPatterns == 4);
     CHECK (b.patterns[2].parent == 0);
     CHECK (b.patterns[3].parent == -1);
+    CHECK (w.find ("Pattern A.2") != nullptr);
 }
 
 #endif
@@ -1077,6 +1078,8 @@ TEST_CASE ("sub-patterns are saved and play along with their parent")
     const auto a = dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement();
     REQUIRE (a.numPatterns == 3);
     CHECK (a.patterns[1].parent == 0);
+    CHECK (a.patterns[1].subNumber == 1);
+    CHECK (a.patterns[1].letter == a.patterns[0].letter);
     CHECK (a.patterns[2].parent == -1);
     CHECK (a.orderLength == 2);
     CHECK (a.order[0] == 0);

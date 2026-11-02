@@ -31,6 +31,7 @@ const juce::Identifier steps { "steps" };
 const juce::Identifier laneLengths { "laneLengths" };
 const juce::Identifier noteLanes { "noteLanes" }; // lanes in Note mode, by number
 const juce::Identifier parent { "parent" };       // a sub-pattern's parent, by position
+const juce::Identifier subNumber { "subNumber" }; // and its number under it (A.1, A.2...)
 } // namespace ids
 
 juce::String enabledNotesToString (const std::bitset<128>& notes)
@@ -145,7 +146,10 @@ juce::ValueTree toValueTree (const Arrangement& a)
         if (! noteLanes.isEmpty())
             child.setProperty (ids::noteLanes, noteLanes.joinIntoString (","), nullptr);
         if (p.isSub())
+        {
             child.setProperty (ids::parent, p.parent, nullptr);
+            child.setProperty (ids::subNumber, p.subNumber, nullptr);
+        }
         tree.appendChild (child, nullptr);
     }
     return tree;
@@ -195,6 +199,7 @@ bool fromValueTree (const juce::ValueTree& tree, Arrangement& a)
 
         // Saves from before sub-patterns have none: every pattern takes turns.
         p.parent = child.getProperty (ids::parent, -1);
+        p.subNumber = child.getProperty (ids::subNumber, 0); // numbered by sanitise if missing
         sanitise (p);
 
         loaded.patterns[static_cast<size_t> (loaded.numPatterns++)] = p;

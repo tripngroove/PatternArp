@@ -196,6 +196,11 @@ struct Pattern
     int parent = -1;
     bool isSub() const { return parent >= 0; }
 
+    // A sub-pattern is named after its parent: it shares the parent's letter and has its own
+    // number under it, A.1, A.2... The number stays the same when a sibling is deleted, as
+    // letters do. 0 for an ordinary pattern.
+    int subNumber = 0;
+
     bool operator== (const Pattern&) const = default;
 };
 
@@ -316,8 +321,8 @@ struct Arrangement
     // every other was deleted takes every step instead. Returns false when there is no room.
     bool addPattern (const Pattern& pattern);
 
-    // Adds a sub-pattern to the pattern at `parent` (an ordinary one), with a new letter and
-    // the parent's colour, just after the parent and its other sub-patterns, so it sits under
+    // Adds a sub-pattern to the pattern at `parent` (an ordinary one), with the parent's letter
+    // and colour and the number after its other sub-patterns' (A.1, A.2...), just after the parent and its other sub-patterns, so it sits under
     // them. It takes no turns in the Order lane. Returns where it went, or -1 when there is
     // no room.
     int addSubPattern (int parent, const Pattern& pattern);
@@ -365,7 +370,8 @@ private:
 
 // Keeps the pattern count and the Order lane inside their legal ranges (steps that name a
 // pattern that does not exist, or a sub-pattern, become rests). A sub-pattern whose parent is
-// missing or is itself a sub-pattern becomes an ordinary pattern.
+// missing or is itself a sub-pattern becomes an ordinary pattern. Sub-patterns take their
+// parent's letter, and a number of their own under it.
 void sanitise (Arrangement& arrangement);
 
 } // namespace patternarp
