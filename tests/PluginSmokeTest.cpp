@@ -1183,6 +1183,14 @@ TEST_CASE ("automating Variation switches what plays, and an empty one changes n
     setParameter (*plugin, "variation", 4.0f);
     CHECK (anyFromB (render (*plugin, playHead, {}, 46).noteOns));
     CHECK_FALSE (arp.getVariationStatus().filled[4]);
+
+    // Saved and loaded, the parameter still asks for 5 while variation 1 plays.
+    juce::MemoryBlock state;
+    plugin->getStateInformation (state);
+    std::unique_ptr<juce::AudioProcessor> restored (createPluginFilter());
+    restored->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+    CHECK (plainValue (*restored, "variation") == 4);
+    CHECK (dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getVariationStatus().active == 0);
     plugin->releaseResources();
 }
 

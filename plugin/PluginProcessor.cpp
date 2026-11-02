@@ -691,6 +691,9 @@ void PatternArpProcessor::getStateInformation (juce::MemoryBlock& destData)
 
     // The current variation is the arrangement above; the other filled ones follow.
     state.setProperty ("variation", variations.active, nullptr);
+    // The parameter can ask for an empty variation (which leaves the current one playing);
+    // the host expects it back as it was.
+    state.setProperty ("variationParameter", variation->getIndex(), nullptr);
     juce::ValueTree others ("Variations");
     for (int i = 0; i < maxVariations; ++i)
         if (i != variations.active && variations.isFilled (i))
@@ -758,7 +761,7 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
             }
         }
         variations = restored;
-        setPlainValue (*variation, restored.active);
+        setPlainValue (*variation, juce::jlimit (0, maxVariations - 1, static_cast<int> (state.getProperty ("variationParameter", restored.active))));
         clickRequest.store (restored.active); // drops a click waiting from before
         waitingVariation.store (-1);
         setArrangement (loaded);
