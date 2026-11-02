@@ -430,6 +430,14 @@ void PatternArpProcessor::clearVariation (int index)
     updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
 }
 
+void PatternArpProcessor::setOtherVariationsStepDefaults (int velocity, int gate)
+{
+    for (int i = 0; i < maxVariations; ++i)
+        if (i != variations.active && variations.isFilled (i))
+            variations.arrangements[static_cast<size_t> (i)].setStepDefaults (velocity, gate);
+    sendVariations();
+}
+
 void PatternArpProcessor::playAudioVariation (int index, const ParameterSnapshot& values)
 {
     audioActive = index;

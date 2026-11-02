@@ -81,6 +81,10 @@ public:
     void copyVariationToEmpty (int from);
     void clearVariation (int index); // not the current one
 
+    // The default velocity and gate for new and reset steps are one setting for the whole
+    // project: sets them in every variation but the current one (the editor sets that one).
+    void setOtherVariationsStepDefaults (int velocity, int gate);
+
     // The incoming notes MIDI In patterns are using now (held or latched), for display.
     std::bitset<128> getInputNotes() const;
 

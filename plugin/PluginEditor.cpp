@@ -573,6 +573,7 @@ void PatternArpEditor::setStepDefaults (int velocity, int gate)
 {
     shown.setStepDefaults (velocity, gate);
     commit();
+    arp.setOtherVariationsStepDefaults (velocity, gate);
     syncPanels();
 }
 
