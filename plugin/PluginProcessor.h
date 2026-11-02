@@ -44,6 +44,9 @@ public:
 
     // --- Used by the editor, on the message thread ------------------------------------
 
+    // The longest loop the handle (and the Loop Length parameter) can set: 16 bars.
+    static constexpr double maxLoopBeats = 64.0;
+
     // The patterns as they are now, including any host automation of their settings.
     Arrangement getArrangement() const;
 

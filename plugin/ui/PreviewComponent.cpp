@@ -42,11 +42,13 @@ void PreviewComponent::setNotes (std::vector<SequencedNote> newNotes, double new
     repaint();
 }
 
-void PreviewComponent::setLoop (double newHandleBeats, double newSnapBeats, const juce::String& newNaturalLabel)
+void PreviewComponent::setLoop (double newHandleBeats, double newSnapBeats, double newMaxShortenedBeats,
+                                const juce::String& newNaturalLabel)
 {
     if (! draggingHandle)
         handleBeats = juce::jlimit (0.0, beats, newHandleBeats);
     snapBeats = juce::jmax (1.0 / ticksPerBeat, newSnapBeats);
+    maxShortenedBeats = newMaxShortenedBeats;
     naturalLabel = newNaturalLabel;
     repaint();
 }
@@ -218,9 +220,12 @@ void PreviewComponent::mouseDrag (const juce::MouseEvent& e)
     if (draggingHandle)
     {
         // Snap to the grid; near the right end the loop goes back to its natural length.
+        // Between the longest loop it can set and the end, it jumps to whichever is nearer.
         const auto roll = rollArea();
         const double raw = (e.position.x - roll.getX()) / roll.getWidth() * beats;
         double snapped = juce::jmax (snapBeats, std::round (raw / snapBeats) * snapBeats);
+        if (snapped > maxShortenedBeats + 1.0e-6)
+            snapped = raw < (maxShortenedBeats + beats) / 2.0 ? maxShortenedBeats : beats;
         if (snapped >= beats - 1.0e-6)
             snapped = beats;
 
