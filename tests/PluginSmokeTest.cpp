@@ -5,6 +5,7 @@
 #include "ui/LaneGraph.h"
 #include "ui/OrderLane.h"
 #include "ui/PatternPanel.h"
+#include "ui/PreviewComponent.h"
 #include "ui/Theme.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -299,7 +300,8 @@ TEST_CASE ("plugin state round-trips")
         a.patterns[0].steps[1].cc = 20;
         a.patterns[0].steps[2].repeat = 5;
         a.patterns[1].laneLength[static_cast<size_t> (patternarp::Lane::repeat)] = 3;
-        a.patterns[1].laneMode[static_cast<size_t> (patternarp::Lane::octave)] = patternarp::LaneMode::note;
+        a.patterns[0].laneMode.fill (patternarp::LaneMode::step);
+        a.patterns[1].laneMode[static_cast<size_t> (patternarp::Lane::velocity)] = patternarp::LaneMode::step;
         a.patterns[1].laneMode[static_cast<size_t> (patternarp::Lane::cc)] = patternarp::LaneMode::note;
         arp.setArrangement (a);
     }
@@ -330,10 +332,10 @@ TEST_CASE ("plugin state round-trips")
     CHECK (a.patterns[0].steps[1].repeat == 1);
     CHECK (plainValue (*restored, "p2_repeatlength") == 3);
 
-    // Lanes in Note mode stay so; every other lane (and every lane of a save from before
-    // Note mode) moves on per step.
+    // Every lane keeps the mode it was saved with, even where a new pattern starts otherwise.
     using patternarp::Lane, patternarp::LaneMode;
     CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::octave)] == LaneMode::note);
+    CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::gate)] == LaneMode::note);
     CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::cc)] == LaneMode::note);
     CHECK (a.patterns[1].laneMode[static_cast<size_t> (Lane::velocity)] == LaneMode::step);
     for (const auto mode : a.patterns[0].laneMode)
@@ -400,6 +402,7 @@ TEST_CASE ("saves from before the Repeat lane keep their CC settings and play ev
             steps.add (stepValues.joinIntoString (" "));
         }
         pattern->setAttribute ("steps", steps.joinIntoString (";"));
+        pattern->removeAttribute ("noteLanes"); // nor Note mode
     }
     state.reset();
     juce::AudioProcessor::copyXmlToBinary (*xml, state);
@@ -409,9 +412,14 @@ TEST_CASE ("saves from before the Repeat lane keep their CC settings and play ev
     CHECK (plainValue (*restored, "p2_cclength") == 2);
     CHECK (plainValue (*restored, "p2_ccnumber") == 74);
     CHECK (plainValue (*restored, "p2_repeatlength") == 0);
-    const auto loaded = dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement(); // kept: looping over a temporary's member would dangle
-    for (const auto& step : loaded.patterns[1].steps)
+    const auto restoredArrangement = dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getArrangement();
+    for (const auto& step : restoredArrangement.patterns[1].steps)
         CHECK (step.repeat == 1);
+
+    // They play as they did: every lane moves on per step.
+    for (int p = 0; p < restoredArrangement.numPatterns; ++p)
+        for (const auto mode : restoredArrangement.patterns[static_cast<size_t> (p)].laneMode)
+            CHECK (mode == patternarp::LaneMode::step);
 }
 
 TEST_CASE ("saves from before 1/64 keep their timings and loop length")
@@ -540,6 +548,29 @@ TEST_CASE ("plugin editor opens")
     }
 
     plugin->editorBeingDeleted (editor.get());
+}
+
+TEST_CASE ("new preview notes replace the passes drawn while playing")
+{
+    // Deleting every pattern while the transport runs once left the last pattern's notes on
+    // screen until a new pattern was added.
+    juce::ScopedJuceInitialiser_GUI juce;
+    patternarp::PreviewComponent preview;
+    preview.setBounds (0, 0, 400, 120);
+    const std::vector<patternarp::SequencedNote> played { { 0.0, 2.0, 60, 100, 0 } };
+    preview.setNotes (played, 4.0, played, 4.0, {});
+    preview.setPass (played, played, 4.0);
+    preview.setPlayhead (1.0);
+
+    const auto drawsANote = [&preview] {
+        const auto image = preview.createComponentSnapshot (preview.getLocalBounds());
+        return image.getPixelAt (60, 60) != patternarp::theme::panel; // inside the note
+    };
+    REQUIRE (drawsANote());
+
+    preview.setNotes ({}, 4.0, {}, 4.0, {});
+    preview.setPlayhead (-1.0);
+    CHECK_FALSE (drawsANote());
 }
 
 TEST_CASE ("every name in the open Rotation lane fits between its play button and the steps")

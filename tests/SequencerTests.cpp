@@ -31,6 +31,7 @@ Pattern patternOf (std::initializer_list<int> notes)
         s = Step {};
         s.note = p.length > 1 ? static_cast<float> (i) / static_cast<float> (p.length - 1) : 0.0f;
     }
+    p.laneMode.fill (LaneMode::step); // tests opt in to Note mode (see withNoteMode)
     return p;
 }
 
@@ -1524,6 +1525,16 @@ TEST_CASE ("only Velocity, Gate, Octave and CC can move on per note")
     sanitise (p);
     for (int lane = 0; lane < numLanes; ++lane)
         CHECK ((p.laneMode[static_cast<size_t> (lane)] == LaneMode::note) == hasLaneMode (static_cast<Lane> (lane)));
+}
+
+TEST_CASE ("new patterns start with Velocity, Gate and Octave in Note mode and CC per step")
+{
+    const auto p = makeDefaultPattern();
+    for (const auto lane : laneOrder)
+    {
+        const bool perNote = lane == Lane::velocity || lane == Lane::gate || lane == Lane::octave;
+        CHECK (movesPerNote (p, lane) == perNote);
+    }
 }
 
 // --- Sub-patterns -------------------------------------------------------------------------
