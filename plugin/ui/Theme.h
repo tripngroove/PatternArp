@@ -40,10 +40,12 @@ inline juce::Colour patternColour (int index)
     return colours[static_cast<size_t> (index) % std::size (colours)];
 }
 
-// A pattern's letter, as shown everywhere in the editor.
+// A pattern's name, as shown everywhere in the editor: its letter, and for a sub-pattern its
+// number under its parent ("A.2").
 inline juce::String patternName (const Pattern& pattern)
 {
-    return juce::String::charToString (patternLetter (pattern.letter));
+    const auto letter = juce::String::charToString (patternLetter (pattern.letter));
+    return pattern.isSub() ? letter + "." + juce::String (pattern.subNumber) : letter;
 }
 
 // Note names follow Bitwig, Ableton and Logic: MIDI note 60 is C3.

@@ -320,6 +320,7 @@ void sanitise (Pattern& p)
     p.colour = std::clamp (p.colour, 0, maxPatterns - 1);
     p.letter = std::clamp (p.letter, 0, numLetters - 1);
     p.parent = std::clamp (p.parent, -1, maxPatterns - 1);
+    p.subNumber = p.isSub() ? std::clamp (p.subNumber, 0, maxPatterns) : 0;
     if (p.isSub() && p.chanceMode == ChanceMode::skip)
         p.chanceMode = ChanceMode::rest; // a sub-pattern has no time to skip
     for (auto& l : p.laneLength)
@@ -421,6 +422,7 @@ bool Arrangement::addPattern (const Pattern& pattern)
     added.colour = unusedColour();
     added.letter = letter;
     added.parent = -1;
+    added.subNumber = 0;
 
     if (numPatterns == 0)
     {
@@ -471,10 +473,16 @@ int Arrangement::addSubPattern (int parent, const Pattern& pattern)
     while (at < numPatterns && patterns[static_cast<size_t> (at)].parent == parent)
         ++at;
 
+    int number = 0;
+    for (int i = 0; i < numPatterns; ++i)
+        if (const auto& p = patterns[static_cast<size_t> (i)]; p.parent == parent)
+            number = std::max (number, p.subNumber);
+
     Pattern added = pattern;
     added.parent = parent;
     added.colour = patterns[static_cast<size_t> (parent)].colour;
-    added.letter = nextLetter();
+    added.letter = patterns[static_cast<size_t> (parent)].letter;
+    added.subNumber = number + 1;
     sanitise (added); // e.g. Skip, which a sub-pattern has no time for, becomes Rest
 
     std::move_backward (patterns.begin() + at, patterns.begin() + numPatterns, patterns.begin() + numPatterns + 1);
@@ -644,6 +652,31 @@ void sanitise (Arrangement& a)
     for (int i = 0; i < a.numPatterns; ++i)
         if (auto& p = a.patterns[static_cast<size_t> (i)]; p.isSub() && a.patterns[static_cast<size_t> (p.parent)].isSub())
             p.parent = -1;
+
+    // Named after the parent, each with a number of its own: missing or repeated numbers (from
+    // saves before sub-patterns were numbered) take the next free one.
+    for (int i = 0; i < a.numPatterns; ++i)
+    {
+        auto& p = a.patterns[static_cast<size_t> (i)];
+        if (! p.isSub())
+        {
+            p.subNumber = 0;
+            continue;
+        }
+        p.letter = a.patterns[static_cast<size_t> (p.parent)].letter;
+        const auto taken = [&] (int number) {
+            for (int j = 0; j < i; ++j)
+                if (const auto& other = a.patterns[static_cast<size_t> (j)]; other.parent == p.parent && other.subNumber == number)
+                    return true;
+            return false;
+        };
+        if (p.subNumber < 1 || taken (p.subNumber))
+        {
+            p.subNumber = 1;
+            while (taken (p.subNumber))
+                ++p.subNumber;
+        }
+    }
 
     for (size_t i = 0; i < a.order.size(); ++i)
         if (a.order[i] < 0 || a.order[i] >= a.numPatterns || a.patterns[static_cast<size_t> (a.order[i])].isSub())
