@@ -127,8 +127,7 @@ PatternPanel::PatternPanel()
         }
     };
 
-    cloneButton.setTooltip ("Add a copy of this pattern at the end");
-    deleteButton.setTooltip ("Delete this pattern");
+    polyphonicButton.onClick = [this] { if (onMakePolyphonic) onMakePolyphonic(); };
     cloneButton.onClick = [this] { if (onClone) onClone(); };
     deleteButton.onClick = [this] {
         if (! confirmingDelete)
@@ -146,7 +145,7 @@ PatternPanel::PatternPanel()
             onDelete();
     };
 
-    for (auto* b : { &cloneButton, &deleteButton })
+    for (auto* b : { &polyphonicButton, &cloneButton, &deleteButton })
     {
         b->setColour (juce::TextButton::buttonColourId, theme::panel);
         b->setColour (juce::TextButton::textColourOffId, theme::ink);
@@ -207,9 +206,34 @@ void PatternPanel::setPattern (const Pattern& newPattern, bool canAdd)
     layoutHeader();
     layoutTabs();
 
-    cloneButton.setEnabled (canAdd);
+    canAddPatterns = canAdd;
+    updateButtons();
 
     repaint();
+}
+
+void PatternPanel::setFamily (const juce::String& newParentName, bool newHasSubs)
+{
+    if (newParentName == parentName && newHasSubs == hasSubs)
+        return;
+
+    parentName = newParentName;
+    hasSubs = newHasSubs;
+    timing.setFixedText (parentName.isEmpty() ? juce::String() : "follows " + parentName);
+    updateButtons();
+    layoutHeader();
+    repaint();
+}
+
+void PatternPanel::updateButtons()
+{
+    const bool sub = parentName.isNotEmpty();
+    polyphonicButton.setTooltip ("Add a sub-pattern that plays a step with each note this pattern plays");
+    cloneButton.setTooltip (sub ? "Add a copy of this sub-pattern under the same pattern" : "Add a copy of this pattern at the end");
+    deleteButton.setTooltip (sub ? "Delete this sub-pattern" : hasSubs ? "Delete this pattern and its sub-patterns" : "Delete this pattern");
+    polyphonicButton.setEnabled (canAddPatterns);
+    cloneButton.setEnabled (canAddPatterns);
+    updateHoverButtons();
 }
 
 void PatternPanel::learnNote (int note)
@@ -373,9 +397,12 @@ void PatternPanel::layoutHeader()
     }
 
     header = headerRow;
-    deleteButton.setBounds (header.removeFromRight (buttonWidth ("Delete")).withSizeKeepingCentre (buttonWidth ("Delete"), buttonHeight));
-    header.removeFromRight (theme::spacing);
-    cloneButton.setBounds (header.removeFromRight (buttonWidth ("Clone")).withSizeKeepingCentre (buttonWidth ("Clone"), buttonHeight));
+    for (auto* b : { &deleteButton, &cloneButton, &polyphonicButton })
+    {
+        const int width = buttonWidth (b->getButtonText() == "Sure?" ? "Delete" : b->getButtonText());
+        b->setBounds (header.removeFromRight (width).withSizeKeepingCentre (width, buttonHeight));
+        header.removeFromRight (theme::spacing);
+    }
 }
 
 void PatternPanel::paint (juce::Graphics& g)
@@ -500,6 +527,10 @@ void PatternPanel::showChanceMenu()
         static constexpr const char* items[] = { "Rest: silent, keeps its time", "Skip: takes no time", "Extend: holds the note before" };
         menu.addSectionHeader ("When a step's chance fails");
         for (int i = 0; i < numChanceModes; ++i)
+        {
+            if (pattern.isSub() && static_cast<ChanceMode> (i) == ChanceMode::skip)
+                continue; // a sub-pattern has no time to skip
+
             menu.addItem (items[i], true, static_cast<int> (pattern.chanceMode) == i, [safe, i] {
                 if (safe != nullptr)
                 {
@@ -507,6 +538,7 @@ void PatternPanel::showChanceMenu()
                     safe->changed();
                 }
             });
+        }
     }
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withTargetScreenArea (
@@ -632,6 +664,7 @@ int PatternPanel::tabAt (juce::Point<int> p) const
 void PatternPanel::updateHoverButtons()
 {
     const bool show = isMouseOver (true);
+    polyphonicButton.setVisible (show && parentName.isEmpty()); // one level of sub-patterns
     cloneButton.setVisible (show);
     deleteButton.setVisible (show || confirmingDelete);
 }

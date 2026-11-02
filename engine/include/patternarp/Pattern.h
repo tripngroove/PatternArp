@@ -190,6 +190,12 @@ struct Pattern
     int colour = 0; // index into the editor's palette
     int letter = 0; // its name (see patternLetter); stays the same when others are deleted
 
+    // A sub-pattern plays along with another pattern, its parent (by position in the
+    // arrangement), instead of taking turns: each note the parent plays moves it on one step,
+    // and its notes sound with the parent's. -1 for an ordinary pattern.
+    int parent = -1;
+    bool isSub() const { return parent >= 0; }
+
     bool operator== (const Pattern&) const = default;
 };
 
@@ -220,6 +226,10 @@ void randomizeLane (Pattern& pattern, Lane lane, std::uint64_t seed);
 // A new pattern: a C major triad (C3 E3 G3) played up and down, so it sounds right away,
 // with every step at the default velocity and gate, and Velocity, Gate and Octave in Note mode.
 Pattern makeDefaultPattern (int defaultVelocity = 100, int defaultGate = 90);
+
+// A new sub-pattern for `parent`: the default pattern an octave up (C4 E4 G4), so it is heard
+// over the parent's notes straight away, in the parent's colour and with its step defaults.
+Pattern makeSubPattern (const Pattern& parent);
 
 // Changes the number of steps at the end, like the lane handles. Shortening hides steps and
 // remembers them; lengthening brings them back, and past every step the pattern has held so
@@ -306,16 +316,23 @@ struct Arrangement
     // every other was deleted takes every step instead. Returns false when there is no room.
     bool addPattern (const Pattern& pattern);
 
+    // Adds a sub-pattern to the pattern at `parent` (an ordinary one), with a new letter and
+    // the parent's colour, just after the parent and its other sub-patterns, so it sits under
+    // them. It takes no turns in the Order lane. Returns where it went, or -1 when there is
+    // no room.
+    int addSubPattern (int parent, const Pattern& pattern);
+
     // The default velocity and gate: what new and reset steps get. They are set for every
     // pattern at once; steps already set keep their values.
     void setStepDefaults (int velocity, int gate);
     int defaultVelocity() const; // the first pattern's (they are all the same), or 100
     int defaultGate() const;
 
-    // Deletes a pattern; its Order steps are removed and the steps after them close up.
+    // Deletes a pattern, and its sub-patterns with it; its Order steps are removed and the
+    // steps after them close up.
     void removePattern (int index);
 
-    // Makes the Order lane take every pattern in turn: A B C...
+    // Makes the Order lane take every pattern in turn: A B C... (sub-patterns take no turns).
     void alternate();
 
     // Changes the lane's length at the end, like a pattern's Length: shortening hides turns
@@ -341,10 +358,14 @@ struct Arrangement
     void pauseFullyQuietPatterns();
 
     bool operator== (const Arrangement&) const = default;
+
+private:
+    void removeOne (int index); // removePattern without its sub-patterns
 };
 
 // Keeps the pattern count and the Order lane inside their legal ranges (steps that name a
-// pattern that does not exist become rests).
+// pattern that does not exist, or a sub-pattern, become rests). A sub-pattern whose parent is
+// missing or is itself a sub-pattern becomes an ordinary pattern.
 void sanitise (Arrangement& arrangement);
 
 } // namespace patternarp

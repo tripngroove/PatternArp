@@ -319,6 +319,9 @@ void sanitise (Pattern& p)
     p.ccNumber = std::clamp (p.ccNumber, -1, 127);
     p.colour = std::clamp (p.colour, 0, maxPatterns - 1);
     p.letter = std::clamp (p.letter, 0, numLetters - 1);
+    p.parent = std::clamp (p.parent, -1, maxPatterns - 1);
+    if (p.isSub() && p.chanceMode == ChanceMode::skip)
+        p.chanceMode = ChanceMode::rest; // a sub-pattern has no time to skip
     for (auto& l : p.laneLength)
         l = std::clamp (l, 0, maxSteps);
     for (int lane = 0; lane < numLanes; ++lane)
@@ -348,6 +351,16 @@ void sanitise (Pattern& p)
         }
         s.cc = std::clamp (s.cc, 0, 127);
     }
+}
+
+Pattern makeSubPattern (const Pattern& parent)
+{
+    Pattern p = makeDefaultPattern (parent.defaultVelocity, parent.defaultGate);
+    p.enabledNotes.reset();
+    for (int note : { 72, 76, 79 })
+        p.enabledNotes.set (static_cast<size_t> (note));
+    p.colour = parent.colour;
+    return p;
 }
 
 namespace
@@ -407,6 +420,7 @@ bool Arrangement::addPattern (const Pattern& pattern)
     added = pattern;
     added.colour = unusedColour();
     added.letter = letter;
+    added.parent = -1;
 
     if (numPatterns == 0)
     {
@@ -447,13 +461,59 @@ int Arrangement::defaultGate() const
     return numPatterns > 0 ? patterns[0].defaultGate : Pattern {}.defaultGate;
 }
 
+int Arrangement::addSubPattern (int parent, const Pattern& pattern)
+{
+    if (numPatterns >= maxPatterns || parent < 0 || parent >= numPatterns || patterns[static_cast<size_t> (parent)].isSub())
+        return -1;
+
+    // Under the parent's other sub-patterns.
+    int at = parent + 1;
+    while (at < numPatterns && patterns[static_cast<size_t> (at)].parent == parent)
+        ++at;
+
+    Pattern added = pattern;
+    added.parent = parent;
+    added.colour = patterns[static_cast<size_t> (parent)].colour;
+    added.letter = nextLetter();
+    sanitise (added); // e.g. Skip, which a sub-pattern has no time for, becomes Rest
+
+    std::move_backward (patterns.begin() + at, patterns.begin() + numPatterns, patterns.begin() + numPatterns + 1);
+    patterns[static_cast<size_t> (at)] = added;
+    ++numPatterns;
+
+    // Everything that moved down a place is renumbered: Order steps and parents.
+    for (auto& owner : order)
+        if (owner >= at)
+            ++owner;
+    for (int i = 0; i < numPatterns; ++i)
+        if (auto& p = patterns[static_cast<size_t> (i)]; i != at && p.parent >= at)
+            ++p.parent;
+    return at;
+}
+
 void Arrangement::removePattern (int index)
 {
     if (index < 0 || index >= numPatterns)
         return;
 
+    // Its sub-patterns go with it, the last first, so the ones before keep their places.
+    for (int i = numPatterns - 1; i > index; --i)
+        if (patterns[static_cast<size_t> (i)].parent == index)
+            removeOne (i);
+    removeOne (index);
+
+    if (orderLength == 0)
+        alternate();
+}
+
+void Arrangement::removeOne (int index)
+{
     std::move (patterns.begin() + index + 1, patterns.begin() + numPatterns, patterns.begin() + index);
     --numPatterns;
+
+    for (int i = 0; i < numPatterns; ++i)
+        if (auto& p = patterns[static_cast<size_t> (i)]; p.parent > index)
+            --p.parent;
 
     // Close up the Order lane (hidden turns too), and renumber the steps of the patterns that
     // moved up.
@@ -471,16 +531,19 @@ void Arrangement::removePattern (int index)
     }
     orderLength = keptShown;
     storedTurns = kept;
-
-    if (orderLength == 0)
-        alternate();
 }
 
 void Arrangement::alternate()
 {
-    orderLength = std::max (1, numPatterns);
+    std::array<int, maxPatterns> takers {};
+    int numTakers = 0;
+    for (int i = 0; i < numPatterns; ++i)
+        if (! patterns[static_cast<size_t> (i)].isSub())
+            takers[static_cast<size_t> (numTakers++)] = i;
+
+    orderLength = std::max (1, numTakers);
     for (int i = 0; i < maxOrderSteps; ++i)
-        order[static_cast<size_t> (i)] = numPatterns > 0 ? i % numPatterns : -1;
+        order[static_cast<size_t> (i)] = numTakers > 0 ? takers[static_cast<size_t> (i % numTakers)] : -1;
     quiet.fill (false);
     storedTurns = 0;
 }
@@ -544,7 +607,7 @@ void Arrangement::setQuiet (int turn, bool shouldBeQuiet)
 
 void Arrangement::setTurn (int turn, int pattern)
 {
-    if (turn < 0 || turn >= orderLength || pattern < 0 || pattern >= numPatterns)
+    if (turn < 0 || turn >= orderLength || pattern < 0 || pattern >= numPatterns || patterns[static_cast<size_t> (pattern)].isSub())
         return;
     order[static_cast<size_t> (turn)] = pattern;
     quiet[static_cast<size_t> (turn)] = true;
@@ -573,8 +636,17 @@ void sanitise (Arrangement& a)
     a.numPatterns = std::clamp (a.numPatterns, 0, maxPatterns);
     a.orderLength = std::clamp (a.orderLength, 1, maxOrderSteps);
     a.storedTurns = std::clamp (a.storedTurns, 0, maxOrderSteps);
+
+    // Sub-patterns hang off an ordinary pattern, one level deep.
+    for (int i = 0; i < a.numPatterns; ++i)
+        if (auto& p = a.patterns[static_cast<size_t> (i)]; p.parent >= a.numPatterns || p.parent == i)
+            p.parent = -1;
+    for (int i = 0; i < a.numPatterns; ++i)
+        if (auto& p = a.patterns[static_cast<size_t> (i)]; p.isSub() && a.patterns[static_cast<size_t> (p.parent)].isSub())
+            p.parent = -1;
+
     for (size_t i = 0; i < a.order.size(); ++i)
-        if (a.order[i] < 0 || a.order[i] >= a.numPatterns)
+        if (a.order[i] < 0 || a.order[i] >= a.numPatterns || a.patterns[static_cast<size_t> (a.order[i])].isSub())
         {
             a.order[i] = -1;
             a.quiet[i] = false;

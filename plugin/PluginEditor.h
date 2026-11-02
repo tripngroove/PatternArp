@@ -38,6 +38,7 @@ private:
 
     void edit (int index, const Pattern& pattern);
     void addPattern (const Pattern& pattern); // always at the end
+    void addSubPattern (int parent, const Pattern& pattern); // under the parent and its other sub-patterns
     void deletePattern (int index);
     void scrollToPattern (int index);
     void animateScroll();
