@@ -27,8 +27,9 @@ public:
                    const juce::String& description);
 
     // Where the loop handle sits (`beats` from setNotes means not shortened), the grid it
-    // snaps to, and the label shown when it is not shortened.
-    void setLoop (double handleBeats, double snapBeats, const juce::String& naturalLabel);
+    // snaps to, the longest loop it can set short of the end, and the label shown when it is
+    // not shortened.
+    void setLoop (double handleBeats, double snapBeats, double maxShortenedBeats, const juce::String& naturalLabel);
 
     // While playing: the notes of the pass being played and of the next one, both from 0 to
     // `passBeats`. Notes the playhead has passed are drawn from the next pass, so random
@@ -67,7 +68,7 @@ private:
     double passBeats = 0.0;
     std::array<int, maxPatterns> colourOf {};
     double beats = 4.0, exportBeats = 4.0;
-    double handleBeats = 4.0, snapBeats = 0.25;
+    double handleBeats = 4.0, snapBeats = 0.25, maxShortenedBeats = 64.0;
     double playhead = -1.0;
     juce::String naturalLabel;
 

@@ -44,9 +44,9 @@ int upgradeLoopLength (int ticks, int version)
 
 const juce::ParameterID latchId { "latch", 1 };
 
-// The Loop Length parameter counts sixteenths, up to the 16 bars the preview shows.
+// The Loop Length parameter counts sixteenths, up to 16 bars.
 constexpr int ticksPerSixteenth = ticksPerBeat / 4;
-constexpr int maxLoopSixteenths = 256;
+constexpr int maxLoopSixteenths = static_cast<int> (PatternArpProcessor::maxLoopBeats * 4.0);
 
 int loopSixteenths (int ticks)
 {

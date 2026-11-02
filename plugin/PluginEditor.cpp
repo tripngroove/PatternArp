@@ -18,7 +18,9 @@ constexpr int gap = 8; // between the boxes
 constexpr double scrollMs = 280.0;
 constexpr int subIndent = 32; // a sub-pattern's panel sits in from its parent's
 
-constexpr double maxPreviewBeats = 64.0; // 16 bars on screen
+// Up to 16 bars on screen, plus half a bar when the loop is longer, so the handle has room
+// to be set to exactly 16 bars (the longest loop it can set).
+constexpr double maxPreviewBeats = PatternArpProcessor::maxLoopBeats + 2.0;
 constexpr double maxExportBeats = 256.0; // 64 bars when dragged out
 constexpr double nonRepeatingBeats = 16.0;
 
@@ -412,13 +414,15 @@ void PatternArpEditor::updatePreview()
     Arrangement natural = shown;
     natural.loopLength = 0;
     const auto naturalLoop = findLoop (natural, input);
-    const double viewBeats = juce::jmin (naturalLoop.repeats ? naturalLoop.lengthBeats : nonRepeatingBeats, maxPreviewBeats);
+    const double naturalBeats = naturalLoop.repeats ? naturalLoop.lengthBeats : nonRepeatingBeats;
+    const double viewBeats = juce::jmin (naturalBeats, maxPreviewBeats);
 
     const auto loop = findLoop (shown, input); // the loop length set by hand, if there is one
     if (shown.loopLength > 0)
         previewPassBeats = juce::jmin (loop.lengthBeats, viewBeats);
     else
-        previewPassBeats = viewBeats; // the natural loop, or as much as is shown
+        previewPassBeats = viewBeats < naturalBeats ? juce::jmin (viewBeats, PatternArpProcessor::maxLoopBeats) // a long loop: wrap every 16 bars, in step with the DAW's bars
+                                                    : viewBeats;
     shownPass = -1;
 
     double exportBeats = loop.repeats ? juce::jmin (loop.lengthBeats, maxExportBeats) : nonRepeatingBeats;
@@ -488,7 +492,7 @@ void PatternArpEditor::updatePreview()
     }
 
     const double handle = shown.loopLength > 0 ? previewPassBeats : viewBeats;
-    preview.setLoop (handle, snap, label);
+    preview.setLoop (handle, snap, PatternArpProcessor::maxLoopBeats, label);
 }
 
 void PatternArpEditor::setStepDefaults (int velocity, int gate)
