@@ -14,7 +14,9 @@ const juce::Identifier stateType { "PatternArpState" };
 // 6: five dotted timings joined (a build tried on 2026-10-31, before the full set).
 // 7: every note got its triplet and dotted versions, and loop lengths went from 48 to 96
 //    ticks a beat (see upgradeTiming).
-constexpr int stateVersion = 7;
+// 8: variations. The arrangement saved as before is the current variation; the other
+//    filled ones follow it.
+constexpr int stateVersion = 8;
 
 // A timing index from a save of the given version, as it is now.
 int upgradeTiming (int timing, int version)
@@ -111,6 +113,14 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
     rotationLength = rotationParameter.get();
     addParameter (rotationParameter.release());
 
+    // Which variation plays: one stepped parameter to automate.
+    juce::StringArray variationNames;
+    for (int i = 1; i <= maxVariations; ++i)
+        variationNames.add (juce::String (i));
+    auto variationParameter = std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "variation", 1 }, "Variation", variationNames, 0);
+    variation = variationParameter.get();
+    addParameter (variationParameter.release());
+
     juce::StringArray timings, directions;
     for (int i = 0; i < numTimings; ++i)
         timings.add (timingName (static_cast<Timing> (i)));
@@ -170,9 +180,15 @@ PatternArpProcessor::PatternArpProcessor() : AudioProcessor (makeBuses())
         addParameterGroup (std::move (group));
     }
 
-    pushToParameters (arrangement);
-    pendingArrangement = arrangement;
+    pushToParameters (arrangement());
+    *pendingVariations = variations;
     events.reserve (1024);
+    startTimerHz (30);
+}
+
+PatternArpProcessor::~PatternArpProcessor()
+{
+    stopTimer();
 }
 
 std::array<juce::RangedAudioParameter*, 6 + numLanes + 1> PatternArpProcessor::PatternParameters::all() const
@@ -221,35 +237,37 @@ void PatternArpProcessor::applyParameters (const ParameterSnapshot& values, Arra
 
 namespace
 {
-void setPlainValue (juce::RangedAudioParameter& parameter, int value)
+void setPlainValue (juce::RangedAudioParameter& parameter, int value, bool gesture = true)
 {
     const auto normalised = parameter.convertTo0to1 (static_cast<float> (value));
     if (std::abs (parameter.getValue() - normalised) < 1.0e-6f)
         return;
-    parameter.beginChangeGesture();
+    if (gesture)
+        parameter.beginChangeGesture();
     parameter.setValueNotifyingHost (normalised);
-    parameter.endChangeGesture();
+    if (gesture)
+        parameter.endChangeGesture();
 }
 } // namespace
 
-void PatternArpProcessor::pushToParameters (const Arrangement& a)
+void PatternArpProcessor::pushToParameters (const Arrangement& a, bool gesture)
 {
     for (int i = 0; i < a.numPatterns; ++i)
     {
         const auto& p = a.patterns[static_cast<size_t> (i)];
         auto& pp = patternParameters[static_cast<size_t> (i)];
-        setPlainValue (*pp.timing, static_cast<int> (p.timing));
-        setPlainValue (*pp.length, p.length);
-        setPlainValue (*pp.direction, static_cast<int> (p.direction));
-        setPlainValue (*pp.noteSource, static_cast<int> (p.noteSource));
-        setPlainValue (*pp.chanceMode, static_cast<int> (p.chanceMode));
-        setPlainValue (*pp.play, p.playing ? 1 : 0);
+        setPlainValue (*pp.timing, static_cast<int> (p.timing), gesture);
+        setPlainValue (*pp.length, p.length, gesture);
+        setPlainValue (*pp.direction, static_cast<int> (p.direction), gesture);
+        setPlainValue (*pp.noteSource, static_cast<int> (p.noteSource), gesture);
+        setPlainValue (*pp.chanceMode, static_cast<int> (p.chanceMode), gesture);
+        setPlainValue (*pp.play, p.playing ? 1 : 0, gesture);
         for (int lane = 0; lane < numLanes; ++lane)
-            setPlainValue (*pp.laneLength[static_cast<size_t> (lane)], p.laneLength[static_cast<size_t> (lane)]);
-        setPlainValue (*pp.ccNumber, p.ccNumber);
+            setPlainValue (*pp.laneLength[static_cast<size_t> (lane)], p.laneLength[static_cast<size_t> (lane)], gesture);
+        setPlainValue (*pp.ccNumber, p.ccNumber, gesture);
     }
-    setPlainValue (*loopLength, loopSixteenths (a.loopLength));
-    setPlainValue (*rotationLength, a.orderLength);
+    setPlainValue (*loopLength, loopSixteenths (a.loopLength), gesture);
+    setPlainValue (*rotationLength, a.orderLength, gesture);
 }
 
 void PatternArpProcessor::setParameters (const ParameterSnapshot& values)
@@ -285,23 +303,143 @@ std::bitset<128> PatternArpProcessor::getInputNotes() const
 
 Arrangement PatternArpProcessor::getArrangement() const
 {
-    auto a = arrangement;
+    auto a = arrangement();
     applyParameters (readParameters(), a);
     return a;
 }
 
 void PatternArpProcessor::setArrangement (const Arrangement& newArrangement)
 {
-    arrangement = newArrangement;
-    pushToParameters (arrangement);
-    {
-        const juce::SpinLock::ScopedLockType lock (pendingLock);
-        pendingArrangement = arrangement;
-        hasPendingArrangement = true;
-    }
+    arrangement() = newArrangement;
+    pushToParameters (arrangement());
+    sendVariations();
 
     // Lets the host know the project has unsaved changes.
     updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
+}
+
+void PatternArpProcessor::sendVariations()
+{
+    const juce::SpinLock::ScopedLockType lock (pendingLock);
+    *pendingVariations = variations;
+    hasPendingVariations = true;
+}
+
+// --- Variations -------------------------------------------------------------------------
+//
+// The message thread owns the variations; the audio thread plays copies of them. The host
+// parameters (the pattern settings, loop and Rotation lengths) always belong to the message
+// thread's current variation. Automation of the Variation parameter switches on the audio
+// thread straight away; until the message thread catches up (switchVariation) and moves the
+// parameters over, the audio thread plays the new variation as it was saved, without them.
+
+void PatternArpProcessor::switchVariation (int index)
+{
+    if (index == variations.active || ! variations.isFilled (index))
+        return;
+
+    arrangement() = getArrangement(); // keep the one being left as it is, automation and all
+    variations.active = index;
+    pushToParameters (arrangement(), false); // not a person moving them: nothing to record
+    sendVariations();
+    updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
+}
+
+void PatternArpProcessor::timerCallback()
+{
+    if (const int playing = playingVariation.load(); playing != lastSeenPlaying)
+    {
+        lastSeenPlaying = playing;
+        switchVariation (playing);
+    }
+}
+
+PatternArpProcessor::VariationStatus PatternArpProcessor::getVariationStatus() const
+{
+    VariationStatus status;
+    status.filled = variations.filled;
+    status.active = variations.active;
+    status.waiting = waitingVariation.load();
+    status.requested = variation->getIndex();
+    return status;
+}
+
+void PatternArpProcessor::selectVariation (int index, SwitchTiming timing)
+{
+    if (index < 0 || index >= maxVariations)
+        return;
+
+    if (! variations.isFilled (index))
+    {
+        // An empty variation starts as a copy of the current one.
+        arrangement() = getArrangement();
+        variations.copy (variations.active, index);
+        sendVariations();
+        updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
+    }
+
+    if (timing != SwitchTiming::immediately && transportPlaying.load())
+    {
+        // The audio thread times it, and moves the Variation parameter when it happens.
+        clickRequestTiming.store (static_cast<int> (timing));
+        clickRequest.store (index);
+        return;
+    }
+
+    // The parameter first: the audio thread switches when it sees it.
+    setPlainValue (*variation, index);
+    clickRequest.store (index); // cancels a click still waiting
+    waitingVariation.store (-1);
+    switchVariation (index);
+}
+
+void PatternArpProcessor::copyVariation (int from, int to)
+{
+    if (from == to)
+        return;
+    if (from == variations.active)
+        arrangement() = getArrangement();
+    if (! variations.copy (from, to))
+        return;
+    if (to == variations.active)
+        pushToParameters (arrangement());
+    sendVariations();
+    updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
+}
+
+void PatternArpProcessor::copyVariationToEmpty (int from)
+{
+    if (from == variations.active)
+        arrangement() = getArrangement();
+    if (variations.copyToEmpty (from) == 0)
+        return;
+    sendVariations();
+    updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
+}
+
+void PatternArpProcessor::clearVariation (int index)
+{
+    if (index == playingVariation.load() || ! variations.clear (index))
+        return;
+    if (waitingVariation.load() == index)
+    {
+        clickRequest.store (variations.active);
+        waitingVariation.store (-1);
+    }
+    sendVariations();
+    updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true));
+}
+
+void PatternArpProcessor::playAudioVariation (int index, const ParameterSnapshot& values)
+{
+    audioActive = index;
+    playingVariation.store (index);
+    appliedParameters = values;
+    audioPlaying = audioVariations->arrangements[static_cast<size_t> (index)];
+    if (audioVariations->active == index) // the parameters belong to it
+        applyParameters (values, audioPlaying);
+    engine.setArrangement (audioPlaying);
+    consumeNotes = audioPlaying.usesMidiIn();
 }
 
 void PatternArpProcessor::prepareToPlay (double newSampleRate, int)
@@ -350,27 +488,79 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     if (numSamples <= 0)
         return;
 
-    // Pick up edits from the editor if we can do so without waiting, and any automation.
+    // Pick up edits from the editor if we can do so without waiting.
     bool changed = false;
-    if (hasPendingArrangement.load())
+    if (hasPendingVariations.load())
     {
         const juce::SpinLock::ScopedTryLockType lock (pendingLock);
         if (lock.isLocked())
         {
-            audioArrangement = pendingArrangement;
-            hasPendingArrangement = false;
+            std::swap (pendingVariations, audioVariations);
+            hasPendingVariations = false;
             changed = true;
         }
     }
 
-    if (const auto values = readParameters(); changed || values != appliedParameters)
+    // Timing: follow the host's song position while it plays, otherwise run our own clock
+    // at the host tempo so it also works for live playing with the transport stopped.
+    double bpm = 120.0;
+    bool isPlaying = false;
+    juce::Optional<double> hostPpq;
+    double barStart = 0.0, beatsPerBar = 4.0, beatLength = 1.0;
+    if (auto* ph = getPlayHead())
     {
-        appliedParameters = values;
-        audioPlaying = audioArrangement;
-        applyParameters (values, audioPlaying);
-        engine.setArrangement (audioPlaying);
-        consumeNotes = audioPlaying.usesMidiIn();
+        if (const auto position = ph->getPosition())
+        {
+            bpm = position->getBpm().orFallback (120.0);
+            isPlaying = position->getIsPlaying();
+            hostPpq = position->getPpqPosition();
+            barStart = position->getPpqPositionOfLastBarStart().orFallback (0.0);
+            if (const auto signature = position->getTimeSignature(); signature.hasValue() && signature->numerator > 0 && signature->denominator > 0)
+            {
+                beatLength = 4.0 / signature->denominator;
+                beatsPerBar = signature->numerator * beatLength;
+            }
+        }
     }
+    const bool following = isPlaying && hostPpq.hasValue();
+    transportPlaying.store (following);
+
+    // Any automation, then the variation to play. The Variation parameter is read last: the
+    // message thread moves it before the others when it switches, so if any of them already
+    // belong to the new variation, this sees the switch too.
+    const auto values = readParameters();
+    const int requested = variation->getIndex();
+
+    if (const int click = clickRequest.exchange (-1); click >= 0)
+    {
+        clickWaiting = click == audioActive ? -1 : click; // clicking the playing one cancels
+        clickTiming = static_cast<SwitchTiming> (clickRequestTiming.load());
+    }
+
+    // Automation switches straight away (an empty variation keeps this one playing), and
+    // overrides a click still waiting.
+    const int target = audioVariations->resolve (requested, audioActive);
+    if (target != audioActive)
+        clickWaiting = -1;
+    if (target != audioActive || changed || values != appliedParameters)
+        playAudioVariation (target, values);
+
+    // A click takes over at its bar or beat while the song plays, now otherwise. The
+    // Variation parameter follows, so a host writing automation records the switch where
+    // it was heard.
+    const auto takeClick = [this, &values] {
+        const int index = clickWaiting;
+        clickWaiting = -1;
+        variation->beginChangeGesture();
+        variation->setValueNotifyingHost (variation->convertTo0to1 (static_cast<float> (index)));
+        variation->endChangeGesture();
+        playAudioVariation (index, values);
+    };
+    // A clicked variation that was empty is copied into first; until that copy arrives here
+    // the click keeps waiting.
+    const bool clickReady = clickWaiting >= 0 && audioVariations->isFilled (clickWaiting);
+    if (clickReady && ! following)
+        takeClick();
 
     if (const bool latchNow = latch->get(); latchNow != lastLatch)
     {
@@ -419,21 +609,6 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     inputMask[0].store (mask[0], std::memory_order_relaxed);
     inputMask[1].store (mask[1], std::memory_order_relaxed);
 
-    // Timing: follow the host's song position while it plays, otherwise run our own clock
-    // at the host tempo so it also works for live playing with the transport stopped.
-    double bpm = 120.0;
-    bool isPlaying = false;
-    juce::Optional<double> hostPpq;
-    if (auto* ph = getPlayHead())
-    {
-        if (const auto position = ph->getPosition())
-        {
-            bpm = position->getBpm().orFallback (120.0);
-            isPlaying = position->getIsPlaying();
-            hostPpq = position->getPpqPosition();
-        }
-    }
-
     const double samplesPerBeat = sampleRate * 60.0 / juce::jmax (1.0, bpm);
     const double blockBeats = numSamples / samplesPerBeat;
 
@@ -446,10 +621,22 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     // Follow the song while the transport runs. When it is stopped, play only while notes are
     // held (or latched) for a MIDI In pattern, on our own clock from the first key press.
-    if (isPlaying && hostPpq.hasValue())
+    if (following)
     {
         restartFreeRun = true;
-        engine.process (*hostPpq, *hostPpq + blockBeats, events);
+        const double end = *hostPpq + blockBeats;
+        if (const double at = clickReady ? switchPosition (*hostPpq, clickTiming, barStart, beatsPerBar, beatLength) : end; at < end)
+        {
+            // Old notes up to the line, the new variation from it.
+            if (at > *hostPpq)
+                engine.process (*hostPpq, at, events);
+            takeClick();
+            engine.process (at, end, events);
+        }
+        else
+        {
+            engine.process (*hostPpq, end, events);
+        }
         addEvents (*hostPpq, samplesPerBeat, numSamples, output);
         playPosition.store (*hostPpq, std::memory_order_relaxed);
     }
@@ -477,6 +664,7 @@ void PatternArpProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         playPosition.store (-1.0, std::memory_order_relaxed);
     }
     wasPlaying = isPlaying;
+    waitingVariation.store (clickWaiting);
 
     midi.swapWith (output);
 }
@@ -492,6 +680,20 @@ void PatternArpProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.setProperty ("version", stateVersion, nullptr);
     state.setProperty ("latch", latch->get(), nullptr);
     state.appendChild (toValueTree (getArrangement()), nullptr);
+
+    // The current variation is the arrangement above; the other filled ones follow.
+    state.setProperty ("variation", variations.active, nullptr);
+    juce::ValueTree others ("Variations");
+    for (int i = 0; i < maxVariations; ++i)
+        if (i != variations.active && variations.isFilled (i))
+        {
+            juce::ValueTree saved ("Variation");
+            saved.setProperty ("index", i, nullptr);
+            saved.appendChild (toValueTree (variations.arrangements[static_cast<size_t> (i)]), nullptr);
+            others.appendChild (saved, nullptr);
+        }
+    if (others.getNumChildren() > 0)
+        state.appendChild (others, nullptr);
 
     // Every slot's settings, including slots with no pattern yet, so the host gets back
     // exactly the parameter values it saved.
@@ -515,16 +717,42 @@ void PatternArpProcessor::setStateInformation (const void* data, int sizeInBytes
 
     const int version = state.getProperty ("version", 0);
 
-    // Older saves (before patterns existed) have no arrangement; keep the default one.
+    const auto upgrade = [version] (Arrangement& a) {
+        a.loopLength = upgradeLoopLength (a.loopLength, version);
+        for (int i = 0; i < a.numPatterns; ++i)
+        {
+            auto& p = a.patterns[static_cast<size_t> (i)];
+            p.timing = static_cast<Timing> (upgradeTiming (static_cast<int> (p.timing), version));
+        }
+    };
+
+    // Older saves (before patterns existed) have no arrangement; keep the default one. Saves
+    // from before variations have only the one, which becomes the first.
     Arrangement loaded;
     if (fromValueTree (state.getChildWithName ("Arrangement"), loaded))
     {
-        loaded.loopLength = upgradeLoopLength (loaded.loopLength, version);
-        for (int i = 0; i < loaded.numPatterns; ++i)
+        upgrade (loaded);
+
+        Variations restored;
+        restored.active = juce::jlimit (0, maxVariations - 1, static_cast<int> (state.getProperty ("variation", 0)));
+        restored.filled = {};
+        restored.filled[static_cast<size_t> (restored.active)] = true;
+        for (const auto& saved : state.getChildWithName ("Variations"))
         {
-            auto& p = loaded.patterns[static_cast<size_t> (i)];
-            p.timing = static_cast<Timing> (upgradeTiming (static_cast<int> (p.timing), version));
+            const int i = saved.getProperty ("index", -1);
+            Arrangement a;
+            if (saved.hasType ("Variation") && i >= 0 && i < maxVariations && i != restored.active
+                && fromValueTree (saved.getChildWithName ("Arrangement"), a))
+            {
+                upgrade (a);
+                restored.arrangements[static_cast<size_t> (i)] = a;
+                restored.filled[static_cast<size_t> (i)] = true;
+            }
         }
+        variations = restored;
+        setPlainValue (*variation, restored.active);
+        clickRequest.store (restored.active); // drops a click waiting from before
+        waitingVariation.store (-1);
         setArrangement (loaded);
     }
 

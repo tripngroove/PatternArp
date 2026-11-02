@@ -6,7 +6,8 @@ FetchContent_MakeAvailable(Catch2)
 
 add_executable(engine_tests
     EuclidTests.cpp
-    SequencerTests.cpp)
+    SequencerTests.cpp
+    VariationsTests.cpp)
 
 target_link_libraries(engine_tests PRIVATE patternarp_engine Catch2::Catch2WithMain)
 

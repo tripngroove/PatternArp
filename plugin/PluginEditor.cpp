@@ -28,6 +28,10 @@ constexpr double nonRepeatingBeats = 16.0;
 const char* const exportEveryNoteKey = "exportEveryNote";
 const char* const exportWholeBarsKey = "exportWholeBars";
 const char* const loopSnapKey = "loopSnap"; // "timing" or "bars"
+const char* const variationTimingKey = "variationTiming"; // "bar", "beat" or "now"
+
+// The light grey line between the title and the variations, and the room either side of it.
+constexpr int titleDividerHeight = 20;
 
 // How many times to repeat a loop so it ends on a bar line (4/4), or 1 if that would make
 // the clip longer than `maxBeats`.
@@ -57,6 +61,24 @@ PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
     : AudioProcessorEditor (p), arp (p), settings (std::make_unique<juce::PropertiesFile> (settingsOptions()))
 {
     setLookAndFeel (&lookAndFeel);
+
+    variationStrip.onSelect = [this] (int index) {
+        arp.selectVariation (index, variationTiming());
+        updateVariations();
+    };
+    variationStrip.onCopy = [this] (int from, int to) {
+        arp.copyVariation (from, to);
+        updateVariations();
+    };
+    variationStrip.onCopyToEmpty = [this] (int from) {
+        arp.copyVariationToEmpty (from);
+        updateVariations();
+    };
+    variationStrip.onClear = [this] (int index) {
+        arp.clearVariation (index);
+        updateVariations();
+    };
+    addAndMakeVisible (variationStrip);
     preview.onLoopChange = [this] (double beats) { setLoopLength (beats); };
     addAndMakeVisible (preview);
 
@@ -67,7 +89,7 @@ PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
         shown.quiet = edited.quiet;
         for (int i = 0; i < shown.numPatterns; ++i)
             shown.patterns[static_cast<size_t> (i)].playing = edited.patterns[static_cast<size_t> (i)].playing;
-        arp.setArrangement (shown);
+        commit();
         for (int i = 0; i < panels.size(); ++i)
             panels[i]->setPattern (shown.patterns[static_cast<size_t> (i)], shown.numPatterns < maxPatterns);
         previewDirty = true;
@@ -85,8 +107,10 @@ PatternArpEditor::PatternArpEditor (PatternArpProcessor& p)
     viewport.setScrollBarsShown (true, false);
     addAndMakeVisible (viewport);
 
+    shownVariation = arp.getVariationStatus().active;
     shown = arp.getArrangement();
     syncPanels();
+    updateVariations();
 
     setResizable (true, true);
     setResizeLimits (860, 560, 1800, 2400);
@@ -113,6 +137,31 @@ void PatternArpEditor::paint (juce::Graphics& g)
     const auto title = titleArea().toFloat();
     g.setColour (theme::inkMuted);
     theme::drawCaret (g, { title.getRight() - theme::caretWidth / 2.0f, title.getCentreY() });
+
+    // A very light divider between the title and the variations.
+    g.setColour (theme::separator);
+    g.fillRect (titleArea().getRight() + theme::spacing, (topBarHeight - titleDividerHeight) / 2, 1, titleDividerHeight);
+}
+
+SwitchTiming PatternArpEditor::variationTiming() const
+{
+    const auto timing = settings->getValue (variationTimingKey, "bar");
+    return timing == "beat" ? SwitchTiming::nextBeat : timing == "now" ? SwitchTiming::immediately : SwitchTiming::nextBar;
+}
+
+void PatternArpEditor::updateVariations()
+{
+    const auto status = arp.getVariationStatus();
+    VariationStrip::State state;
+    state.filled = status.filled;
+    state.active = status.active;
+    state.waiting = status.waiting;
+    state.requested = status.requested;
+    variationStrip.setState (state);
+    variationStrip.setPulse ((juce::Time::getMillisecondCounter() / 250) % 2 == 0);
+
+    // The editor shows the current variation; a switch brings in its patterns.
+    refreshFromProcessor();
 }
 
 juce::Rectangle<int> PatternArpEditor::titleArea() const
@@ -196,6 +245,17 @@ void PatternArpEditor::showSettingsMenu()
     });
     menu.addSubMenu ("Loop handle snaps to", snap);
 
+    // Automation always switches straight away; this is for clicks.
+    const auto timing = variationTiming();
+    juce::PopupMenu switchOn;
+    const auto addTiming = [this, &switchOn, timing] (const juce::String& text, SwitchTiming value, const char* key) {
+        switchOn.addItem (text, true, timing == value, [this, key] { settings->setValue (variationTimingKey, key); });
+    };
+    addTiming ("Next bar", SwitchTiming::nextBar, "bar");
+    addTiming ("Next beat", SwitchTiming::nextBeat, "beat");
+    addTiming ("Immediately", SwitchTiming::immediately, "now");
+    menu.addSubMenu ("Clicked variations switch on (while playing)", switchOn);
+
     menu.addSeparator();
     menu.addItem ("Copy state for debugging", [this] { copyStateForDebugging(); });
 
@@ -206,6 +266,9 @@ void PatternArpEditor::showSettingsMenu()
 void PatternArpEditor::resized()
 {
     auto area = getLocalBounds();
+    const int stripX = titleArea().getRight() + theme::spacing + 1 + theme::spacing - VariationStrip::ring;
+    variationStrip.setBounds (stripX, 0, VariationStrip::preferredWidth, topBarHeight);
+
     area.removeFromTop (topBarHeight);
     area.removeFromBottom (gap);
     area.reduce (theme::spacing, 0);
@@ -273,8 +336,19 @@ void PatternArpEditor::syncPanels()
     previewDirty = true;
 }
 
+void PatternArpEditor::commit()
+{
+    if (arp.getVariationStatus().active != shownVariation)
+    {
+        refreshFromProcessor();
+        return;
+    }
+    arp.setArrangement (shown);
+}
+
 void PatternArpEditor::refreshFromProcessor()
 {
+    shownVariation = arp.getVariationStatus().active;
     if (const auto current = arp.getArrangement(); ! (current == shown))
     {
         shown = current;
@@ -307,7 +381,7 @@ void PatternArpEditor::edit (int index, const Pattern& pattern)
         shown.setPlaying (index, pattern.playing); // lights or quiets all of its turns
         order.setArrangement (shown);
     }
-    arp.setArrangement (shown);
+    commit();
     previewDirty = true;
 }
 
@@ -316,7 +390,7 @@ void PatternArpEditor::addPattern (const Pattern& pattern)
     if (! shown.addPattern (pattern))
         return;
 
-    arp.setArrangement (shown);
+    commit();
     syncPanels();
     scrollToPattern (shown.numPatterns - 1);
 }
@@ -327,7 +401,7 @@ void PatternArpEditor::addSubPattern (int parent, const Pattern& pattern)
     if (added < 0)
         return;
 
-    arp.setArrangement (shown);
+    commit();
     syncPanels();
     scrollToPattern (added);
 }
@@ -360,7 +434,7 @@ void PatternArpEditor::deletePattern (int index)
         return;
 
     shown.removePattern (index);
-    arp.setArrangement (shown);
+    commit();
 
     // Called from the deleted panel's button, so let the click finish before removing it.
     juce::Component::SafePointer<PatternArpEditor> self (this);
@@ -498,20 +572,20 @@ void PatternArpEditor::updatePreview()
 void PatternArpEditor::setStepDefaults (int velocity, int gate)
 {
     shown.setStepDefaults (velocity, gate);
-    arp.setArrangement (shown);
+    commit();
     syncPanels();
 }
 
 void PatternArpEditor::setLoopLength (double beats)
 {
     shown.loopLength = beats > 0.0 ? static_cast<int> (std::lround (beats * ticksPerBeat)) : 0;
-    arp.setArrangement (shown);
+    commit();
     previewDirty = true;
 }
 
 void PatternArpEditor::timerCallback()
 {
-    refreshFromProcessor();
+    updateVariations(); // brings in the patterns too
     if (previewDirty)
         updatePreview();
 

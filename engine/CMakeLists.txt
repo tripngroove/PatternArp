@@ -2,7 +2,8 @@ add_library(patternarp_engine STATIC
     src/Euclid.cpp
     src/Pattern.cpp
     src/PatternEngine.cpp
-    src/Sequencer.cpp)
+    src/Sequencer.cpp
+    src/Variations.cpp)
 
 target_include_directories(patternarp_engine PUBLIC include)
 target_compile_features(patternarp_engine PUBLIC cxx_std_20)

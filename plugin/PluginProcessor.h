@@ -1,6 +1,7 @@
 #pragma once
 
 #include "patternarp/PatternEngine.h"
+#include "patternarp/Variations.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -12,10 +13,11 @@
 namespace patternarp
 {
 
-class PatternArpProcessor final : public juce::AudioProcessor
+class PatternArpProcessor final : public juce::AudioProcessor, private juce::Timer
 {
 public:
     PatternArpProcessor();
+    ~PatternArpProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -56,6 +58,29 @@ public:
 
     juce::AudioParameterBool& getLatchParameter() { return *latch; }
 
+    // --- Variations ---------------------------------------------------------------------
+
+    // Which variations hold something, which one is being edited and played, which one a
+    // click is waiting to switch to (-1: none) and which one the Variation parameter asks
+    // for (it may be empty, and then the current one keeps playing).
+    struct VariationStatus
+    {
+        std::array<bool, maxVariations> filled {};
+        int active = 0;
+        int waiting = -1;
+        int requested = 0;
+        bool operator== (const VariationStatus&) const = default;
+    };
+    VariationStatus getVariationStatus() const;
+
+    // A click on a variation. An empty one first gets a copy of the current one. While the
+    // song plays the switch waits for `timing`; otherwise it happens now. Clicking the
+    // current one cancels a switch that is waiting.
+    void selectVariation (int index, SwitchTiming timing);
+    void copyVariation (int from, int to);
+    void copyVariationToEmpty (int from);
+    void clearVariation (int index); // not the current one
+
     // The incoming notes MIDI In patterns are using now (held or latched), for display.
     std::bitset<128> getInputNotes() const;
 
@@ -70,6 +95,9 @@ public:
 
 private:
     static BusesProperties makeBuses();
+    void timerCallback() override; // follows switches the audio thread made
+    void switchVariation (int index); // message thread: leave the current one as it is, take up `index`
+    void sendVariations(); // to the audio thread
     void addEvents (double blockStartPpq, double samplesPerBeat, int numSamples, juce::MidiBuffer& out);
 
     // Each pattern slot's settings and lane lengths are host parameters, so they can be
@@ -105,26 +133,48 @@ private:
 
     ParameterSnapshot readParameters() const;
     static void applyParameters (const ParameterSnapshot& values, Arrangement& a);
-    void pushToParameters (const Arrangement& a);
+    // Gestures tell the host a person moved the controls (so it can record them); a switch
+    // of variation moves them without one.
+    void pushToParameters (const Arrangement& a, bool gesture = true);
     void setParameters (const ParameterSnapshot& values);
+
+    // Audio thread: plays variation `index` from the latest copies, with the parameter values
+    // on top if they belong to it.
+    void playAudioVariation (int index, const ParameterSnapshot& values);
 
     juce::AudioParameterBool* latch = nullptr;
     juce::AudioParameterInt* loopLength = nullptr; // in sixteenths, 0 = the natural loop
     juce::AudioParameterInt* rotationLength = nullptr;
+    juce::AudioParameterChoice* variation = nullptr;
     std::array<PatternParameters, maxPatterns> patternParameters {};
 
-    Arrangement arrangement; // message thread's copy
+    // Message thread's copy. The host parameters always belong to `variations.active`, whose
+    // arrangement is the one being edited.
+    Variations variations;
+    Arrangement& arrangement() { return variations.arrangements[static_cast<size_t> (variations.active)]; }
+    const Arrangement& arrangement() const { return variations.arrangements[static_cast<size_t> (variations.active)]; }
+    int lastSeenPlaying = 0; // the audio thread's choice when the message thread last looked
 
-    // Hand-over to the audio thread without blocking it.
+    // Hand-over to the audio thread without blocking it: the audio thread swaps the two.
     juce::SpinLock pendingLock;
-    Arrangement pendingArrangement;
-    std::atomic<bool> hasPendingArrangement { true };
+    std::unique_ptr<Variations> pendingVariations = std::make_unique<Variations>();
+    std::atomic<bool> hasPendingVariations { true };
 
-    // Audio thread: the latest arrangement from the editor, and the parameter values last
-    // applied on top of it.
-    Arrangement audioArrangement;
+    // Audio thread: the latest variations from the message thread, the one playing, the
+    // arrangement playing (with the parameter values on top) and those values.
+    std::unique_ptr<Variations> audioVariations = std::make_unique<Variations>();
+    int audioActive = 0;
     Arrangement audioPlaying;
     ParameterSnapshot appliedParameters {};
+    int clickWaiting = -1; // a clicked variation waiting for its bar or beat
+    SwitchTiming clickTiming = SwitchTiming::nextBar;
+
+    // Between the threads.
+    std::atomic<int> playingVariation { 0 }; // what the audio thread plays
+    std::atomic<int> clickRequest { -1 }; // a click for the audio thread to time
+    std::atomic<int> clickRequestTiming { 0 };
+    std::atomic<int> waitingVariation { -1 }; // shown pulsing
+    std::atomic<bool> transportPlaying { false };
 
     PatternEngine engine;
     std::vector<NoteEvent> events;
