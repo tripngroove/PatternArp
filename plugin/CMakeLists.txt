@@ -23,7 +23,9 @@ set(PATTERNARP_SOURCES
     ui/PreviewComponent.h
     ui/Theme.h
     ui/ValueBox.cpp
-    ui/ValueBox.h)
+    ui/ValueBox.h
+    ui/VariationStrip.cpp
+    ui/VariationStrip.h)
 
 function(patternarp_configure_target target)
     target_sources(${target} PRIVATE ${PATTERNARP_SOURCES})

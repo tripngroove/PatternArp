@@ -5,6 +5,7 @@
 #include "ui/PatternPanel.h"
 #include "ui/PreviewComponent.h"
 #include "ui/Theme.h"
+#include "ui/VariationStrip.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -27,6 +28,10 @@ private:
 
     // Brings the panels in line with the processor (automation, project load, undo...).
     void refreshFromProcessor();
+
+    // Sends the edited arrangement to the processor, unless the variation changed under the
+    // editor (automation switched it), which would put the edit in the wrong one.
+    void commit();
     void syncPanels();
     void layoutContent();
     void updatePreview();
@@ -35,6 +40,8 @@ private:
     void setLoopLength (double beats); // 0 = natural length
     void setStepDefaults (int velocity, int gate); // for every pattern
     juce::Rectangle<int> titleArea() const;
+    SwitchTiming variationTiming() const; // when a clicked variation takes over (a setting)
+    void updateVariations();
 
     void edit (int index, const Pattern& pattern);
     void addPattern (const Pattern& pattern); // always at the end
@@ -46,6 +53,7 @@ private:
     PatternArpProcessor& arp;
     std::unique_ptr<juce::PropertiesFile> settings; // per-user preferences, shared by every instance
     Arrangement shown;
+    int shownVariation = 0;
     std::bitset<128> shownInput;
     bool previewDirty = true;
     // The preview follows playback one pass at a time: the loop length (or the visible part).
@@ -57,6 +65,7 @@ private:
 
     theme::LookAndFeel lookAndFeel; // before the components that use it, so it outlives them
     juce::TooltipWindow tooltips { this, 500 };
+    VariationStrip variationStrip;
     PreviewComponent preview;
     OrderLane order;
 

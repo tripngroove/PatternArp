@@ -7,12 +7,14 @@
 #include "ui/PatternPanel.h"
 #include "ui/PreviewComponent.h"
 #include "ui/Theme.h"
+#include "ui/VariationStrip.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <functional>
 
 #if JUCE_LINUX
@@ -244,7 +246,7 @@ TEST_CASE ("parameters are grouped by pattern slot")
 {
     juce::ScopedJuceInitialiser_GUI juce;
     std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
-    CHECK (plugin->getParameters().size() == 123); // under Ableton's 128, so it lists them all
+    CHECK (plugin->getParameters().size() == 124); // under Ableton's 128, so it lists them all
 
     const auto groups = plugin->getParameterTree().getSubgroups (false);
     REQUIRE (groups.size() == 8);
@@ -1094,4 +1096,158 @@ TEST_CASE ("sub-patterns are saved and play along with their parent")
     REQUIRE (out.noteOns.size() >= 6);
     CHECK (std::vector<int> (out.noteOns.begin(), out.noteOns.begin() + 6) == std::vector<int> { 60, 72, 77, 62, 76, 79 });
     restored->releaseResources();
+}
+
+namespace
+{
+// Variation 2 (index 1) is a copy of the default with pattern B paused, so it plays only
+// A's notes (C3 D3 E3); variation 1 plays B's (F4 and up) too. Leaves variation 1 current.
+void makeQuietVariation (patternarp::PatternArpProcessor& arp)
+{
+    using patternarp::SwitchTiming;
+    arp.selectVariation (1, SwitchTiming::immediately); // empty, so it starts as a copy
+    auto a = arp.getArrangement();
+    a.setPlaying (1, false);
+    arp.setArrangement (a);
+    arp.selectVariation (0, SwitchTiming::immediately);
+}
+
+bool anyFromB (const std::vector<int>& notes)
+{
+    return std::any_of (notes.begin(), notes.end(), [] (int n) { return n >= 77; });
+}
+} // namespace
+
+TEST_CASE ("variations are saved with the project")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> original (createPluginFilter());
+    auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*original);
+    makeQuietVariation (arp);
+    arp.selectVariation (1, patternarp::SwitchTiming::immediately);
+    {
+        auto a = arp.getArrangement();
+        a.loopLength = 3 * patternarp::ticksPerBeat;
+        arp.setArrangement (a);
+    }
+    CHECK (plainValue (*original, "variation") == 1);
+
+    juce::MemoryBlock state;
+    original->getStateInformation (state);
+    std::unique_ptr<juce::AudioProcessor> restored (createPluginFilter());
+    restored->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+
+    juce::MemoryBlock again;
+    restored->getStateInformation (again);
+    CHECK (state == again);
+
+    auto& back = dynamic_cast<patternarp::PatternArpProcessor&> (*restored);
+    const auto status = back.getVariationStatus();
+    CHECK (status.active == 1);
+    CHECK (status.filled[0]);
+    CHECK (status.filled[1]);
+    CHECK_FALSE (status.filled[2]);
+    CHECK (plainValue (*restored, "variation") == 1);
+    CHECK (back.getArrangement().loopLength == 3 * patternarp::ticksPerBeat);
+    CHECK_FALSE (back.getArrangement().patterns[1].playing);
+
+    // Variation 1 kept its own loop and pattern B.
+    back.selectVariation (0, patternarp::SwitchTiming::immediately);
+    CHECK (back.getArrangement().loopLength == 0);
+    CHECK (back.getArrangement().patterns[1].playing);
+}
+
+TEST_CASE ("automating Variation switches what plays, and an empty one changes nothing")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+    auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*plugin);
+    makeQuietVariation (arp);
+
+    FakePlayHead playHead;
+    playHead.playing = true;
+    plugin->setPlayHead (&playHead);
+    plugin->prepareToPlay (48000.0, 512);
+
+    CHECK (anyFromB (render (*plugin, playHead, {}, 46).noteOns));
+
+    setParameter (*plugin, "variation", 1.0f);
+    const auto quiet = render (*plugin, playHead, {}, 94);
+    CHECK_FALSE (quiet.noteOns.empty());
+    CHECK_FALSE (anyFromB (quiet.noteOns));
+
+    setParameter (*plugin, "variation", 0.0f);
+    CHECK (anyFromB (render (*plugin, playHead, {}, 46).noteOns));
+
+    // Variation 5 is empty: variation 1 keeps playing and 5 stays empty.
+    setParameter (*plugin, "variation", 4.0f);
+    CHECK (anyFromB (render (*plugin, playHead, {}, 46).noteOns));
+    CHECK_FALSE (arp.getVariationStatus().filled[4]);
+
+    // Saved and loaded, the parameter still asks for 5 while variation 1 plays.
+    juce::MemoryBlock state;
+    plugin->getStateInformation (state);
+    std::unique_ptr<juce::AudioProcessor> restored (createPluginFilter());
+    restored->setStateInformation (state.getData(), static_cast<int> (state.getSize()));
+    CHECK (plainValue (*restored, "variation") == 4);
+    CHECK (dynamic_cast<patternarp::PatternArpProcessor&> (*restored).getVariationStatus().active == 0);
+    plugin->releaseResources();
+}
+
+TEST_CASE ("a clicked variation waits for the next bar while the song plays")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+    auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*plugin);
+    makeQuietVariation (arp);
+
+    FakePlayHead playHead;
+    playHead.playing = true;
+    plugin->setPlayHead (&playHead);
+    plugin->prepareToPlay (48000.0, 512);
+    render (*plugin, playHead, {}, 1); // the plugin sees the song playing
+
+    arp.selectVariation (1, patternarp::SwitchTiming::nextBar);
+
+    // 186 blocks of 512 at 120 bpm end just before beat 4, the next bar line.
+    const auto before = render (*plugin, playHead, {}, 185);
+    CHECK (anyFromB (before.noteOns));
+    CHECK (plainValue (*plugin, "variation") == 0);
+    CHECK (arp.getVariationStatus().waiting == 1);
+
+    const auto after = render (*plugin, playHead, {}, 94);
+    CHECK_FALSE (after.noteOns.empty());
+    CHECK_FALSE (anyFromB (after.noteOns));
+    CHECK (plainValue (*plugin, "variation") == 1); // so a host writing automation records it
+    CHECK (arp.getVariationStatus().waiting == -1);
+    plugin->releaseResources();
+}
+
+TEST_CASE ("clicking an empty variation's circle copies the current one into it")
+{
+    juce::ScopedJuceInitialiser_GUI juce;
+    std::unique_ptr<juce::AudioProcessor> plugin (createPluginFilter());
+    auto& arp = dynamic_cast<patternarp::PatternArpProcessor&> (*plugin);
+    std::unique_ptr<juce::AudioProcessorEditor> editor (plugin->createEditorAndMakeActive());
+    REQUIRE (editor != nullptr);
+
+    patternarp::VariationStrip* strip = nullptr;
+    for (auto* child : editor->getChildren())
+        if (auto* s = dynamic_cast<patternarp::VariationStrip*> (child))
+            strip = s;
+    REQUIRE (strip != nullptr);
+    CHECK (strip->getState().active == 0);
+    CHECK_FALSE (strip->getState().filled[2]);
+
+    const auto before = arp.getArrangement();
+    const auto centre = strip->circleBounds (2).getCentre();
+    CHECK (strip->indexAt (centre) == 2);
+    strip->onSelect (2); // what a click on it does
+
+    CHECK (arp.getVariationStatus().active == 2);
+    CHECK (strip->getState().active == 2);
+    CHECK (strip->getState().filled[2]);
+    CHECK (arp.getArrangement() == before);
+    CHECK (plainValue (*plugin, "variation") == 2);
+    plugin->editorBeingDeleted (editor.get());
 }

@@ -19,6 +19,11 @@ inline const juce::Colour hover { 0xffe8f5fc };
 inline const juce::Colour danger { 0xffd64545 };
 inline const juce::Colour separator { 0xffdcdfe3 }; // very light grey dividers
 
+// Variations are drawn in black and greys, so they never read as a pattern: the one playing
+// in ink, the other filled ones in a light grey.
+inline const juce::Colour variationOn { 0xff15171a }; // ink
+inline const juce::Colour variationOff { 0xffc4c7cc };
+
 // A pattern's lighter tint: its main colour at 45% on white. The main colour is for what is on
 // (playing, lit, filled steps) and for editable values; the tint is for what is off (paused,
 // quiet, steps past a lane's end, ratios below the Chance line) and for hover highlights.
