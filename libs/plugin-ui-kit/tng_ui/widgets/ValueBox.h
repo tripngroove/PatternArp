@@ -1,13 +1,13 @@
 #pragma once
 
-#include <juce_gui_basics/juce_gui_basics.h>
+#include "../theme/Theme.h"
 
 #include <functional>
 
-namespace patternarp
+namespace tng
 {
 
-// A caption and its value as bold text in the pattern's colour ("Step: 1/16"): click the
+// A caption and its value as bold text in an accent colour ("Step: 1/16"): click the
 // value to pick from a list, or drag it up/down to step through values. The scroll wheel is
 // left to the editor's scrolling.
 class ValueBox final : public juce::Component
@@ -55,4 +55,4 @@ private:
     bool draggingValue = false;
 };
 
-} // namespace patternarp
+} // namespace tng

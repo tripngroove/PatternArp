@@ -186,8 +186,7 @@ void PreviewComponent::paint (juce::Graphics& g)
     const float hx = beatToX (handleBeats);
     if (isShortened())
     {
-        g.setColour (theme::background.withAlpha (0.75f));
-        g.fillRect (inside.withLeft (hx));
+        theme::drawUnusedArea (g, inside.withLeft (hx));
     }
 
     if (playhead >= 0.0 && playhead <= beats)

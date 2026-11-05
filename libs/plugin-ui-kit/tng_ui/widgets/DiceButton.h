@@ -1,21 +1,16 @@
 #pragma once
 
-#include "Theme.h"
+#include "../theme/Theme.h"
 
-#include <juce_gui_basics/juce_gui_basics.h>
-
-namespace patternarp
+namespace tng
 {
 
-// A die in a pattern's colour, with white pips: randomizes the open lane's steps. It shows the
-// pattern's tint while pressed.
+// A die in an accent colour, with white pips, for a "randomize" action. It shows the accent's
+// tint while pressed. Give it a tooltip saying what it randomizes.
 class DiceButton final : public juce::Button
 {
 public:
-    DiceButton() : juce::Button ("Randomize")
-    {
-        setTooltip ("Randomize this lane's steps");
-    }
+    DiceButton() : juce::Button ("Randomize") {}
 
     void setColour (juce::Colour c)
     {
@@ -41,4 +36,4 @@ private:
     juce::Colour colour;
 };
 
-} // namespace patternarp
+} // namespace tng

@@ -22,8 +22,6 @@ set(PATTERNARP_SOURCES
     ui/PreviewComponent.cpp
     ui/PreviewComponent.h
     ui/Theme.h
-    ui/ValueBox.cpp
-    ui/ValueBox.h
     ui/VariationStrip.cpp
     ui/VariationStrip.h)
 
@@ -39,6 +37,7 @@ function(patternarp_configure_target target)
     target_link_libraries(${target}
         PRIVATE
             patternarp_engine
+            tng::tng_ui
             juce::juce_audio_utils
         PUBLIC
             juce::juce_recommended_config_flags

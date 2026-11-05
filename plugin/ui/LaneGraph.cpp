@@ -7,22 +7,6 @@
 namespace patternarp
 {
 
-namespace
-{
-// Bars, grid lines and step dividers sit on whole pixels so they meet crisply: a bar's top
-// covers the grid line it sits on instead of leaving a faint fringe above it.
-float pixel (float v)
-{
-    return std::round (v);
-}
-
-// The middle of the pixel row or column `v` falls in, where a 1px line is drawn sharp.
-float pixelLine (float v)
-{
-    return pixel (v) + 0.5f;
-}
-} // namespace
-
 LaneGraph::LaneGraph()
 {
     setRepaintsOnMouseActivity (true);
@@ -62,7 +46,7 @@ float LaneGraph::handleX() const
     // lane is full length.
     const auto area = graphArea();
     const float x = area.getX() + area.getWidth() * static_cast<float> (currentLaneLength()) / static_cast<float> (pattern.length);
-    return juce::jmin (pixel (x), area.getRight() - 1.0f) + 0.5f;
+    return juce::jmin (theme::pixel (x), area.getRight() - 1.0f) + 0.5f;
 }
 
 bool LaneGraph::isOnHandle (juce::Point<float> p) const
@@ -200,7 +184,7 @@ void LaneGraph::drawNoteGrid (juce::Graphics& g, juce::Rectangle<float> area) co
         g.setFont (theme::font (14.0f));
         for (int i = 1; i < 4; ++i) // High and Low are the box's own top and bottom
         {
-            const float y = pixelLine (area.getBottom() - area.getHeight() * static_cast<float> (i) / 4.0f);
+            const float y = theme::pixelLine (area.getBottom() - area.getHeight() * static_cast<float> (i) / 4.0f);
             g.setColour (theme::gridLine);
             g.drawDashedLine ({ area.getX(), y, area.getRight(), y }, dots, 2, 1.0f);
         }
@@ -229,7 +213,7 @@ void LaneGraph::drawNoteGrid (juce::Graphics& g, juce::Rectangle<float> area) co
     {
         const float y = area.getBottom() - (static_cast<float> (i) + 0.5f) * rowHeight;
         g.setColour (theme::gridLine);
-        g.drawDashedLine ({ area.getX(), pixelLine (y), area.getRight(), pixelLine (y) }, dots, 2, 1.0f);
+        g.drawDashedLine ({ area.getX(), theme::pixelLine (y), area.getRight(), theme::pixelLine (y) }, dots, 2, 1.0f);
 
         if (i % labelEvery == 0)
         {
@@ -260,7 +244,7 @@ void LaneGraph::paint (juce::Graphics& g)
         const float x = area.getX() + stepWidth * static_cast<float> (i);
         const float y = valueToY (s);
 
-        const auto bar = juce::Rectangle<float>::leftTopRightBottom (pixel (x), pixel (juce::jmin (y, base)), pixel (x + stepWidth), pixel (juce::jmax (y, base)));
+        const auto bar = juce::Rectangle<float>::leftTopRightBottom (theme::pixel (x), theme::pixel (juce::jmin (y, base)), theme::pixel (x + stepWidth), theme::pixel (juce::jmax (y, base)));
         if (lane == Lane::notes && numEnabled == 0 && ! relativeNotes)
             continue;
 
@@ -288,7 +272,7 @@ void LaneGraph::paint (juce::Graphics& g)
     g.setColour (theme::ink);
     for (int i = 1; i < pattern.length; ++i)
     {
-        const float x = pixelLine (area.getX() + stepWidth * static_cast<float> (i));
+        const float x = theme::pixelLine (area.getX() + stepWidth * static_cast<float> (i));
         g.drawDashedLine ({ x, area.getY(), x, area.getBottom() }, dashes, 2, 1.0f);
     }
 
@@ -318,8 +302,7 @@ void LaneGraph::paint (juce::Graphics& g)
     // preview does past a shortened loop.
     if (const float end = handleX(); currentLaneLength() < pattern.length)
     {
-        g.setColour (theme::background.withAlpha (0.75f));
-        g.fillRect (area.withLeft (end));
+        theme::drawUnusedArea (g, area.withLeft (end));
     }
 
     if (ccOff)

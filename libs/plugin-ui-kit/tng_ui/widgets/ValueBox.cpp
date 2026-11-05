@@ -1,8 +1,6 @@
 #include "ValueBox.h"
 
-#include "Theme.h"
-
-namespace patternarp
+namespace tng
 {
 
 namespace
@@ -161,4 +159,4 @@ void ValueBox::showList()
                         });
 }
 
-} // namespace patternarp
+} // namespace tng
