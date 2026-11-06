@@ -55,7 +55,7 @@ Every push builds the plugins for macOS, Windows and Linux on GitHub.
 
 ## Building from source
 
-Needs CMake 3.28+, a C++20 compiler and Ninja (optional). Dependencies (JUCE 9, clap-juce-extensions, Catch2) are downloaded automatically.
+Needs CMake 3.28+, a C++20 compiler and Ninja (optional). Dependencies (JUCE 9, clap-juce-extensions, Catch2) are downloaded automatically. The shared UI kit is a git submodule, so clone with `--recursive`, or run `git submodule update --init` once in an existing checkout.
 
 ```sh
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -71,6 +71,7 @@ Plugins land in `build/plugin/PatternArp_artefacts/Release/`.
 | --- | --- |
 | `engine/` | The pattern engine: plain C++ with no plugin code, so it can be tested on its own. |
 | `plugin/` | The JUCE plugin wrapper (MIDI in/out, host sync, parameters, UI in `plugin/ui/`). |
+| `libs/plugin-ui-kit/` | The look shared by tripngroove plugins (colours, spacing, fonts, small widgets) and its [style guide](libs/plugin-ui-kit/STYLE_GUIDE.md). A git submodule of [tripngroove/plugin-ui-kit](https://github.com/tripngroove/plugin-ui-kit). |
 | `tests/` | Catch2 tests for the engine, plus a plugin smoke test. |
 | `.github/workflows/` | CI: builds, runs tests, validates with pluginval, clap-validator and auval, and uploads the plugins. |
 

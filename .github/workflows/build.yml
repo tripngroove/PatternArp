@@ -36,6 +36,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true # the shared UI kit in libs/plugin-ui-kit
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'

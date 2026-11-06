@@ -26,17 +26,6 @@ static_assert (OrderLane::nameX == theme::padding + static_cast<int> (playSize) 
 
 juce::Font nameFont() { return theme::font (14.0f, true); }
 juce::String nameOf (const Pattern& p) { return "Pattern " + theme::patternName (p); }
-
-// A small triangle pointing right (closed) or down (open).
-void drawChevron (juce::Graphics& g, juce::Point<float> centre, bool open)
-{
-    juce::Path p;
-    if (open)
-        p.addTriangle (centre.x - 4.5f, centre.y - 2.5f, centre.x + 4.5f, centre.y - 2.5f, centre.x, centre.y + 3.0f);
-    else
-        p.addTriangle (centre.x - 2.5f, centre.y - 4.5f, centre.x - 2.5f, centre.y + 4.5f, centre.x + 3.0f, centre.y);
-    g.fillPath (p);
-}
 } // namespace
 
 OrderLane::OrderLane()
@@ -147,7 +136,7 @@ void OrderLane::paint (juce::Graphics& g)
     g.drawText ("Rotation", label, juce::Justification::centredLeft);
     const float textWidth = static_cast<float> (theme::textWidth (theme::font (theme::titleSize, true), "Rotation"));
     g.setColour (hover ? theme::ink : theme::inkMuted);
-    drawChevron (g, { label.getX() + textWidth + static_cast<float> (theme::spacing) + 4.0f, label.getCentreY() }, expanded);
+    theme::drawChevron (g, { label.getX() + textWidth + static_cast<float> (theme::spacing) + 4.0f, label.getCentreY() }, expanded);
 
     if (expanded)
         paintExpanded (g);

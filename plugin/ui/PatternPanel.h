@@ -1,11 +1,10 @@
 #pragma once
 
-#include "DiceButton.h"
 #include "LaneGraph.h"
 #include "NoteKeyboard.h"
-#include "ValueBox.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <tng_ui/tng_ui.h>
 
 #include <functional>
 
@@ -79,10 +78,10 @@ private:
     bool hasSubs = false;
     bool canAddPatterns = true;
 
-    ValueBox timing { "Step" }, length { "Length" }, direction { "Dir" };
+    tng::ValueBox timing { "Step" }, length { "Length" }, direction { "Dir" };
     LaneGraph graph;
     NoteKeyboard keyboard;
-    DiceButton dice; // above the graph's top right corner
+    tng::DiceButton dice; // above the graph's top right corner
     NoteLearner learner; // the current MIDI Learn take
     NoteEntry entry;     // notes clicked into an empty Piano Roll
 

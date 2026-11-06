@@ -158,6 +158,7 @@ PatternPanel::PatternPanel()
     graph.setComponentID ("graph");
     keyboard.setComponentID ("keyboard");
     dice.setComponentID ("dice");
+    dice.setTooltip ("Randomize this lane's steps");
     dice.onClick = [this] {
         randomizeLane (pattern, graph.getLane(), static_cast<std::uint64_t> (juce::Random::getSystemRandom().nextInt64()));
         changed();
@@ -393,7 +394,7 @@ void PatternPanel::layoutHeader()
     {
         dividers[divider++] = textEnd + theme::spacing;
         box->setBounds (header.withLeft (textEnd + theme::spacing * 2 + 1).withWidth (box->getPreferredWidth()));
-        textEnd = box->getRight() - ValueBox::valueInset;
+        textEnd = box->getRight() - tng::ValueBox::valueInset;
     }
 
     header = headerRow;
@@ -429,7 +430,6 @@ void PatternPanel::paint (juce::Graphics& g)
     // outlined in ink and runs into the graph below (see paintOverChildren); the others are
     // grey. Closed lines are opaque so shared ones do not darken. Chance and CC end in a value.
     const auto active = graph.getLane();
-    const auto closedLine = theme::panel.overlaidWith (theme::ink.withAlpha (0.3f));
     for (const bool open : { false, true })
     {
         for (int i = 0; i < numLanes; ++i)
@@ -441,9 +441,9 @@ void PatternPanel::paint (juce::Graphics& g)
             // Down to the graph's top line, so the sides join it.
             const auto tab = tabs[static_cast<size_t> (i)];
             const auto shape = tab.toFloat().withBottom (static_cast<float> (graph.getY()) + 1.0f);
-            g.setColour (open ? theme::ink : closedLine);
+            g.setColour (theme::tabLine (open));
             g.fillRect (shape);
-            g.setColour (open ? theme::panel : (i == hoveredTab ? theme::tint (theme::patternColour (pattern.colour)) : theme::background));
+            g.setColour (theme::tabFill (open, i == hoveredTab, theme::patternColour (pattern.colour)));
             g.fillRect (shape.reduced (1.0f, 0.0f).withTrimmedTop (1.0f));
 
             // The name and values centred, so the padding is even either side. Values are
@@ -461,7 +461,7 @@ void PatternPanel::paint (juce::Graphics& g)
                 g.drawText (steps, content.withTop (tab.getBottom() - tabStepsHeight - 1).withRight (tab.getRight() - 2),
                             juce::Justification::centredLeft);
             }
-            g.setColour (open ? theme::ink : theme::ink.withAlpha (0.7f));
+            g.setColour (theme::tabText (open));
             g.setFont (nameFont);
             g.drawText (name, content.removeFromLeft (theme::textWidth (nameFont, name)), juce::Justification::centredLeft);
             // Faded with the rest of a paused pattern's values.

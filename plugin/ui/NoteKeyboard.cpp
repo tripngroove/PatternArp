@@ -206,7 +206,6 @@ void NoteKeyboard::paint (juce::Graphics& g)
     const int tabsLine = tabsWidth() - 1;
     g.setColour (theme::ink);
     g.fillRect (tabsLine, 0, 1, getHeight());
-    const auto closedLine = theme::panel.overlaidWith (theme::ink.withAlpha (0.3f));
     for (const bool open : { false, true })
         for (const auto s : { NoteSource::select, NoteSource::midiIn })
         {
@@ -216,11 +215,11 @@ void NoteKeyboard::paint (juce::Graphics& g)
             const auto tab = sourceTab (s).toFloat();
             const int i = static_cast<int> (s);
             // Its right side is that line: kept for the closed tab, opened for the open one.
-            g.setColour (open ? theme::ink : closedLine);
+            g.setColour (theme::tabLine (open));
             g.fillRect (tab.withTrimmedRight (1.0f));
-            g.setColour (open ? theme::panel : (i == hoveredTab ? theme::tint (colour) : theme::background));
+            g.setColour (theme::tabFill (open, i == hoveredTab, colour));
             g.fillRect (open ? tab.withTrimmedLeft (1.0f).reduced (0.0f, 1.0f) : tab.reduced (1.0f));
-            g.setColour (open ? theme::ink : theme::ink.withAlpha (0.7f));
+            g.setColour (theme::tabText (open));
             g.setFont (theme::font (14.0f, open));
             g.drawText (sourceNames[i], tab.withTrimmedLeft (static_cast<float> (theme::padding)), juce::Justification::centredLeft);
         }

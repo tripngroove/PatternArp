@@ -34,6 +34,13 @@ if(PATTERNARP_BUILD_PLUGIN)
         EXCLUDE_FROM_ALL)
     FetchContent_MakeAvailable(clap-juce-extensions)
 
+    # The shared tripngroove look: colours, spacing, fonts and small widgets (a JUCE module).
+    # It is a git submodule, so a checkout needs `git submodule update --init` once.
+    if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/libs/plugin-ui-kit/CMakeLists.txt)
+        message(FATAL_ERROR "libs/plugin-ui-kit is empty: run `git submodule update --init` and configure again.")
+    endif()
+    add_subdirectory(libs/plugin-ui-kit)
+
     add_subdirectory(plugin)
 endif()
 
